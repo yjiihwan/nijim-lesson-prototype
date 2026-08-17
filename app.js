@@ -1,4 +1,7 @@
-/* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요) */
+/* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2 (2026-08-17 보완): 감사 결함 35건 + 신규 4건 반영.
+   구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
+   차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
   const DB = window.DB;
   const NOW = new Date("2026-08-17T12:00:00+09:00"); // 데모 고정 현재시각
@@ -15,10 +18,12 @@
   const slot = (id) => DB.slots.find((s) => s.id === id);
   const teacher = (id) => DB.teachers.find((t) => t.id === id);
   const pass = (id) => DB.passes.find((p) => p.id === id);
+  const member = (id) => DB.members.find((m) => m.id === id);
+  const memberName = (id) => (member(id) || { name: "회원" }).name;
   const slotDesc = (s) => { const c = cls(s.classId); return `${dlabel(s.date)} ${s.time} · ${c.title}`; };
-  function hoursUntil(s) {
-    return (new Date(`${s.date}T${s.time}:00+09:00`) - NOW) / 3600000;
-  }
+  const slotAt = (s) => new Date(`${s.date}T${s.time}:00+09:00`);
+  const isPast = (s) => slotAt(s) <= NOW;
+  function hoursUntil(s) { return (slotAt(s) - NOW) / 3600000; }
   function dday(dateStr) {
     if (!dateStr) return null;
     return Math.ceil((new Date(dateStr + "T23:59:59+09:00") - NOW) / 86400000);
@@ -28,11 +33,105 @@
     const d = new Date(new Date(dateStr + "T12:00:00+09:00").getTime() + n * 86400000);
     return d.toISOString().slice(0, 10);
   }
+  let seq = 100;
+  const nid = (p) => p + seq++;
+  const nowStamp = "2026-08-17 12:00";
+
+  // ── 좌석·대기 파생 (bookings가 단일 진실) ──
+  const SEAT = ["booked", "confirm_wait", "noshow_wait", "confirmed", "disputed"];
+  const ACTIVE = ["booked", "waitlisted", "confirm_wait"]; // 중복 예약 판정용
+  const seatBk = (slotId) => DB.bookings.filter((b) => b.slotId === slotId && SEAT.includes(b.status));
+  const seatCount = (slotId) => seatBk(slotId).length;
+  const waitBk = (slotId) => DB.bookings.filter((b) => b.slotId === slotId && b.status === "waitlisted").sort((a, b) => a.pos - b.pos);
+  const attendeeNames = (slotId) => seatBk(slotId).map((b) => memberName(b.memberId));
+  const myBk = () => DB.bookings.filter((b) => b.memberId === DB.me.member);
+  const snapPolicy = () => ({ cancelHours: DB.policy.cancelHours, cancelMode: DB.policy.cancelMode });
+  const line = (id) => DB.slines.find((l) => l.id === id);
+
+  // ── 수업권 상태 (M-1: 기간 만료·소진·정지 판정) ──
+  function passState(p) {
+    if (p.status === "frozen") return "frozen";
+    if (p.expiresAt && p.expiresAt < DB.TODAY) return "expired";
+    if (p.remaining <= 0) return "exhausted";
+    return "active";
+  }
+  const passUsable = (p) => passState(p) === "active";
+  const passesOf = (mid) => DB.passes.filter((p) => p.memberId === mid);
+
+  // ── 예약 자격 (M-3: eligibility 실검증) ──
+  function eligiblePass(c, mid) {
+    const mine = passesOf(mid).filter(passUsable);
+    const byProduct = mine.filter((p) => (c.eligibleProductIds || []).includes(p.productId));
+    const byKind = mine.filter((p) => p.kind === c.kind);
+    if (c.eligibility === "list") return c.memberIds.includes(mid) ? byProduct[0] || byKind[0] || null : null;
+    if (c.eligibility === "pass") return byProduct[0] || null;
+    // both(혼합): 지정 회원이거나 자격 수업권 보유
+    if ((c.memberIds || []).includes(mid)) return byProduct[0] || byKind[0] || null;
+    return byProduct[0] || null;
+  }
+  function bookGuard(c, mid) {
+    if (c.status === "closed") return { ok: false, msg: "폐강된 수업이에요." };
+    if (c.eligibility === "list" && !(c.memberIds || []).includes(mid))
+      return { ok: false, msg: "지정 회원만 예약할 수 있는 수업이에요. 센터에 문의해 주세요." };
+    const p = eligiblePass(c, mid);
+    if (!p) return { ok: false, msg: "이 수업에 쓸 수 있는 수업권이 없어요. (만료·소진 수업권은 쓸 수 없어요)" };
+    return { ok: true, pass: p };
+  }
+  function eligLabel(c) {
+    if (c.eligibility === "list") return `지정 회원만 (${(c.memberIds || []).length}명)`;
+    if (c.eligibility === "both") return `수업권 + 지정 ${(c.memberIds || []).length}명`;
+    return "수업권 보유자";
+  }
+
+  // ── 원장·확정 트랜잭션 ──
+  function pushLedger(passId, delta, reason, detail) {
+    DB.ledger.push({ passId, delta, reason, detail, at: nowStamp });
+  }
+  // 04 원칙2: 확인 성립 = 차감 + 정산라인 + 상태전환이 한 단위. S-6: 잔여>0 가드.
+  function confirmTx(b, r, method) {
+    const p = b && b.passId ? pass(b.passId) : null;
+    if (!p) return { ok: false, msg: "연결된 수업권이 없어요. 센터에서 수업권 연결 후 처리할 수 있어요." };
+    if (p.remaining <= 0) return { ok: false, msg: "잔여 횟수가 0회라 차감할 수 없어요. 센터에서 수업권 연장·추가 결제 후 처리하는 예외 절차로 넘어가요." };
+    const s = slot(b.slotId); const c = cls(s.classId);
+    p.remaining -= 1;
+    pushLedger(p.id, -1, "수강 확인", `${slotDesc(s)} · ${method}`);
+    const l = { id: nid("sl"), teacherId: c.teacherId, memberId: b.memberId, member: memberName(b.memberId), desc: slotDesc(s), unitPrice: p.unitPrice, method, auto: method === "자동확정", status: "eligible", pushed: false, pushId: null };
+    DB.slines.push(l);
+    b.status = "confirmed";
+    if (r) { r.status = method === "자동확정" ? "auto" : "confirmed"; r.method = method; r.label = "확인 완료"; r.deducted = true; r.lineId = l.id; }
+    return { ok: true };
+  }
+  function passForReport(r, b) {
+    if (b && b.passId) return pass(b.passId);
+    const mine = passesOf(r.memberId);
+    return mine[0] || null;
+  }
+
+  // M-10: 대기 자동 승격 (P4-4)
+  function promoteWaitlist(slotId) {
+    if (DB.policy.waitlistPromote !== "auto") return;
+    const s = slot(slotId);
+    if (!s || s.status !== "scheduled") return;
+    const c = cls(s.classId);
+    while (seatCount(slotId) < c.capacity) {
+      const q = waitBk(slotId);
+      if (!q.length) break;
+      const first = q[0];
+      first.status = "booked";
+      first.promoted = true;
+      delete first.pos;
+      q.slice(1).forEach((b) => (b.pos -= 1));
+      if (first.memberId === DB.me.member) toast("대기하던 수업에 자리가 나서 예약이 확정됐어요! 🎉 알림을 보냈어요.");
+    }
+  }
+  // 하-5: 조율·즉시확정으로 만든 회차가 비면 정리 (유령 슬롯 방지)
+  function cleanupSlot(s) {
+    if (s && s.adhoc && s.status === "scheduled" && seatCount(s.id) === 0 && waitBk(s.id).length === 0) s.status = "canceled";
+  }
 
   // ── 모션 유틸 (Apple 스프링: damping ratio + response, 인터럽터블) ──
   const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)");
   function spring(opts) {
-    // opts: from, to, velocity(px/s), damping(비율, 1=임계감쇠), response(초), onUpdate, onDone
     const ratio = opts.damping == null ? 1 : opts.damping;
     const w0 = (2 * Math.PI) / (opts.response || 0.35);
     let x = opts.from, v = opts.velocity || 0;
@@ -59,7 +158,6 @@
       get velocity() { return v; },
     };
   }
-  // 모멘텀 프로젝션(iOS 스크롤 감속과 동일) · 러버밴드(경계 저항)
   const project = (v, rate = 0.998) => ((v / 1000) * rate) / (1 - rate);
   const rubberband = (over, dim, c = 0.55) => (over * dim * c) / (dim + c * over);
 
@@ -77,7 +175,7 @@
       setTimeout(() => el.remove(), 240);
     }, 2600);
   }
-  let sheetCtl = null; // 열려 있는 시트의 상태 (y·스프링 핸들)
+  let sheetCtl = null;
   function modal(html) {
     closeModal(true);
     const wrap = document.createElement("div");
@@ -87,13 +185,13 @@
     const sheet = wrap.querySelector(".modal");
     const dim = wrap.querySelector(".modal-dim");
     dim.addEventListener("click", () => closeModal());
-    const H = sheet.getBoundingClientRect().height + 100; // ::before 스커트 포함
+    const H = sheet.getBoundingClientRect().height + 100;
     const ctl = { wrap, sheet, dim, H, y: H, anim: null };
     ctl.set = (y) => {
       ctl.y = y;
-      const vis = y < 0 ? -rubberband(-y, H) : y; // 위로 끌면 러버밴드 저항
+      const vis = y < 0 ? -rubberband(-y, H) : y;
       sheet.style.transform = `translateY(${vis}px)`;
-      dim.style.opacity = Math.max(0, Math.min(1, 1 - y / H)); // 딤은 시트 위치에 1:1 연동
+      dim.style.opacity = Math.max(0, Math.min(1, 1 - y / H));
     };
     sheetCtl = ctl;
     if (REDUCE.matches) {
@@ -110,16 +208,16 @@
     let drag = null;
     ctl.sheet.addEventListener("pointerdown", (e) => {
       if (e.target.closest("input, textarea, select, button, a")) return;
-      if (ctl.anim) { ctl.anim.stop(); ctl.anim = null; } // 비행 중에도 그 자리에서 잡힘
+      if (ctl.anim) { ctl.anim.stop(); ctl.anim = null; }
       drag = { startY: e.clientY, baseY: ctl.y, moved: false, hist: [[performance.now(), ctl.y]] };
       ctl.sheet.setPointerCapture(e.pointerId);
     });
     ctl.sheet.addEventListener("pointermove", (e) => {
       if (!drag) return;
       const dy = e.clientY - drag.startY;
-      if (!drag.moved && Math.abs(dy) < 8) return; // 히스테리시스
+      if (!drag.moved && Math.abs(dy) < 8) return;
       drag.moved = true;
-      ctl.set(drag.baseY + dy); // 1:1 트래킹 (잡은 지점 기준)
+      ctl.set(drag.baseY + dy);
       const now = performance.now();
       drag.hist.push([now, ctl.y]);
       while (drag.hist.length > 2 && now - drag.hist[0][0] > 100) drag.hist.shift();
@@ -129,9 +227,8 @@
       const d = drag; drag = null;
       if (!d.moved) return;
       const [t0, y0] = d.hist[0], [t1, y1] = d.hist[d.hist.length - 1];
-      const v = t1 > t0 ? ((y1 - y0) / (t1 - t0)) * 1000 : 0; // 릴리즈 속도 px/s
+      const v = t1 > t0 ? ((y1 - y0) / (t1 - t0)) * 1000 : 0;
       if (ctl.y + project(v) > ctl.H * 0.42 && ctl.y > 0) {
-        // 모멘텀이 아래를 향함 → 닫힘. 속도를 스프링에 그대로 핸드오프
         sheetCtl = null;
         if (REDUCE.matches) { ctl.wrap.remove(); return; }
         ctl.anim = spring({ from: ctl.y, to: ctl.H, velocity: v, damping: 1, response: 0.28, onUpdate: ctl.set, onDone: () => ctl.wrap.remove() });
@@ -159,12 +256,39 @@
     spring({ from: ctl.y, to: ctl.H, damping: 1, response: 0.3, onUpdate: ctl.set, onDone: () => ctl.wrap.remove() });
   }
 
+  // ── 상태 라벨 (M-7: 라벨은 상태에서 파생 — 화면 간 비동기 원천 차단) ──
+  function bkBadge(b) {
+    const map = {
+      booked: [b.promoted ? "예약 확정 (대기 승격)" : "예약 확정", "b-green"],
+      waitlisted: [`대기 ${b.pos}번`, "b-warn"],
+      confirm_wait: ["수강 확인 대기", "b-rose"],
+      noshow_wait: ["노쇼 보고됨 · 이의 가능", "b-warn"],
+      confirmed: ["수강 완료", "b-blue"],
+      disputed: ["이의제기 중", "b-warn"],
+      canceled: [b.cancelBy === "center" ? "센터 취소" : "취소됨", "b-gray"],
+      forfeited: ["기한 위반 취소 (-1회)", "b-danger"],
+      class_closed: ["폐강으로 취소", "b-gray"],
+      restored: ["이의 인용 · 복원", "b-gray"],
+      noshow_final: ["노쇼 확정 (-1회)", "b-danger"],
+    };
+    const [label, badge] = map[b.status] || [b.status, "b-gray"];
+    return { label, badge };
+  }
+  const RP_BADGE = { pending: "b-rose", confirmed: "b-green", auto: "b-warn", disputed: "b-danger", resolved: "b-gray", noshow_wait: "b-warn", noshow_final: "b-danger" };
+  // M-8: 확정 후 이의제기 가능 기간 (P7-4)
+  function disputeOpen(b) {
+    if (["confirm_wait", "noshow_wait"].includes(b.status)) return true;
+    if (b.status !== "confirmed") return false;
+    const s = slot(b.slotId);
+    return s && addDays(s.date, DB.policy.disputeDays) >= DB.TODAY;
+  }
+
   // ── 셸 렌더 ──
   const ROLE_LABEL = { m: "회원", t: "선생님", c: "센터" };
   const TABS = {
     m: [["#/m/home", "🏠", "홈"], ["#/m/book", "📅", "예약"], ["#/m/shop", "🎟️", "구매"], ["#/m/history", "📜", "내역"]],
-    t: [["#/t/home", "🏠", "오늘"], ["#/t/schedule", "🗓️", "일정"], ["#/t/report", "✅", "보고"], ["#/t/earnings", "💰", "정산"]],
-    c: [["#/c/home", "🏠", "홈"], ["#/c/products", "🎟️", "상품"], ["#/c/classes", "🧘", "수업"], ["#/c/bookings", "📅", "예약"], ["#/c/settlement", "💰", "정산"]],
+    t: [["#/t/home", "🏠", "오늘"], ["#/t/schedule", "🗓️", "일정"], ["#/t/inbox", "📨", "요청"], ["#/t/report", "✅", "보고"], ["#/t/earnings", "💰", "정산"]],
+    c: [["#/c/home", "🏠", "홈"], ["#/c/classes", "🧘", "수업"], ["#/c/bookings", "📅", "예약"], ["#/c/settlement", "💰", "정산"], ["#/c/policy", "⚙️", "설정"]],
   };
   function shell(role, title, body, opts = {}) {
     const tabs = TABS[role] || [];
@@ -173,7 +297,6 @@
       <header class="hd"><div class="hd-in">
         ${opts.back ? `<button class="hd-back" onclick="history.back()" aria-label="뒤로">‹</button>` : ""}
         <div class="hd-title">${title}</div>
-        ${role === "c" ? `<button class="hd-role" onclick="location.hash='#/c/policy'">⚙️ 정책</button>` : ""}
         <button class="hd-role" onclick="location.hash='#/'">역할: <b>${ROLE_LABEL[role] || "-"}</b></button>
       </div></header>
       <main class="screen${tabs.length ? "" : " no-tab"}">${body}</main>
@@ -190,39 +313,60 @@
       <button class="role-card" onclick="location.hash='#/m/home'">
         <span class="em">🙋</span><span><span class="rt">회원</span><span class="rd">수업권 구매 · 예약 · 대기 · 취소 · 수강확인</span></span><span class="arrow">›</span></button>
       <button class="role-card" onclick="location.hash='#/t/home'">
-        <span class="em">💪</span><span><span class="rt">선생님</span><span class="rd">내 수업 · 즉시 예약확정 · 완료 보고 · 정산</span></span><span class="arrow">›</span></button>
+        <span class="em">💪</span><span><span class="rt">선생님</span><span class="rd">내 수업 · 조율 인박스 · 완료 보고 · 정산</span></span><span class="arrow">›</span></button>
       <button class="role-card" onclick="location.hash='#/c/home'">
-        <span class="em">🏢</span><span><span class="rt">센터 (사장·관리자)</span><span class="rd">상품·수업 개설 · 정책 설정 · 예약 현황 · 정산</span></span><span class="arrow">›</span></button>
+        <span class="em">🏢</span><span><span class="rt">센터 (사장·관리자)</span><span class="rd">상품·수업 개설 · 폐강 · 정책 · 예약 · 정산</span></span><span class="arrow">›</span></button>
     </main>`;
   }
 
   // ══ 회원 ══
   function passCard(p) {
+    const st = passState(p);
     const dd = dday(p.expiresAt);
-    const pct = Math.round((p.remaining / p.total) * 100);
-    return `<div class="pass-card">
-      <div class="row"><span class="name grow">${p.name}</span>
-        <span class="badge ${p.expiresAt ? (dd <= 14 ? "b-warn" : "b-blue") : "b-green"}">${p.expiresAt ? `D-${dd}` : "기간 제한 없음"}</span></div>
+    const pct = Math.round((Math.max(0, p.remaining) / p.total) * 100);
+    const badge = st === "expired" ? `<span class="badge b-danger">기간 만료</span>`
+      : st === "exhausted" ? `<span class="badge b-gray">횟수 소진</span>`
+      : st === "frozen" ? `<span class="badge b-gray">이용 정지</span>`
+      : p.expiresAt ? `<span class="badge ${dd <= 14 ? "b-warn" : "b-blue"}">D-${dd}</span>` : `<span class="badge b-green">기간 제한 없음</span>`;
+    return `<div class="pass-card${st !== "active" ? " off" : ""}">
+      <div class="row"><span class="name grow">${p.name}</span>${badge}</div>
       <div class="left">${p.remaining}회 <small>/ ${p.total}회 남음</small></div>
-      <div class="meta">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")} 까지 · ` : ""}회당 ${won(p.unitPrice)}</div>
+      <div class="meta">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")} 까지 · ` : ""}회당 ${won(p.unitPrice)}${st === "expired" ? " · 예약에 쓸 수 없어요" : ""}</div>
       <div class="pass-bar"><i style="width:${pct}%"></i></div>
     </div>`;
   }
+  function myUpcoming() {
+    return myBk().filter((b) => {
+      if (!["booked", "waitlisted"].includes(b.status)) return false;
+      const s = slot(b.slotId);
+      return s && s.status !== "canceled" && (s.status === "scheduled" || !isPast(s));
+    });
+  }
   function vMHome() {
-    const confirmWait = DB.bookings.filter((b) => b.status === "confirm_wait");
-    const upcoming = DB.bookings.filter((b) => ["booked", "waitlisted", "arrange_wait"].includes(b.status));
+    // S-1: 확인 배너는 pending 보고가 실존하는 confirm_wait 예약에만
+    const confirmWait = myBk().filter((b) => b.status === "confirm_wait" && DB.reports.some((r) => r.bookingId === b.id && r.status === "pending"));
+    const noshow = myBk().filter((b) => b.status === "noshow_wait");
+    const upcoming = myUpcoming();
+    const arrs = DB.arranges.filter((a) => a.memberId === DB.me.member && a.status === "pending");
     return shell("m", "니짐내짐 레슨", `
       ${confirmWait.map((b) => `<button class="banner" onclick="location.hash='#/m/confirm/${b.id}'">
         <span class="ic">✍️</span><span>${slotDesc(slot(b.slotId))} 수업, 잘 받으셨나요? <u>수강 확인하기</u></span></button>`).join("")}
+      ${noshow.map((b) => `<button class="banner warn" onclick="location.hash='#/m/bookings'">
+        <span class="ic">⚠️</span><span>${slotDesc(slot(b.slotId))} 회차가 <b>노쇼</b>로 보고됐어요. 사실과 다르면 이의제기해 주세요.</span></button>`).join("")}
       <div class="sec-title">내 수업권</div>
-      ${DB.passes.map(passCard).join("")}
+      ${DB.passes.filter((p) => p.memberId === DB.me.member).map(passCard).join("")}
       <a class="btn ghost" href="#/m/shop">+ 수업 멤버십 구매</a>
       <div class="sec-title row">다가오는 예약<a href="#/m/bookings" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
-      <div class="card flat">${upcoming.length ? upcoming.map((b) => {
-        const s = slot(b.slotId); const c = cls(s.classId);
+      <div class="card flat">${upcoming.length || arrs.length ? upcoming.map((b) => {
+        const s = slot(b.slotId); const c = cls(s.classId); const bd = bkBadge(b);
         return `<div class="slot"><span class="time">${s.time}</span>
           <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(s.date)} · ${teacher(c.teacherId).name} 선생님</div></span>
-          <span class="badge ${["waitlisted", "arrange_wait"].includes(b.status) ? "b-warn" : "b-green"}">${b.label}</span></div>`;
+          <span class="badge ${bd.badge}">${bd.label}</span></div>`;
+      }).join("") + arrs.map((a) => {
+        const c = cls(a.classId);
+        return `<div class="slot"><span class="time">${a.time}</span>
+          <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(a.date)} 희망 · 선생님 확인 중</div></span>
+          <span class="badge b-warn">조율 대기</span></div>`;
       }).join("") : `<p class="muted">예약이 없어요.</p>`}</div>
       <a class="btn primary mt8" href="#/m/book">수업 예약하기</a>`);
   }
@@ -252,103 +396,160 @@
       <p class="muted small mt8" style="text-align:center">프로토타입 — 실제 결제는 일어나지 않아요.</p>`, { back: true });
   }
   function vMBook() {
+    const list = DB.classes.filter((c) => c.status !== "closed");
     return shell("m", "수업 예약", `
-      ${DB.classes.map((c) => `<button class="card card-tap" onclick="location.hash='#/m/class/${c.id}'">
+      ${list.map((c) => `<button class="card card-tap" onclick="location.hash='#/m/class/${c.id}'">
         <div class="row"><span class="grow"><b>${c.title}</b>
           <div class="muted small mt4">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · ${c.duration}분</div>
           <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span>
-          <span class="badge b-gray">${c.eligibilityLabel}</span></div></span>
+          <span class="badge b-gray">${eligLabel(c)}</span></div></span>
         <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`).join("")}`);
   }
   function vMClass(id) {
     const c = cls(id);
-    if (!c) return vMBook();
+    if (!c || c.status === "closed") return vMBook();
+    const g = bookGuard(c, DB.me.member);
     if (c.schedule === "arranged") {
+      const myArrs = DB.arranges.filter((a) => a.memberId === DB.me.member && a.classId === id && a.status === "pending");
       return shell("m", c.title, `
         <div class="card"><b>${teacher(c.teacherId).name} 선생님과 일정 조율</b>
-          <p class="muted small mt4">이 수업은 고정 시간표가 없어요. 희망 일시를 보내면 선생님이 확인 후 확정해 드려요.</p></div>
-        <div class="card">
-          <div class="field"><label>희망 날짜</label><input type="date" id="arr-date" value="2026-08-21"></div>
+          <p class="muted small mt4">이 수업은 고정 시간표가 없어요. 희망 일시를 보내면 <b>선생님이 수락해야</b> 예약이 확정돼요.</p></div>
+        ${g.ok ? `<div class="card">
+          <div class="field"><label>희망 날짜</label><input type="date" id="arr-date" value="2026-08-21" min="${DB.TODAY}"></div>
           <div class="field"><label>희망 시간</label><input type="time" id="arr-time" value="11:00"></div>
+          <div class="field"><label>메모 (선택)</label><input type="text" id="arr-note" placeholder="예: 오전이면 좋아요"></div>
           <button class="btn primary" onclick="App.requestArrange('${c.id}')">조율 요청 보내기</button>
         </div>
-        <p class="muted small">확정되면 예약이 자동 등록되고 알림을 보내드려요.</p>`, { back: true });
+        <p class="muted small">선생님이 수락하면 예약이 자동 등록되고 알림을 보내드려요. 거절하면 사유를 알려드려요.</p>`
+        : `<div class="banner warn"><span class="ic">🚫</span><span>${g.msg}</span></div>
+           <a class="btn primary" href="#/m/shop">수업권 구매하러 가기</a>`}
+        ${myArrs.length ? `<div class="sec-title">보낸 요청</div><div class="card flat">${myArrs.map((a) => `
+          <div class="slot"><span class="grow"><b>${dlabel(a.date)} ${a.time}</b><div class="muted small">선생님 확인 중</div></span>
+          <button class="btn sm ghost" onclick="App.arrangeCancel('${a.id}')">요청 취소</button></div>`).join("")}</div>` : ""}`, { back: true });
     }
-    const slots = DB.slots.filter((s) => s.classId === id && s.status === "scheduled");
+    const slots = DB.slots.filter((s) => s.classId === id && s.status === "scheduled" && !isPast(s));
     return shell("m", c.title, `
-      <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · 정원 ${c.capacity}명</div></div>
+      <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · 정원 ${c.capacity}명 · ${eligLabel(c)}</div></div>
+      ${g.ok ? "" : `<div class="banner warn"><span class="ic">🚫</span><span>${g.msg}</span></div>`}
       <div class="sec-title">예약 가능 회차</div>
-      <div class="card flat">${slots.map((s) => {
-        const full = s.booked >= c.capacity;
+      <div class="card flat">${slots.length ? slots.map((s) => {
+        const n = seatCount(s.id); const w = waitBk(s.id).length;
+        const full = n >= c.capacity;
         return `<div class="slot"><span class="time">${s.time}</span>
           <span class="grow"><span class="t">${dlabel(s.date)}</span>
-            <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (s.booked / c.capacity) * 100)}%"></i></div>
-            <div class="muted small mt4">${s.booked}/${c.capacity}명${s.waitlist ? ` · 대기 ${s.waitlist}명` : ""}</div></span>
-          <button class="btn sm ${full ? "ghost" : "primary"}" onclick="location.hash='#/m/slot/${s.id}'">${full ? "대기" : "예약"}</button></div>`;
-      }).join("")}</div>`, { back: true });
+            <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (n / c.capacity) * 100)}%"></i></div>
+            <div class="muted small mt4">${n}/${c.capacity}명${w ? ` · 대기 ${w}명` : ""}</div></span>
+          <button class="btn sm ${full ? "ghost" : "primary"}" onclick="location.hash='#/m/slot/${s.id}'">${full ? "마감" : "예약"}</button></div>`;
+      }).join("") : `<p class="muted">예약 가능한 회차가 없어요.</p>`}</div>`, { back: true });
   }
   function vMSlot(id) {
     const s = slot(id);
-    if (!s) return vMBook();
+    if (!s || s.status === "canceled") return vMBook();
     const c = cls(s.classId);
-    const full = s.booked >= c.capacity;
-    const myPass = DB.passes.find((p) => p.kind === c.kind && p.remaining > 0);
+    const n = seatCount(s.id);
+    const full = n >= c.capacity;
+    const g = bookGuard(c, DB.me.member);
+    const mine = DB.bookings.find((b) => b.slotId === id && b.memberId === DB.me.member && ACTIVE.includes(b.status));
+    let action;
+    if (mine) {
+      const bd = bkBadge(mine);
+      action = `<div class="banner"><span class="ic">✅</span><span>이 회차에 이미 <b>${bd.label}</b> 상태예요. 중복 예약은 안 돼요.</span></div>`;
+    } else if (isPast(s)) {
+      action = `<button class="btn primary" disabled>지난 회차는 예약할 수 없어요</button>`;
+    } else if (!g.ok) {
+      action = `<div class="banner warn"><span class="ic">🚫</span><span>${g.msg}</span></div><a class="btn primary" href="#/m/shop">수업권 구매하러 가기</a>`;
+    } else if (full) {
+      // 하-4: 개인(1:1) 수업은 대기 없음
+      action = c.kind === "private" ? `<button class="btn primary" disabled>정원 마감 (1:1 수업은 대기를 받지 않아요)</button>`
+        : DB.policy.waitlist
+        ? `<button class="btn primary" onclick="App.joinWaitlist('${s.id}')">예약대기 신청 (${waitBk(s.id).length + 1}번째)</button>
+           <p class="muted small mt8" style="text-align:center">자리가 나면 순번대로 자동 확정되고 알림을 보내드려요.</p>`
+        : `<button class="btn primary" disabled>정원 마감 (이 센터는 대기를 받지 않아요)</button>`;
+    } else {
+      action = `<button class="btn primary" onclick="App.book('${s.id}')">예약하기</button>`;
+    }
     return shell("m", "예약 확인", `
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${c.duration}분 · ${teacher(c.teacherId).name} 선생님</div>
-        <div class="mt8"><span class="badge ${full ? "b-danger" : "b-green"}">${full ? `정원 마감 · 대기 ${s.waitlist || 0}명` : `잔여 ${c.capacity - s.booked}자리`}</span></div>
+        <div class="mt8"><span class="badge ${full ? "b-danger" : "b-green"}">${full ? `정원 마감 · 대기 ${waitBk(s.id).length}명` : `잔여 ${c.capacity - n}자리`}</span></div>
         <div class="divider"></div>
-        <div class="row" style="justify-content:space-between"><span class="muted">사용 수업권</span><b>${myPass ? `${myPass.name} (잔여 ${myPass.remaining}회)` : "보유 수업권 없음"}</b></div>
+        <div class="row" style="justify-content:space-between"><span class="muted">사용 수업권</span><b>${g.ok ? `${g.pass.name} (잔여 ${g.pass.remaining}회)` : "사용 가능한 수업권 없음"}</b></div>
       </div>
-      <div class="banner warn"><span class="ic">ℹ️</span><span>취소는 수업 <b>${DB.policy.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요. (예약 시점 기준으로 보존)</span></div>
-      ${myPass ? (full
-        ? (DB.policy.waitlist
-          ? `<button class="btn primary" onclick="App.joinWaitlist('${s.id}','${myPass.id}')">예약대기 신청 (${(s.waitlist || 0) + 1}번째)</button>
-             <p class="muted small mt8" style="text-align:center">자리가 나면 순번대로 자동 확정되고 알림을 보내드려요.</p>`
-          : `<button class="btn primary" disabled>정원 마감 (이 센터는 대기를 받지 않아요)</button>`)
-        : `<button class="btn primary" onclick="App.book('${s.id}','${myPass.id}')">예약하기</button>`)
-        : `<a class="btn primary" href="#/m/shop">수업권 구매하러 가기</a>`}`, { back: true });
+      <div class="banner warn"><span class="ic">ℹ️</span><span>취소는 수업 <b>${DB.policy.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요. 이 조건은 <b>예약 시점 기준으로 보존</b>돼요.</span></div>
+      ${action}`, { back: true });
   }
   function vMBookings() {
-    const act = DB.bookings.filter((b) => ["booked", "waitlisted", "confirm_wait", "arrange_wait"].includes(b.status));
-    const past = DB.bookings.filter((b) => ["canceled", "forfeited", "confirmed", "disputed"].includes(b.status));
+    const mine = myBk();
+    const arrs = DB.arranges.filter((a) => a.memberId === DB.me.member);
+    const act = mine.filter((b) => ["booked", "waitlisted"].includes(b.status) && slot(b.slotId).status !== "canceled");
+    const need = mine.filter((b) => ["confirm_wait", "noshow_wait", "disputed"].includes(b.status));
+    const past = mine.filter((b) => ["canceled", "forfeited", "confirmed", "restored", "class_closed", "noshow_final"].includes(b.status) || (slot(b.slotId).status === "canceled" && b.status === "booked"));
     const item = (b, withCancel) => {
-      const s = slot(b.slotId); const c = cls(s.classId);
-      const badge = { booked: "b-green", waitlisted: "b-warn", arrange_wait: "b-warn", confirm_wait: "b-rose", canceled: "b-gray", forfeited: "b-danger", confirmed: "b-blue", disputed: "b-warn" }[b.status];
+      const s = slot(b.slotId); const c = cls(s.classId); const bd = bkBadge(b);
       return `<div class="slot"><span class="grow"><span class="t">${c.title}</span>
-        <div class="muted small">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div></span>
-        <span class="badge ${badge}">${b.label}</span>
-        ${withCancel && b.status !== "confirm_wait" ? `<button class="btn sm ghost" onclick="App.askCancel('${b.id}')">취소</button>` : ""}
-        ${b.status === "confirm_wait" ? `<button class="btn sm primary" onclick="location.hash='#/m/confirm/${b.id}'">확인</button>` : ""}</div>`;
+        <div class="muted small">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        ${b.status === "class_closed" ? `<div class="muted small">폐강 사유: ${b.closeReason || "-"}</div>` : ""}</span>
+        <span class="badge ${bd.badge}">${bd.label}</span>
+        ${withCancel && ["booked", "waitlisted"].includes(b.status) ? `<button class="btn sm ghost" onclick="App.askCancel('${b.id}')">취소</button>` : ""}
+        ${b.status === "confirm_wait" ? `<button class="btn sm primary" onclick="location.hash='#/m/confirm/${b.id}'">확인</button>` : ""}
+        ${["noshow_wait"].includes(b.status) ? `<button class="btn sm ghost" onclick="App.askDispute('${b.id}')">이의제기</button>` : ""}
+        ${b.status === "confirmed" && disputeOpen(b) ? `<button class="btn sm ghost" onclick="App.askDispute('${b.id}')">이의</button>` : ""}</div>`;
+    };
+    const arrItem = (a) => {
+      const c = cls(a.classId);
+      const st = { pending: ["조율 대기", "b-warn"], accepted: ["수락 · 예약 확정", "b-green"], declined: ["거절됨", "b-gray"], canceled: ["요청 취소", "b-gray"] }[a.status];
+      return `<div class="slot"><span class="grow"><span class="t">${c.title}</span>
+        <div class="muted small">${dlabel(a.date)} ${a.time} 희망${a.status === "declined" && a.reason ? ` · 사유: ${a.reason}` : ""}</div></span>
+        <span class="badge ${st[1]}">${st[0]}</span>
+        ${a.status === "pending" ? `<button class="btn sm ghost" onclick="App.arrangeCancel('${a.id}')">취소</button>` : ""}</div>`;
     };
     return shell("m", "내 예약", `
       <div class="sec-title">예정 · 대기</div>
       <div class="card flat">${act.length ? act.map((b) => item(b, true)).join("") : `<p class="muted">예약이 없어요.</p>`}</div>
+      ${arrs.length ? `<div class="sec-title">조율 요청</div><div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
+      ${need.length ? `<div class="sec-title">확인 필요</div><div class="card flat">${need.map((b) => item(b, false)).join("")}</div>` : ""}
       ${past.length ? `<div class="sec-title">지난 예약</div><div class="card flat">${past.map((b) => item(b, false)).join("")}</div>` : ""}`, { back: true });
   }
   function vMConfirm(id) {
     const b = DB.bookings.find((x) => x.id === id);
-    if (!b) return vMHome();
+    if (!b || b.memberId !== DB.me.member) return vMHome();
     const s = slot(b.slotId); const c = cls(s.classId);
     if (b.status === "confirmed") {
       return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
         <div style="font-size:40px">✅</div><b style="font-size:17px">확인 완료!</b>
         <p class="muted mt8">${slotDesc(s)}<br>수업권 1회가 차감됐어요.</p></div>
-        <a class="btn ghost" href="#/m/home">홈으로</a>`, { back: true });
+        ${disputeOpen(b) ? `<button class="btn danger-ghost" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기 · ${DB.policy.disputeDays}일 내)</button>` : ""}
+        <a class="btn ghost mt8" href="#/m/home">홈으로</a>`, { back: true });
     }
+    if (b.status === "disputed") {
+      return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
+        <div style="font-size:40px">⏳</div><b style="font-size:17px">이의제기 심사 중</b>
+        <p class="muted mt8">${slotDesc(s)}<br>센터가 확인하고 있어요. 결과가 나오면 알려드릴게요.</p></div>
+        <a class="btn ghost" href="#/m/bookings">내 예약으로</a>`, { back: true });
+    }
+    // S-1: 완료 보고(pending)가 실존하는 confirm_wait만 확인 가능 — 미래·대기·조율 회차 직접 진입 차단
+    const rp = DB.reports.find((r) => r.bookingId === b.id && r.status === "pending");
+    if (b.status !== "confirm_wait" || !rp) {
+      return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
+        <div style="font-size:40px">🔒</div><b style="font-size:17px">아직 확인할 단계가 아니에요</b>
+        <p class="muted mt8">${slotDesc(s)}<br>수업이 끝나고 선생님이 완료 보고를 하면<br>그때 수강 확인을 요청드려요.</p></div>
+        <a class="btn ghost" href="#/m/bookings">내 예약으로</a>`, { back: true });
+    }
+    const auto = DB.policy.autoConfirmHours;
     return shell("m", "수강 확인", `
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
         <p style="font-size:15px">수업을 이상 없이 받으셨나요?<br><span class="muted small">확인하면 수업권 1회가 차감되고, 이 기록으로 선생님 수업료가 정산돼요.</span></p></div>
-      <div class="banner"><span class="ic">🔒</span><span>확인은 <b>회원 본인 계정</b>에서만 가능해요. ${DB.policy.autoConfirmHours}시간 안에 응답이 없으면 자동확정되며, 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
+      <div class="banner"><span class="ic">🔒</span><span>확인은 <b>회원 본인 계정</b>에서만 가능해요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
       <button class="btn primary" onclick="App.confirmAttend('${b.id}')">네, 이상 없이 수강했어요</button>
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
   }
   function vMHistory() {
+    const mine = DB.passes.filter((p) => p.memberId === DB.me.member);
     return shell("m", "이용 내역", `
       <p class="muted" style="margin-bottom:12px">수업권의 모든 증감 기록이에요. 기록은 수정·삭제되지 않아요.</p>
-      ${DB.passes.map((p) => `<div class="sec-title">${p.name}</div>
+      ${mine.map((p) => `<div class="sec-title">${p.name}${passState(p) !== "active" ? ` <span class="badge b-gray">${{ expired: "기간 만료", exhausted: "소진", frozen: "정지" }[passState(p)]}</span>` : ""}</div>
         <div class="card flat"><ul class="ledger">${DB.ledger.filter((l) => l.passId === p.id).slice().reverse().map((l) => `
           <li><span class="delta ${l.delta < 0 ? "minus" : "plus"}">${l.delta > 0 ? "+" + l.delta : l.delta}</span>
           <span class="grow"><b>${l.reason}</b><div class="muted small">${l.detail}</div></span>
@@ -356,21 +557,26 @@
   }
 
   // ══ 선생님 ══
-  function tSlots() { return DB.slots.filter((s) => cls(s.classId).teacherId === DB.me.teacher); }
+  function tSlots() { return DB.slots.filter((s) => s.status !== "canceled" && cls(s.classId).teacherId === DB.me.teacher); }
+  function tPendingArrs() {
+    const myClassIds = DB.classes.filter((c) => c.teacherId === DB.me.teacher).map((c) => c.id);
+    return DB.arranges.filter((a) => myClassIds.includes(a.classId) && a.status === "pending");
+  }
   function vTHome() {
     const today = tSlots().filter((s) => s.date === DB.TODAY).sort((a, b) => a.time.localeCompare(b.time));
     const pending = DB.reports.filter((r) => r.status === "pending").length;
+    const arrs = tPendingArrs().length;
     return shell("t", "박코치 선생님", `
       <div class="stat-grid">
         <div class="stat"><div class="k">오늘 수업</div><div class="v">${today.length}<small>회</small></div></div>
         <div class="stat"><div class="k">확인 대기</div><div class="v">${pending}<small>건</small></div></div>
       </div>
+      ${arrs ? `<button class="banner" onclick="location.hash='#/t/inbox'"><span class="ic">📨</span><span>회원 조율 요청이 <b>${arrs}건</b> 기다리고 있어요. <u>확인하기</u></span></button>` : ""}
       ${pending ? `<button class="banner" onclick="location.hash='#/t/report'"><span class="ic">✍️</span><span>회원 확인을 기다리는 수업이 ${pending}건 있어요.</span></button>` : ""}
       <div class="sec-title">오늘 일정 · ${dlabel(DB.TODAY)}</div>
       <div class="card flat">${today.length ? today.map((s) => {
-        const c = cls(s.classId);
         return `<div class="slot"><span class="time">${s.time}</span>
-          <span class="grow"><span class="t">${c.title}</span><div class="muted small">${(s.attendees || []).join(", ") || `${s.booked}명`}</div></span>
+          <span class="grow"><span class="t">${cls(s.classId).title}</span><div class="muted small">${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
           <button class="btn sm ghost" onclick="location.hash='#/t/slot/${s.id}'">상세</button></div>`;
       }).join("") : `<p class="muted">오늘 수업이 없어요.</p>`}</div>
       <a class="btn primary mt8" href="#/t/quick">+ 즉시 예약확정</a>
@@ -384,88 +590,158 @@
         const dt = new Date(d + "T00:00:00+09:00");
         return `<div class="day${d === DB.TODAY ? " on" : ""}"><div class="dw">${DOW[dt.getDay()]}</div><div class="dn">${dt.getDate()}</div></div>`;
       }).join("")}</div>
-      <div class="card flat">${all.map((s) => {
+      <div class="card flat">${all.length ? all.map((s) => {
         const c = cls(s.classId);
         return `<div class="slot"><span class="time">${s.time}</span>
-          <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(s.date)} · ${c.schedule === "fixed" ? "고정" : "조율"} · ${s.booked}명</div></span>
+          <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(s.date)} · ${c.schedule === "fixed" ? "고정" : "조율"} · ${seatCount(s.id)}명</div></span>
           <button class="btn sm ghost" onclick="location.hash='#/t/slot/${s.id}'">상세</button></div>`;
-      }).join("")}</div>`);
+      }).join("") : `<p class="muted">이번 주 수업이 없어요.</p>`}</div>`);
+  }
+  // B4: 조율 요청 인박스
+  function vTInbox() {
+    const myClassIds = DB.classes.filter((c) => c.teacherId === DB.me.teacher).map((c) => c.id);
+    const all = DB.arranges.filter((a) => myClassIds.includes(a.classId));
+    const pending = all.filter((a) => a.status === "pending");
+    const done = all.filter((a) => a.status !== "pending");
+    const item = (a) => {
+      const c = cls(a.classId);
+      const st = { accepted: ["수락됨", "b-green"], declined: ["거절됨", "b-gray"], canceled: ["회원 취소", "b-gray"] }[a.status];
+      return `<div class="tl-item"><span class="grow"><b>${memberName(a.memberId)}</b> · ${c.title}
+        <div class="muted small mt4">${dlabel(a.date)} ${a.time} 희망${a.note ? ` · "${a.note}"` : ""}</div>
+        <div class="muted small">${a.at} 요청</div>
+        ${a.status === "pending" ? `<div class="btn-row">
+          <button class="btn sm primary" onclick="App.arrangeAccept('${a.id}')">수락 (예약 확정)</button>
+          <button class="btn sm ghost" onclick="App.arrangeDeclineAsk('${a.id}')">거절</button></div>`
+        : `<div class="mt4"><span class="badge ${st[1]}">${st[0]}</span>${a.reason ? ` <span class="muted small">사유: ${a.reason}</span>` : ""}</div>`}
+      </span></div>`;
+    };
+    return shell("t", "조율 요청 인박스", `
+      <p class="muted" style="margin-bottom:12px">수락해야 회차·예약이 만들어져요. 수락 전엔 일정에 잡히지 않아요.</p>
+      <div class="sec-title">대기 중 (${pending.length})</div>
+      <div class="card flat">${pending.length ? pending.map(item).join("") : `<p class="muted">대기 중인 요청이 없어요.</p>`}</div>
+      ${done.length ? `<div class="sec-title">처리됨</div><div class="card flat">${done.map(item).join("")}</div>` : ""}`);
   }
   function vTSlot(id) {
     const s = slot(id);
-    if (!s) return vTHome();
+    if (!s || s.status === "canceled") return vTHome();
     const c = cls(s.classId);
     const done = s.status === "done";
-    const reported = DB.reports.some((r) => r.slotId === s.id);
+    const seats = seatBk(s.id);
+    const unreported = DB.bookings.filter((b) => b.slotId === s.id && b.status === "booked");
+    const w = waitBk(s.id);
     return shell("t", "수업 상세", `
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${c.duration}분</div>
         <div class="mt8"><span class="badge ${done ? "b-gray" : "b-green"}">${done ? "종료" : "예정"}</span>
-        <span class="badge b-blue">${s.booked}/${c.capacity}명</span>${s.waitlist ? `<span class="badge b-warn">대기 ${s.waitlist}명</span>` : ""}</div></div>
+        <span class="badge b-blue">${seats.length}/${c.capacity}명</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}</div></div>
       <div class="sec-title">참석자</div>
-      <div class="card flat">${(s.attendees || ["김지은"]).map((n) => `<div class="slot"><span class="grow"><b>${n}</b></span><span class="badge b-green">예약 확정</span></div>`).join("")}</div>
-      ${done ? (reported
-        ? `<div class="banner"><span class="ic">⏳</span><span>완료 보고됨 — 회원 확인을 기다리고 있어요. 확인되어야 정산에 들어가요.</span></div>`
-        : `<button class="btn primary" onclick="App.reportDone('${s.id}')">수업 완료 보고</button>
-           <p class="muted small mt8" style="text-align:center">보고하면 회원에게 수강 확인 요청이 가요.<br>회원이 확인해야 횟수 차감·정산 대상이 돼요.</p>`)
+      <div class="card flat">${seats.length ? seats.map((b) => {
+        const bd = bkBadge(b);
+        return `<div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b></span><span class="badge ${bd.badge}">${bd.label}</span></div>`;
+      }).join("") : `<p class="muted">참석자가 없어요.</p>`}</div>
+      ${done ? (unreported.length
+        ? `<button class="btn primary" onclick="App.reportAsk('${s.id}')">수업 완료 보고 (${unreported.length}명)</button>
+           <p class="muted small mt8" style="text-align:center">참석·노쇼를 회원별로 표시해 보고해요.<br>회원이 확인해야 횟수 차감·정산 대상이 돼요.</p>`
+        : `<div class="banner"><span class="ic">⏳</span><span>완료 보고됨 — 회원 확인·처리를 기다리고 있어요. 확인되어야 정산에 들어가요.</span></div>`)
         : `<button class="btn ghost" disabled style="color:var(--text-disabled)">수업 종료 후 완료 보고할 수 있어요</button>`}`, { back: true });
+  }
+  // B3: 즉시확정 — 회원 필터(센터 정책), 기존 회차 합류, 과거 차단(S-2)
+  function quickMembers(role) {
+    let list = DB.members;
+    const scope = DB.policy.quickScope;
+    if (scope === "valid") list = list.filter((m) => passesOf(m.id).some(passUsable));
+    else if (scope === "mine" && role === "t") {
+      const myClassIds = DB.classes.filter((c) => c.teacherId === DB.me.teacher).map((c) => c.id);
+      const mySlotIds = DB.slots.filter((s) => myClassIds.includes(s.classId)).map((s) => s.id);
+      list = list.filter((m) => DB.bookings.some((b) => b.memberId === m.id && mySlotIds.includes(b.slotId)));
+    }
+    return list;
   }
   function vTQuick(role) {
     const r = role || "t";
-    const classes = r === "t" ? DB.classes.filter((c) => c.teacherId === DB.me.teacher) : DB.classes;
+    const classes = (r === "t" ? DB.classes.filter((c) => c.teacherId === DB.me.teacher) : DB.classes).filter((c) => c.status !== "closed");
+    const members = quickMembers(r);
+    const scopeLabel = { valid: "유효 수업권 보유자만", all: "전체 회원", mine: "담당 회원만" }[DB.policy.quickScope];
+    const firstClass = classes[0];
+    const joinable = firstClass ? DB.slots.filter((s) => s.classId === firstClass.id && s.status === "scheduled" && !isPast(s) && seatCount(s.id) < firstClass.capacity) : [];
     return shell(r, "즉시 예약확정", `
-      <p class="muted" style="margin-bottom:12px">예약 절차 없이 일자와 회원을 골라 바로 확정해요.</p>
+      <p class="muted" style="margin-bottom:12px">예약 절차 없이 일자와 회원을 골라 바로 확정해요. 지난 일시로는 만들 수 없어요.</p>
       <div class="card">
-        <div class="field"><label>회원</label><select id="qk-member">${DB.members.map((m) => `<option value="${m.id}">${m.name} (${m.phone})</option>`).join("")}</select></div>
-        <div class="field"><label>수업</label><select id="qk-class">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
-        <div class="field"><label>날짜</label><input type="date" id="qk-date" value="2026-08-22"></div>
+        <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span></label>
+          <select id="qk-member">${members.map((m) => `<option value="${m.id}">${m.name} (${m.phone})</option>`).join("")}</select>
+          <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미. 표시 범위는 센터 설정에서 바꿔요.</div></div>
+        <div class="field"><label>수업</label><select id="qk-class" onchange="App.quickClassChange('${r}')">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
+        <div class="field"><label>회차</label><select id="qk-slot">
+          <option value="new">새 일시로 만들기</option>
+          ${joinable.map((s) => `<option value="${s.id}">${dlabel(s.date)} ${s.time} 기존 회차 합류 (${seatCount(s.id)}/${cls(s.classId).capacity}명)</option>`).join("")}</select>
+          <div class="hint">기존 회차를 고르면 아래 날짜·시간은 무시돼요.</div></div>
+        <div class="field"><label>날짜</label><input type="date" id="qk-date" value="2026-08-22" min="${DB.TODAY}"></div>
         <div class="field"><label>시간</label><input type="time" id="qk-time" value="11:00"></div>
         <button class="btn primary" onclick="App.quickBook('${r}')">바로 예약 확정</button>
       </div>
-      <div class="banner"><span class="ic">🔔</span><span>확정 즉시 회원에게 알림이 가요. 회원 몰래 만드는 예약은 불가능해요.</span></div>`, { back: true });
+      <div class="banner"><span class="ic">🔔</span><span>확정 즉시 회원에게 알림이 가요. 회원 몰래 만드는 예약은 불가능해요. 수업권 자격도 함께 검증해요.</span></div>`, { back: true });
   }
   function vTReport() {
-    const badge = { pending: "b-rose", confirmed: "b-green", auto: "b-warn", disputed: "b-danger", resolved: "b-gray" };
     return shell("t", "완료 보고 현황", `
       <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. 자동확정 건은 별도 표시돼요.</p>
       <div class="card flat">${DB.reports.map((r) => `
-        <div class="slot"><span class="grow"><b>${r.member}</b>
-          <div class="muted small">${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</div>
-          <div class="muted small">${r.at}${r.method ? ` · ${r.method}` : ""}</div></span>
-        <span class="badge ${badge[r.status]}">${r.label}</span></div>`).join("")}</div>`);
+        <div class="tl-item"><span class="grow"><b>${r.member}</b> <span class="badge ${RP_BADGE[r.status] || "b-gray"}">${r.label}</span>
+          <div class="muted small mt4">${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</div>
+          <div class="muted small">${r.at}${r.method ? ` · ${r.method}` : ""}</div>
+          ${r.status === "pending" && DB.policy.methodPin ? `<div class="btn-row"><button class="btn sm ghost" onclick="App.pinStart('${r.id}')">현장 PIN 확인 (회원 입력)</button></div>` : ""}
+        </span></div>`).join("")}</div>`);
   }
   function vTEarnings() {
-    const st = DB.settlement.find((x) => x.teacherId === DB.me.teacher);
+    const lines = DB.slines.filter((l) => l.teacherId === DB.me.teacher);
+    const elig = lines.filter((l) => l.status === "eligible");
+    const held = lines.filter((l) => l.status === "held");
+    const auto = elig.filter((l) => l.auto).length;
+    const amount = elig.reduce((a, l) => a + l.unitPrice, 0);
     return shell("t", "내 정산", `
       <div class="card"><div class="muted small">2026년 8월 · 수강확인 성립분</div>
-        <div class="big mt4">${won(st.amount)}</div>
-        <div class="muted small mt4">확정 ${st.sessions}회 × 회당 단가 (수업권 구매가 기준)</div>
+        <div class="big mt4">${won(amount)}</div>
+        <div class="muted small mt4">확정 ${elig.length}회 × 회당 단가 (수업권 구매가 기준)</div>
         <div class="divider"></div>
-        <div class="row" style="justify-content:space-between"><span class="muted">앱·PIN 확인</span><b>${st.sessions - st.autoCount}회</b></div>
-        <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${st.autoCount}회 <span class="badge b-warn">검토 대상</span></b></div>
+        <div class="row" style="justify-content:space-between"><span class="muted">앱·PIN 확인</span><b>${elig.length - auto}회</b></div>
+        <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${auto}회 ${auto ? '<span class="badge b-warn">검토 대상</span>' : ""}</b></div>
+        ${held.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">이의 심사 중 (보류)</span><b>${held.length}회 <span class="badge b-danger">정산 제외 중</span></b></div>` : ""}
       </div>
       <div class="banner"><span class="ic">💡</span><span>여기는 <b>정산 대상 금액</b>까지만 보여요. 배분율·공제·실지급액은 급여 시스템(샐리)에서 계산돼요.</span></div>`);
   }
 
   // ══ 센터 ══
+  function autoStats(teacherId) {
+    const lines = DB.slines.filter((l) => l.teacherId === teacherId && l.status !== "removed");
+    const auto = lines.filter((l) => l.auto).length;
+    return { auto, total: lines.length, rate: lines.length ? Math.round((auto / lines.length) * 100) : 0 };
+  }
   function vCHome() {
-    const todaySlots = DB.slots.filter((s) => s.date === DB.TODAY);
+    const todaySlots = DB.slots.filter((s) => s.date === DB.TODAY && s.status !== "canceled");
     const disputes = DB.reports.filter((r) => r.status === "disputed").length;
     const pending = DB.reports.filter((r) => r.status === "pending").length;
+    const arrs = DB.arranges.filter((a) => a.status === "pending").length;
+    const weekSlots = DB.slots.filter((s) => s.status === "scheduled");
+    const capSum = weekSlots.reduce((a, s) => a + cls(s.classId).capacity, 0);
+    const seatSum = weekSlots.reduce((a, s) => a + seatCount(s.id), 0);
+    const rate = capSum ? Math.round((seatSum / capSum) * 100) : 0;
+    // 하-2: 자동확정 경고는 기능이 켜져 있고 임계 초과일 때만
+    const warns = DB.policy.autoConfirmHours > 0
+      ? DB.teachers.map((t) => ({ t, ...autoStats(t.id) })).filter((x) => x.total && x.rate >= DB.policy.autoWarnRate) : [];
     return shell("c", DB.center.name, `
       <div class="stat-grid">
         <div class="stat"><div class="k">오늘 수업</div><div class="v">${todaySlots.length}<small>회</small></div></div>
-        <div class="stat"><div class="k">예약률 (주간)</div><div class="v">78<small>%</small></div></div>
+        <div class="stat"><div class="k">예약률 (예정 회차)</div><div class="v">${rate}<small>%</small></div></div>
         <div class="stat"><div class="k">확인 대기</div><div class="v">${pending}<small>건</small></div></div>
         <div class="stat"><div class="k">이의제기</div><div class="v" style="color:var(--danger)">${disputes}<small>건</small></div></div>
       </div>
       ${disputes ? `<button class="banner warn" onclick="location.hash='#/c/confirms'"><span class="ic">⚠️</span><span>처리할 이의제기가 ${disputes}건 있어요. 해당 회차 정산은 보류 중이에요.</span></button>` : ""}
-      <button class="banner warn" onclick="location.hash='#/c/confirms'"><span class="ic">🤖</span><span>박코치 선생님 자동확정 비율 <b>33%</b> — 임계(30%) 초과. 검토를 권장해요.</span></button>
+      ${arrs ? `<button class="banner" onclick="location.hash='#/c/bookings'"><span class="ic">📨</span><span>선생님 확인 대기 중인 조율 요청 ${arrs}건.</span></button>` : ""}
+      ${warns.map((x) => `<button class="banner warn" onclick="location.hash='#/c/confirms'"><span class="ic">🤖</span><span>${x.t.name} 선생님 자동확정 비율 <b>${x.rate}%</b> — 임계(${DB.policy.autoWarnRate}%) 초과. 검토를 권장해요.</span></button>`).join("")}
       <div class="sec-title">바로가기</div>
       <div class="stat-grid">
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/quick'"><div class="k">예약</div><div class="v" style="font-size:15px">⚡ 즉시 예약확정</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/confirms'"><div class="k">수강확인</div><div class="v" style="font-size:15px">✍️ 완료·서명 관리</div></button>
-        <button class="stat" style="text-align:left" onclick="location.hash='#/c/policy'"><div class="k">운영</div><div class="v" style="font-size:15px">⚙️ 정책 설정</div></button>
+        <button class="stat" style="text-align:left" onclick="location.hash='#/c/products'"><div class="k">판매</div><div class="v" style="font-size:15px">🎟️ 수업상품 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/settlement'"><div class="k">월말</div><div class="v" style="font-size:15px">💰 정산·샐리 전송</div></button>
       </div>`);
   }
@@ -486,15 +762,32 @@
           <label class="check mt8"><input type="checkbox" id="np-nodays"> 유효기간 없음 — 횟수 소진 시까지</label>
           <div class="hint">기간 없이 횟수만으로 운영하는 센터 방식도 지원해요.</div></div>
         <button class="btn primary" onclick="App.createProduct()">상품 개설</button>
-      </div>`);
+      </div>
+      <p class="muted small">이미 판매된 수업권은 구매 시점 조건이 스냅샷으로 보존돼요. 환불·이용정지 처리는 호스트 앱(CRM) 결제·회원 관리와 연동돼요.</p>`, { back: true });
+  }
+  // B2: 회원 지정 picker + 자격 수업권 지정
+  function eligExtraHtml(prefix, c) {
+    const selP = c ? c.eligibleProductIds || [] : ["pr3", "pr4"];
+    const selM = c ? c.memberIds || [] : [];
+    return `
+      <div class="field" id="${prefix}-prod-wrap"><label>사용 가능 수업권 (예약자격)</label>
+        <div class="chips" id="${prefix}-prods">${DB.products.map((p) => `<button class="chip${selP.includes(p.id) ? " on" : ""}" data-v="${p.id}" onclick="App.chip(this)">${p.name}</button>`).join("")}</div>
+        <div class="hint">고른 수업권을 보유한 회원만 예약할 수 있어요.</div></div>
+      <div class="field" id="${prefix}-mem-wrap"><label>지정 회원</label>
+        <div class="chips" id="${prefix}-mems">${DB.members.map((m) => `<button class="chip${selM.includes(m.id) ? " on" : ""}" data-v="${m.id}" onclick="App.chip(this)">${m.name}</button>`).join("")}</div>
+        <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미.</div></div>`;
   }
   function vCClasses() {
     return shell("c", "수업 관리", `
-      ${DB.classes.map((c) => `<div class="card"><b>${c.title}</b>
+      <a class="btn ghost" href="#/c/products" style="margin-bottom:14px">🎟️ 수업상품 관리 ›</a>
+      ${DB.classes.map((c) => `<button class="card card-tap" onclick="location.hash='#/c/class/${c.id}'">
+        <div class="row"><span class="grow"><b>${c.title}</b>${c.status === "closed" ? ' <span class="badge b-danger">폐강</span>' : ""}
         <div class="muted small mt4">${teacher(c.teacherId).name} · ${c.scheduleLabel}</div>
         <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 ${c.capacity}명`}</span>
-        <span class="badge b-gray">${c.eligibilityLabel}</span>
-        <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "조율형"}</span></div></div>`).join("")}
+        <span class="badge b-gray">${eligLabel(c)}</span>
+        <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "조율형"}</span></div>
+        ${c.status === "closed" ? `<div class="muted small mt4">사유: ${c.closedReason}</div>` : ""}</span>
+        <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`).join("")}
       <div class="sec-title">새 수업 개설</div>
       <div class="card">
         <div class="field"><label>수업명</label><input type="text" id="nc-title" placeholder="예: 저녁 요가 클래스"></div>
@@ -508,152 +801,308 @@
           <button data-v="arranged" onclick="App.seg(this)">선생님과 조율</button></div>
           <div class="hint">보통 그룹=고정, 개인=조율이지만 자유롭게 선택할 수 있어요.</div></div>
         <div class="field"><label>예약 가능 회원</label><div class="seg" id="nc-elig">
-          <button class="on" data-v="pass" onclick="App.seg(this)">수업권 보유자</button>
-          <button data-v="list" onclick="App.seg(this)">회원 지정</button>
-          <button data-v="both" onclick="App.seg(this)">혼합</button></div>
+          <button class="on" data-v="pass" onclick="App.segElig(this,'nc')">수업권 보유자</button>
+          <button data-v="list" onclick="App.segElig(this,'nc')">회원 지정</button>
+          <button data-v="both" onclick="App.segElig(this,'nc')">혼합</button></div>
           <div class="hint">그룹수업도 특정 회원만 지정할 수 있어요.</div></div>
+        ${eligExtraHtml("nc", null)}
         <button class="btn primary" onclick="App.createClass()">수업 개설</button>
       </div>`);
   }
+  // B1: 수업 수정·폐강
+  function vCClassManage(id) {
+    const c = cls(id);
+    if (!c) return vCClasses();
+    const future = DB.slots.filter((s) => s.classId === id && s.status === "scheduled" && !isPast(s));
+    const affected = future.reduce((a, s) => a + DB.bookings.filter((b) => b.slotId === s.id && ["booked", "waitlisted"].includes(b.status)).length, 0);
+    if (c.status === "closed") {
+      return shell("c", c.title, `
+        <div class="banner warn"><span class="ic">🚫</span><span><b>폐강된 수업</b> · ${c.closedAt || ""}<br>사유: ${c.closedReason}</span></div>
+        <div class="card"><div class="muted small">폐강 시점에 예정 회차의 예약은 자동취소·알림 처리됐고, 이미 진행된 회차의 정산 귀속은 그대로 유지돼요.</div></div>`, { back: true });
+    }
+    return shell("c", c.title, `
+      <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · ${c.kind === "private" ? "개인 1:1" : `그룹 정원 ${c.capacity}명`} · 예정 회차 ${future.length}개 · 예약 ${affected}건</div></div>
+      <div class="sec-title">수업 정보 수정</div>
+      <div class="card">
+        <div class="field"><label>수업명</label><input type="text" id="ec-title" value="${c.title.replaceAll('"', "&quot;")}"></div>
+        ${c.kind === "group" ? `<div class="field"><label>정원</label><input type="number" id="ec-cap" value="${c.capacity}"><div class="hint">기존 예약 인원 미만으로는 줄일 수 없어요.</div></div>` : ""}
+        <div class="field"><label>예약 가능 회원</label><div class="seg" id="ec-elig">
+          <button${c.eligibility === "pass" ? ' class="on"' : ""} data-v="pass" onclick="App.segElig(this,'ec')">수업권 보유자</button>
+          <button${c.eligibility === "list" ? ' class="on"' : ""} data-v="list" onclick="App.segElig(this,'ec')">회원 지정</button>
+          <button${c.eligibility === "both" ? ' class="on"' : ""} data-v="both" onclick="App.segElig(this,'ec')">혼합</button></div></div>
+        ${eligExtraHtml("ec", c)}
+        <button class="btn primary" onclick="App.updateClass('${c.id}')">수정 저장</button>
+        <div class="hint mt8">종류(그룹/개인)·일정 방식은 기존 예약 보호를 위해 수정할 수 없어요. 필요하면 폐강 후 새로 개설해 주세요.</div>
+      </div>
+      <div class="sec-title">폐강</div>
+      <div class="card">
+        <p class="muted small">폐강하면 예정 회차 ${future.length}개의 예약 ${affected}건이 자동취소되고 회원에게 알림이 가요. 아직 차감 전이라 횟수 손실은 없고, 이미 진행된 회차의 정산은 유지돼요. 폐강 사유는 필수 기록이에요.</p>
+        <button class="btn danger-ghost mt8" onclick="App.askCloseClass('${c.id}')">이 수업 폐강하기</button>
+      </div>`, { back: true });
+  }
   function vCBookings() {
-    const days = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"];
+    const days = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24"];
+    const arrs = DB.arranges.filter((a) => a.status === "pending");
     return shell("c", "예약 현황", `
       <a class="btn ghost" href="#/c/quick" style="margin-bottom:14px">⚡ 즉시 예약확정</a>
+      ${arrs.length ? `<div class="sec-title">조율 요청 (선생님 확인 대기)</div>
+      <div class="card flat">${arrs.map((a) => {
+        const c = cls(a.classId);
+        return `<div class="slot"><span class="time">${a.time}</span>
+          <span class="grow"><span class="t">${memberName(a.memberId)} · ${c.title}</span>
+          <div class="muted small">${dlabel(a.date)} 희망 · ${teacher(c.teacherId).name} 선생님 인박스</div></span>
+          <span class="badge b-warn">대기</span></div>`;
+      }).join("")}</div>` : ""}
       ${days.map((d) => {
-        const ss = DB.slots.filter((s) => s.date === d).sort((a, b) => a.time.localeCompare(b.time));
+        const ss = DB.slots.filter((s) => s.date === d && s.status !== "canceled").sort((a, b) => a.time.localeCompare(b.time));
         if (!ss.length) return "";
         return `<div class="sec-title">${dlabel(d)}${d === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}</div>
         <div class="card flat">${ss.map((s) => {
-          const c = cls(s.classId); const full = s.booked >= c.capacity;
+          const c = cls(s.classId); const n = seatCount(s.id); const w = waitBk(s.id).length;
+          const full = n >= c.capacity;
           return `<div class="slot"><span class="time">${s.time}</span>
             <span class="grow"><span class="t">${c.title}</span>
-              <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (s.booked / c.capacity) * 100)}%"></i></div>
-              <div class="muted small mt4">${teacher(c.teacherId).name} · ${s.booked}/${c.capacity}명${s.waitlist ? ` · 대기 ${s.waitlist}` : ""}</div></span>
-            <span class="badge ${s.status === "done" ? "b-gray" : full ? "b-danger" : "b-green"}">${s.status === "done" ? "종료" : full ? "마감" : "접수중"}</span></div>`;
+              <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (n / c.capacity) * 100)}%"></i></div>
+              <div class="muted small mt4">${teacher(c.teacherId).name} · ${n}/${c.capacity}명${w ? ` · 대기 ${w}` : ""}</div></span>
+            <button class="btn sm ghost" onclick="location.hash='#/c/slot/${s.id}'">${s.status === "done" ? "종료" : full ? "마감" : "상세"}</button></div>`;
         }).join("")}</div>`;
       }).join("")}`);
   }
+  function vCSlot(id) {
+    const s = slot(id);
+    if (!s) return vCBookings();
+    const c = cls(s.classId);
+    const seats = seatBk(s.id);
+    const w = waitBk(s.id);
+    return shell("c", "회차 상세", `
+      <div class="card"><b>${c.title}</b>
+        <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="mt8"><span class="badge ${s.status === "done" ? "b-gray" : "b-green"}">${s.status === "done" ? "종료" : "예정"}</span>
+        <span class="badge b-blue">${seats.length}/${c.capacity}명</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}</div></div>
+      <div class="sec-title">예약자</div>
+      <div class="card flat">${seats.length ? seats.map((b) => {
+        const bd = bkBadge(b);
+        return `<div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b><div class="muted small">${pass(b.passId) ? pass(b.passId).name : "수업권 미연결"}</div></span>
+          <span class="badge ${bd.badge}">${bd.label}</span>
+          ${b.status === "booked" && s.status === "scheduled" ? `<button class="btn sm ghost" onclick="App.centerCancelAsk('${b.id}')">취소</button>` : ""}</div>`;
+      }).join("") : `<p class="muted">예약자가 없어요.</p>`}</div>
+      ${w.length ? `<div class="sec-title">대기열</div><div class="card flat">${w.map((b) => `
+        <div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b></span><span class="badge b-warn">대기 ${b.pos}번</span></div>`).join("")}</div>
+        <p class="muted small">자리가 나면 ${DB.policy.waitlistPromote === "auto" ? "순번대로 자동 확정돼요" : "센터가 수동으로 승격해요"} (P4-4).</p>` : ""}`, { back: true });
+  }
   function vCConfirms() {
-    const badge = { pending: "b-rose", confirmed: "b-green", auto: "b-warn", disputed: "b-danger", resolved: "b-gray" };
+    const warns = DB.policy.autoConfirmHours > 0
+      ? DB.teachers.map((t) => ({ t, ...autoStats(t.id) })).filter((x) => x.total && x.rate >= DB.policy.autoWarnRate) : [];
     return shell("c", "완료·서명 관리", `
-      <div class="banner warn"><span class="ic">🤖</span><span>박코치 자동확정 비율 <b>33%</b> (임계 30%). 자동확정 회차는 정산 전 검토를 권장해요.</span></div>
+      ${warns.map((x) => `<div class="banner warn"><span class="ic">🤖</span><span>${x.t.name} 자동확정 비율 <b>${x.rate}%</b> (임계 ${DB.policy.autoWarnRate}%). 자동확정 회차는 정산 전 검토를 권장해요.</span></div>`).join("")}
       <div class="sec-title">회차별 수강확인</div>
       <div class="card flat">${DB.reports.map((r) => `
-        <div class="tl-item"><span class="grow"><b>${r.member}</b> <span class="badge ${badge[r.status]}">${r.label}</span>
+        <div class="tl-item"><span class="grow"><b>${r.member}</b> <span class="badge ${RP_BADGE[r.status] || "b-gray"}">${r.label}</span>
           <div class="muted small mt4">${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</div>
-          <div class="muted small">${r.at}${r.method ? ` · 수단: ${r.method}` : ""}</div>
+          <div class="muted small">${r.at}${r.method ? ` · 수단: ${r.method}` : ""}${r.disputeReason ? ` · 이의 사유: ${r.disputeReason}` : ""}</div>
           ${r.status === "disputed" ? `<div class="btn-row">
             <button class="btn sm primary" onclick="App.resolveDispute('${r.id}', true)">인용 (횟수 복원)</button>
-            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">기각</button></div>` : ""}
+            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">기각 (확정·차감)</button></div>` : ""}
           ${r.status === "auto" ? `<div class="btn-row"><button class="btn sm ghost" onclick="App.overrideAuto('${r.id}')">자동확정 무효화</button></div>` : ""}
+          ${r.status === "noshow_wait" ? `<div class="btn-row">
+            <button class="btn sm primary" onclick="App.resolveNoshow('${r.id}', true)">노쇼 확정 (차감)</button>
+            <button class="btn sm ghost" onclick="App.resolveNoshow('${r.id}', false)">노쇼 취소 (차감 없음)</button></div>
+            <div class="muted small mt4">이의기간(${DB.policy.disputeDays}일) 내 회원 이의가 없으면 확정 처리해요. ⚠️ 판정 주체·시점은 형 확인 필요(02 P5-4b)</div>` : ""}
         </span></div>`).join("")}</div>
-      <p class="muted small">모든 확인에는 시각·기기 기록이 남고, 기록은 사후 수정이 불가능해요(원장·해시체인).</p>`);
+      <p class="muted small">모든 확인에는 시각·기기 기록이 남고, 기록은 사후 수정이 불가능해요(원장·해시체인).</p>`, { back: true });
   }
+  // S-5: 정산 = 라인 동적 집계. held 제외·멱등 전송·전송 후 이의 경고
   function vCSettlement() {
+    const per = DB.teachers.map((t) => {
+      const lines = DB.slines.filter((l) => l.teacherId === t.id);
+      const elig = lines.filter((l) => l.status === "eligible");
+      const held = lines.filter((l) => l.status === "held");
+      const unpushed = elig.filter((l) => !l.pushed);
+      const pushed = elig.filter((l) => l.pushed);
+      const pushedHeld = held.filter((l) => l.pushed);
+      const auto = elig.filter((l) => l.auto).length;
+      return { t, elig, held, unpushed, pushed, pushedHeld, auto, amount: elig.reduce((a, l) => a + l.unitPrice, 0) };
+    });
+    const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status)).length;
     return shell("c", "정산 · 2026년 8월", `
-      <p class="muted" style="margin-bottom:12px">수강확인이 성립한 회차만 집계돼요. 이의제기 중인 회차는 자동 보류돼요.</p>
-      ${DB.settlement.map((st) => `<div class="card"><div class="row"><span class="grow"><b>${st.teacher} 선생님</b>
-          <div class="muted small mt4">확정 ${st.sessions}회 (자동확정 ${st.autoCount}회 포함)</div></span>
-          <span class="big">${won(st.amount)}</span></div>
-        <div class="mt12">${st.pushed
-          ? `<span class="badge b-green">샐리 전송 완료 · ${st.pushId}</span>`
-          : `<button class="btn sm primary" onclick="App.sallyPush('${st.teacherId}')">샐리로 보내기</button>`}</div></div>`).join("")}
-      <div class="banner"><span class="ic">🔗</span><span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 사실(확정 회차)만 넘겨요. 같은 회차는 두 번 전송되지 않아요.</span></div>`);
+      <p class="muted" style="margin-bottom:12px">수강확인이 성립한 회차만 집계돼요. 이의제기 중인 회차는 자동 보류되고 전송에서 빠져요.</p>
+      ${per.map((x) => `<div class="card"><div class="row"><span class="grow"><b>${x.t.name} 선생님</b>
+          <div class="muted small mt4">확정 ${x.elig.length}회 (자동확정 ${x.auto}회 포함)${x.held.length ? ` · <b style="color:var(--danger)">보류 ${x.held.length}건</b>` : ""}</div></span>
+          <span class="big">${won(x.amount)}</span></div>
+        ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0"><span class="ic">⏸️</span><span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 전송된 ${x.pushedHeld.length}건은 샐리 쪽 정정(DELETE externalId)이 필요해요.` : ""}</span></div>` : ""}
+        <div class="mt12">
+          ${x.pushed.length ? `<span class="badge b-green">샐리 전송 완료 ${x.pushed.length}회 · ${x.pushed[x.pushed.length - 1].pushId}</span> ` : ""}
+          ${x.unpushed.length ? `<button class="btn sm primary" onclick="App.sallyPush('${x.t.id}')">${x.pushed.length ? `추가 ${x.unpushed.length}회 보내기` : `샐리로 보내기 (${x.unpushed.length}회)`}</button>` : x.pushed.length ? "" : `<span class="muted small">보낼 확정 회차가 없어요.</span>`}
+        </div></div>`).join("")}
+      ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건 — 정산 라인 미생성(수강확인 미성립). 샐리 노쇼 보상(rewardCodes) 전달: <b>${DB.policy.noshowSallyReward ? "사용" : "사용 안 함 (기본)"}</b> <span class="badge b-warn">⚠️ 형 확인 필요</span></div></div>` : ""}
+      <div class="banner"><span class="ic">🔗</span><span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 사실(확정 회차)만 넘겨요. externalId 멱등이라 같은 회차는 두 번 전송되지 않아요.</span></div>`);
   }
   function vCPolicy() {
     const P = DB.policy;
     const sw = (key, on) => `<button class="sw${on ? " on" : ""}" onclick="App.toggle('${key}')" aria-label="${key}"></button>`;
+    const sel = (onchange, opts, cur) => `<select onchange="${onchange}">${opts.map(([v, l]) => `<option value="${v}"${String(cur) === String(v) ? " selected" : ""}>${l}</option>`).join("")}</select>`;
     return shell("c", "정책 설정", `
       <div class="sec-title">예약 · 대기</div>
       <div class="card flat">
-        <div class="toggle-row"><span><div class="tl">정원 마감 시 예약대기</div><div class="td">자리가 나면 순번대로 자동 확정</div></span>${sw("waitlist", P.waitlist)}</div>
+        <div class="toggle-row"><span><div class="tl">정원 마감 시 예약대기</div><div class="td">자리가 나면 순번대로 확정</div></span>${sw("waitlist", P.waitlist)}</div>
+        <div class="toggle-row"><span><div class="tl">대기 자동 승격</div><div class="td">끄면 센터가 수동으로 승격 (P4-4)</div></span>${sw("waitlistAuto", P.waitlistPromote === "auto")}</div>
+        <div class="toggle-row"><span><div class="tl">즉시확정 회원 표시 범위</div><div class="td">즉시 예약확정 화면의 회원 목록 (P6-4)</div></span>
+          ${sel("App.setQuickScope(this.value)", [["valid", "유효 수업권 보유자만"], ["all", "전체 회원"], ["mine", "담당 회원만"]], P.quickScope)}</div>
       </div>
-      <div class="sec-title">예약 취소</div>
+      <div class="sec-title">예약 취소 · 노쇼</div>
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">조건부 취소 허용</div><div class="td">끄면 모든 취소 불가</div></span>${sw("cancelCond", P.cancelMode === "conditional")}</div>
         <div class="toggle-row"><span><div class="tl">취소 기한</div><div class="td">기한 지나 취소하면 횟수 차감</div></span>
-          <select style="border:1px solid var(--border-strong);border-radius:10px;padding:8px" onchange="App.setCancelHours(this.value)">
-            ${[6, 12, 24, 48, 72].map((h) => `<option value="${h}"${P.cancelHours === h ? " selected" : ""}>${h >= 24 ? h / 24 + "일" : h + "시간"} 전</option>`).join("")}</select></div>
+          ${sel("App.setCancelHours(this.value)", [[6, "6시간 전"], [12, "12시간 전"], [24, "1일 전"], [48, "2일 전"], [72, "3일 전"]], P.cancelHours)}</div>
+        <div class="toggle-row"><span><div class="tl">노쇼 시 횟수 차감</div><div class="td">P5-4 · 끄면 차감 없이 종결</div></span>${sw("noshowDeduct", P.noshowDeduct)}</div>
+        <div class="toggle-row"><span><div class="tl">노쇼 판정 <span class="badge b-warn">⚠️ 형 확인 필요</span></div><div class="td">기본: 선생님 보고 → 회원 통지 → 이의기간 후 확정</div></span>
+          ${sel("App.setNoshowActor(this.value)", [["teacher_report", "선생님 보고+이의기간"], ["center_only", "센터만 판정"]], P.noshowActor)}</div>
       </div>
       <div class="sec-title">수강확인 (서명)</div>
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">개인수업 확인 필수</div><div class="td">회원 확인 없이는 차감·정산 안 됨</div></span>${sw("signPrivate", P.signPrivate)}</div>
-        <div class="toggle-row"><span><div class="tl">그룹수업 확인 필수</div><div class="td">끄면 그룹은 출석 체크만으로 차감</div></span>${sw("signGroup", P.signGroup)}</div>
+        <div class="toggle-row"><span><div class="tl">그룹수업 확인 필수</div><div class="td">끄면 그룹은 출석 체크만으로 차감 (이의기간은 유지)</div></span>${sw("signGroup", P.signGroup)}</div>
         <div class="toggle-row"><span><div class="tl">회원 앱 확인</div><div class="td">본인 계정·기기에서 탭 확인</div></span>${sw("methodApp", P.methodApp)}</div>
         <div class="toggle-row"><span><div class="tl">회원 PIN 확인</div><div class="td">현장에서 회원이 직접 PIN 입력</div></span>${sw("methodPin", P.methodPin)}</div>
         <div class="toggle-row"><span><div class="tl">무응답 자동확정</div><div class="td">리마인드 2회 후 자동확정 · 별도 표시</div></span>
-          <select style="border:1px solid var(--border-strong);border-radius:10px;padding:8px" onchange="App.setAutoConfirm(this.value)">
-            ${[12, 24, 48, 0].map((h) => `<option value="${h}"${P.autoConfirmHours === h ? " selected" : ""}>${h ? h + "시간 후" : "사용 안 함"}</option>`).join("")}</select></div>
+          ${sel("App.setAutoConfirm(this.value)", [[12, "12시간 후"], [24, "24시간 후"], [48, "48시간 후"], [0, "사용 안 함"]], P.autoConfirmHours)}</div>
         <div class="toggle-row"><span><div class="tl">이의제기 기간</div><div class="td">기간 내 접수 시 정산 보류</div></span>
-          <select style="border:1px solid var(--border-strong);border-radius:10px;padding:8px" onchange="App.setDispute(this.value)">
-            ${[3, 7, 14].map((d) => `<option value="${d}"${P.disputeDays === d ? " selected" : ""}>${d}일</option>`).join("")}</select></div>
+          ${sel("App.setDispute(this.value)", [[3, "3일"], [7, "7일"], [14, "14일"]], P.disputeDays)}</div>
       </div>
-      <p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 수업권에는 소급되지 않아요.</p>`, { back: true });
+      <div class="sec-title">정산 · 샐리 연동</div>
+      <div class="card flat">
+        <div class="toggle-row"><span><div class="tl">노쇼 회차 샐리 보상 전달 <span class="badge b-warn">⚠️ 형 확인 필요</span></div><div class="td">켜면 노쇼를 샐리 special 보상(rewardCodes)으로 전달 (05 문서)</div></span>${sw("noshowSallyReward", P.noshowSallyReward)}</div>
+      </div>
+      <p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 수업권에는 소급되지 않아요 — 취소규정은 예약 시점에 스냅샷으로 보존돼요.</p>`);
   }
 
   // ── 액션 ──
+  const pinTries = {}, pinLocked = {};
   const App = {
     closeModal,
     seg(btn) {
       btn.parentElement.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
       btn.classList.add("on");
     },
+    segElig(btn, prefix) {
+      App.seg(btn);
+      const v = btn.dataset.v;
+      const pw = document.getElementById(prefix + "-prod-wrap");
+      const mw = document.getElementById(prefix + "-mem-wrap");
+      if (pw) pw.style.display = v === "list" ? "none" : "";
+      if (mw) mw.style.display = v === "pass" ? "none" : "";
+    },
+    chip(btn) { btn.classList.toggle("on"); },
     buy(pid) {
       const p = DB.products.find((x) => x.id === pid);
-      const id = "ps" + (DB.passes.length + 1);
+      const id = nid("ps");
       const exp = p.validityDays ? addDays(DB.TODAY, p.validityDays) : null;
-      DB.passes.push({ id, memberId: "m1", productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: Math.floor(p.price / p.sessions), expiresAt: exp, remaining: p.sessions });
-      DB.ledger.push({ passId: id, delta: p.sessions, reason: "구매", detail: `${p.name} · ${won(p.price)}`, at: "2026-08-17 12:00" });
+      DB.passes.push({ id, memberId: DB.me.member, productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: Math.floor(p.price / p.sessions), expiresAt: exp, remaining: p.sessions });
+      pushLedger(id, p.sessions, "구매", `${p.name} · ${won(p.price)}`);
       toast("구매 완료! 수업권이 지갑에 담겼어요 💪 (mock 결제)");
       location.hash = "#/m/home";
     },
-    book(slotId, passId) {
+    book(slotId) {
       const s = slot(slotId);
-      s.booked += 1;
-      DB.bookings.push({ id: "bk" + (DB.bookings.length + 1), slotId, passId, status: "booked", label: "예약 확정" });
-      toast("예약 완료! 취소 기한 전까지는 횟수 차감이 없어요.");
+      const c = cls(s.classId);
+      const g = bookGuard(c, DB.me.member);
+      if (!g.ok) { toast(g.msg); return; }
+      if (isPast(s)) { toast("지난 회차는 예약할 수 없어요."); return; }
+      // M-9: 같은 회차 중복 예약·대기 차단
+      if (DB.bookings.some((b) => b.slotId === slotId && b.memberId === DB.me.member && ACTIVE.includes(b.status))) { toast("이미 이 회차에 예약·대기가 있어요."); return; }
+      if (seatCount(slotId) >= c.capacity) { toast("정원이 마감됐어요."); render(); return; }
+      // S-3: 취소규정을 예약 시점에 스냅샷
+      DB.bookings.push({ id: nid("bk"), slotId, memberId: DB.me.member, passId: g.pass.id, status: "booked", policySnap: snapPolicy() });
+      toast("예약 완료! 취소 기한 조건은 지금 시점 기준으로 보존돼요.");
       location.hash = "#/m/bookings";
     },
-    joinWaitlist(slotId, passId) {
+    joinWaitlist(slotId) {
       const s = slot(slotId);
-      s.waitlist = (s.waitlist || 0) + 1;
-      DB.bookings.push({ id: "bk" + (DB.bookings.length + 1), slotId, passId, status: "waitlisted", pos: s.waitlist, label: `대기 ${s.waitlist}번` });
-      toast(`대기 ${s.waitlist}번으로 등록됐어요. 자리가 나면 알려드릴게요!`);
+      const c = cls(s.classId);
+      if (c.kind === "private") { toast("1:1 수업은 대기를 받지 않아요."); return; }
+      if (!DB.policy.waitlist) { toast("이 센터는 대기를 받지 않아요."); return; }
+      const g = bookGuard(c, DB.me.member);
+      if (!g.ok) { toast(g.msg); return; }
+      if (DB.bookings.some((b) => b.slotId === slotId && b.memberId === DB.me.member && ACTIVE.includes(b.status))) { toast("이미 이 회차에 예약·대기가 있어요."); return; }
+      const pos = waitBk(slotId).length + 1;
+      DB.bookings.push({ id: nid("bk"), slotId, memberId: DB.me.member, passId: g.pass.id, status: "waitlisted", pos, policySnap: snapPolicy() });
+      toast(`대기 ${pos}번으로 등록됐어요. 자리가 나면 알려드릴게요!`);
       location.hash = "#/m/bookings";
     },
+    // M-2/B4: 조율 요청 — 회차·예약을 만들지 않고 선생님 인박스로
     requestArrange(classId) {
       const c = cls(classId);
+      const g = bookGuard(c, DB.me.member);
+      if (!g.ok) { toast(g.msg); return; }
       const d = document.getElementById("arr-date").value || "2026-08-21";
       const t = document.getElementById("arr-time").value || "11:00";
-      const s = { id: "s" + (DB.slots.length + 1), classId, date: d, time: t, booked: 1, status: "scheduled", attendees: ["김지은"] };
-      DB.slots.push(s);
-      const myPass = DB.passes.find((p) => p.kind === c.kind && p.remaining > 0);
-      DB.bookings.push({ id: "bk" + (DB.bookings.length + 1), slotId: s.id, passId: myPass ? myPass.id : null, status: "arrange_wait", label: "조율 확인 대기" });
-      toast(`${teacher(c.teacherId).name} 선생님에게 조율 요청을 보냈어요.`);
+      if (new Date(`${d}T${t}:00+09:00`) <= NOW) { toast("지난 일시로는 요청할 수 없어요."); return; }
+      if (DB.arranges.some((a) => a.classId === classId && a.memberId === DB.me.member && a.status === "pending" && a.date === d && a.time === t)) { toast("같은 일시로 보낸 요청이 이미 있어요."); return; }
+      const note = (document.getElementById("arr-note") || { value: "" }).value.trim();
+      DB.arranges.push({ id: nid("ar"), classId, memberId: DB.me.member, passId: g.pass.id, date: d, time: t, status: "pending", note, at: nowStamp });
+      toast(`${teacher(c.teacherId).name} 선생님에게 조율 요청을 보냈어요. 수락하면 예약이 확정돼요.`);
       location.hash = "#/m/bookings";
+    },
+    arrangeCancel(arId) {
+      const a = DB.arranges.find((x) => x.id === arId);
+      if (!a || a.status !== "pending") return;
+      a.status = "canceled";
+      render();
+      toast("조율 요청을 취소했어요.");
+    },
+    arrangeAccept(arId) {
+      const a = DB.arranges.find((x) => x.id === arId);
+      if (!a || a.status !== "pending") return;
+      const c = cls(a.classId);
+      if (c.status === "closed") { a.status = "declined"; a.reason = "폐강된 수업"; render(); toast("폐강된 수업이라 자동 거절 처리했어요."); return; }
+      if (new Date(`${a.date}T${a.time}:00+09:00`) <= NOW) { toast("이미 지난 일시라 수락할 수 없어요. 거절 후 다시 조율해 주세요."); return; }
+      let p = a.passId ? pass(a.passId) : null;
+      if (!p || !passUsable(p)) p = eligiblePass(c, a.memberId);
+      if (!p) { toast("회원 수업권이 만료·소진돼 수락할 수 없어요. 회원에게 안내해 주세요."); return; }
+      const s = { id: nid("s"), classId: c.id, date: a.date, time: a.time, status: "scheduled", adhoc: true };
+      DB.slots.push(s);
+      DB.bookings.push({ id: nid("bk"), slotId: s.id, memberId: a.memberId, passId: p.id, status: "booked", policySnap: snapPolicy(), fromArrange: a.id });
+      a.status = "accepted"; a.slotId = s.id;
+      render();
+      toast(`수락했어요. ${memberName(a.memberId)} 회원에게 확정 알림이 갔어요.`);
+    },
+    arrangeDeclineAsk(arId) {
+      modal(`<h3>조율 요청 거절</h3><p>거절 사유를 적어 주세요. 회원에게 그대로 전달돼요.</p>
+        <div class="field mt12"><textarea id="ar-reason" rows="2" placeholder="예: 그 시간엔 다른 수업이 있어요. 12시 이후는 어떠세요?" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.arrangeDecline('${arId}')">거절 보내기</button></div>`);
+    },
+    arrangeDecline(arId) {
+      const a = DB.arranges.find((x) => x.id === arId);
+      if (!a || a.status !== "pending") return;
+      const reason = (document.getElementById("ar-reason") || { value: "" }).value.trim() || "일정이 맞지 않아요";
+      a.status = "declined"; a.reason = reason;
+      closeModal(); render();
+      toast("거절했어요. 사유가 회원에게 전달됐어요.");
     },
     askCancel(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
       const s = slot(b.slotId);
-      if (b.status === "waitlisted" || b.status === "arrange_wait") {
-        const isWait = b.status === "waitlisted";
-        modal(`<h3>${isWait ? "대기를" : "조율 요청을"} 취소할까요?</h3><p>${slotDesc(s)}<br>${isWait ? "대기" : "조율 요청"} 취소는 횟수 차감이 없어요.</p>
+      if (b.status === "waitlisted") {
+        modal(`<h3>대기를 취소할까요?</h3><p>${slotDesc(s)}<br>대기 취소는 횟수 차감이 없어요.</p>
           <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">아니요</button>
-          <button class="btn primary" onclick="App.doCancel('${bkId}', false)">${isWait ? "대기" : "요청"} 취소</button></div>`);
+          <button class="btn primary" onclick="App.doCancel('${bkId}', false)">대기 취소</button></div>`);
         return;
       }
+      // S-3: 판정은 예약 시점 스냅샷만 사용 — 이후 정책 변경 소급 없음
+      const snap = b.policySnap || snapPolicy();
       const h = hoursUntil(s);
-      if (DB.policy.cancelMode !== "conditional") {
-        modal(`<h3>취소할 수 없어요</h3><p>이 센터는 예약 취소를 받지 않아요. 센터에 문의해 주세요.</p>
+      if (snap.cancelMode !== "conditional") {
+        modal(`<h3>취소할 수 없어요</h3><p>예약 당시 규정상 취소가 불가한 예약이에요. 센터에 문의해 주세요.</p>
           <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
         return;
       }
-      if (h >= DB.policy.cancelHours) {
-        modal(`<h3>예약을 취소할까요?</h3><p>${slotDesc(s)}<br>기한(${DB.policy.cancelHours}시간 전) 안이라 <b style="color:var(--success)">횟수 차감 없이</b> 취소돼요.</p>
+      if (h >= snap.cancelHours) {
+        modal(`<h3>예약을 취소할까요?</h3><p>${slotDesc(s)}<br>예약 당시 기한(${snap.cancelHours}시간 전) 안이라 <b style="color:var(--success)">횟수 차감 없이</b> 취소돼요.</p>
           <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">아니요</button>
           <button class="btn primary" onclick="App.doCancel('${bkId}', false)">무료 취소</button></div>`);
       } else {
-        modal(`<h3>⚠️ 지금 취소하면 1회 차감돼요</h3><p>${slotDesc(s)}<br>취소 기한(수업 ${DB.policy.cancelHours}시간 전)이 지났어요. 지금 취소하면 <b style="color:var(--danger)">횟수 환불 없이 1회가 차감</b>돼요.</p>
+        modal(`<h3>⚠️ 지금 취소하면 1회 차감돼요</h3><p>${slotDesc(s)}<br>예약 당시 취소 기한(수업 ${snap.cancelHours}시간 전)이 지났어요. 지금 취소하면 <b style="color:var(--danger)">횟수 환불 없이 1회가 차감</b>돼요.</p>
           <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">그냥 둘게요</button>
           <button class="btn danger-ghost" onclick="App.doCancel('${bkId}', true)">차감하고 취소</button></div>`);
       }
@@ -661,67 +1110,206 @@
     doCancel(bkId, forfeit) {
       const b = DB.bookings.find((x) => x.id === bkId);
       const s = slot(b.slotId);
-      if (b.status === "waitlisted") s.waitlist = Math.max(0, (s.waitlist || 0) - 1);
-      else s.booked = Math.max(0, s.booked - 1);
-      if (forfeit) {
-        b.status = "forfeited"; b.label = "기한 위반 취소 (-1회)";
+      const wasSeat = b.status === "booked";
+      if (b.status === "waitlisted") {
+        const myPos = b.pos;
+        b.status = "canceled";
+        waitBk(s.id).filter((x) => x.pos > myPos).forEach((x) => (x.pos -= 1));
+        toast("대기를 취소했어요.");
+      } else if (forfeit) {
+        b.status = "forfeited";
         const p = b.passId && pass(b.passId);
-        if (p) {
+        if (p && p.remaining > 0) {
           p.remaining -= 1;
-          DB.ledger.push({ passId: p.id, delta: -1, reason: "기한 위반 취소", detail: slotDesc(s), at: "2026-08-17 12:00" });
+          pushLedger(p.id, -1, "기한 위반 취소", slotDesc(s));
+          toast("취소됐어요. 기한이 지나 1회가 차감됐어요.");
+        } else {
+          toast("취소됐어요. 잔여 0회라 차감 대신 센터 예외처리로 넘어가요.");
         }
-        toast("취소됐어요. 기한이 지나 1회가 차감됐어요.");
       } else {
-        b.status = "canceled"; b.label = "취소됨";
+        b.status = "canceled";
         toast("취소됐어요. 횟수 차감은 없어요.");
       }
+      if (wasSeat) promoteWaitlist(s.id);
+      cleanupSlot(s);
       closeModal(); render();
     },
-    confirmAttend(bkId) {
+    centerCancelAsk(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
       const s = slot(b.slotId);
-      b.status = "confirmed"; b.label = "수강 완료";
-      const p = pass(b.passId); p.remaining -= 1;
-      DB.ledger.push({ passId: p.id, delta: -1, reason: "수강 확인", detail: `${slotDesc(s)} · 앱 확인`, at: "2026-08-17 12:00" });
-      const rp = DB.reports.find((r) => r.slotId === s.id);
-      if (rp) { rp.status = "confirmed"; rp.label = "확인 완료"; rp.method = "앱 확인"; }
+      modal(`<h3>${memberName(b.memberId)} 회원 예약을 취소할까요?</h3><p>${slotDesc(s)}<br>센터 취소는 횟수 차감이 없고, 회원에게 알림이 가요.${waitBk(s.id).length ? " 대기 1번이 자동 승격돼요." : ""}</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">아니요</button>
+        <button class="btn primary" onclick="App.centerCancel('${bkId}')">센터 취소</button></div>`);
+    },
+    centerCancel(bkId) {
+      const b = DB.bookings.find((x) => x.id === bkId);
+      if (!b || b.status !== "booked") { closeModal(); return; }
+      const s = slot(b.slotId);
+      b.status = "canceled"; b.cancelBy = "center";
+      promoteWaitlist(s.id);
+      cleanupSlot(s);
+      closeModal(); render();
+      toast(`${memberName(b.memberId)} 회원 예약을 취소했어요. 알림을 보냈어요.`);
+    },
+    // S-1: 상태·보고 검증 후에만 확인 성립
+    confirmAttend(bkId) {
+      const b = DB.bookings.find((x) => x.id === bkId);
+      const r = b && DB.reports.find((x) => x.bookingId === b.id && x.status === "pending");
+      if (!b || b.status !== "confirm_wait" || !r) { toast("아직 확인할 단계가 아니에요 — 완료 보고 후에 확인할 수 있어요."); return; }
+      const res = confirmTx(b, r, "앱 확인");
+      if (!res.ok) { modal(`<h3>처리할 수 없어요</h3><p>${res.msg}</p><div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`); return; }
       render();
       toast("확인 완료! 수업권 1회가 차감됐어요.");
     },
     askDispute(bkId) {
-      modal(`<h3>어떤 문제가 있었나요?</h3><p class="mt4">이의제기가 접수되면 이 회차의 차감·정산이 보류되고 센터가 확인해요.</p>
+      const b = DB.bookings.find((x) => x.id === bkId);
+      const pre = b && ["confirm_wait", "noshow_wait"].includes(b.status);
+      modal(`<h3>어떤 문제가 있었나요?</h3><p class="mt4">${pre ? "이의제기가 접수되면 확인·차감 없이 센터가 심사해요." : "이미 차감된 회차예요. 접수되면 정산이 보류되고, 인용되면 횟수가 복원돼요."}</p>
         <div class="field mt12"><textarea id="dp-reason" rows="3" placeholder="예: 이 수업을 받은 적이 없어요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.doDispute('${bkId}')">이의제기 접수</button></div>`);
     },
     doDispute(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
-      b.status = "disputed"; b.label = "이의제기 중";
-      const rp = DB.reports.find((r) => r.slotId === b.slotId);
-      if (rp) { rp.status = "disputed"; rp.label = "이의제기"; }
+      const reason = (document.getElementById("dp-reason") || { value: "" }).value.trim();
+      const r = DB.reports.find((x) => x.bookingId === bkId && ["pending", "confirmed", "auto", "noshow_wait"].includes(x.status));
+      const pre = ["confirm_wait", "noshow_wait"].includes(b.status);
+      b.status = "disputed";
+      if (r) {
+        r.status = "disputed"; r.label = "이의제기"; r.disputeReason = reason || undefined;
+        // S-5: 확정 후 이의 → 정산 라인 보류
+        const l = r.lineId && line(r.lineId);
+        if (l && l.status === "eligible") l.status = "held";
+      }
       closeModal();
       location.hash = "#/m/bookings";
-      toast("접수됐어요. 처리될 때까지 차감·정산이 보류돼요.");
+      toast(pre ? "접수됐어요. 확인·차감 없이 센터가 심사해요." : "접수됐어요. 차감은 유지된 채 정산이 보류돼요 — 인용되면 복원돼요.");
     },
-    reportDone(slotId) {
+    // 선생님 완료 보고 — 회원별 참석/노쇼 (M-11), 서명 정책 분기 (M-6)
+    reportAsk(slotId) {
       const s = slot(slotId);
-      DB.reports.unshift({ id: "rp" + (DB.reports.length + 1), slotId, member: (s.attendees || ["김지은"])[0], status: "pending", method: null, label: "회원 확인 대기", at: "8/17 12:00 보고" });
-      render();
-      toast("완료 보고됐어요. 회원에게 수강 확인 요청을 보냈어요.");
+      const c = cls(s.classId);
+      const seats = DB.bookings.filter((b) => b.slotId === slotId && b.status === "booked");
+      if (!seats.length) { toast("보고할 참석자가 없어요."); return; }
+      const needConfirm = c.kind === "private" ? DB.policy.signPrivate : DB.policy.signGroup;
+      modal(`<h3>수업 완료 보고</h3><p>${slotDesc(s)} · ${seats.length}명</p>
+        ${seats.map((b) => `<div class="toggle-row"><span><div class="tl">${memberName(b.memberId)}</div></span>
+          <div class="seg seg-sm" id="att-${b.id}" style="width:150px">
+            <button class="on" data-v="attend" onclick="App.seg(this)">참석</button>
+            <button data-v="noshow" onclick="App.seg(this)">노쇼</button></div></div>`).join("")}
+        <p class="muted small mt8">${needConfirm
+          ? "보고하면 각 회원에게 수강 확인 요청이 가요. 회원이 확인해야 차감·정산돼요."
+          : `이 수업은 확인 생략(출석 체크) 정책이라 보고 즉시 차감돼요. 회원에게 즉시 알림이 가고 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.`}
+          ${DB.policy.noshowDeduct ? ` 노쇼는 회원 통지 후 이의기간이 지나면 차감돼요.` : " 노쇼는 차감 없이 종결돼요."}</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">취소</button>
+        <button class="btn primary" onclick="App.submitReport('${slotId}')">보고하기</button></div>`);
     },
-    quickBook(role) {
-      const m = DB.members.find((x) => x.id === document.getElementById("qk-member").value);
+    submitReport(slotId) {
+      const s = slot(slotId);
+      const c = cls(s.classId);
+      const needConfirm = c.kind === "private" ? DB.policy.signPrivate : DB.policy.signGroup;
+      const seats = DB.bookings.filter((b) => b.slotId === slotId && b.status === "booked");
+      let asked = 0, deducted = 0, noshow = 0;
+      for (const b of seats) {
+        const segEl = document.querySelector(`#att-${b.id} .on`);
+        const v = segEl ? segEl.dataset.v : "attend";
+        if (v === "noshow") {
+          noshow++;
+          if (DB.policy.noshowDeduct) {
+            b.status = "noshow_wait";
+            DB.reports.unshift({ id: nid("rp"), slotId, bookingId: b.id, memberId: b.memberId, member: memberName(b.memberId), status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: "8/17 12:00 보고", deducted: false, lineId: null });
+          } else {
+            b.status = "canceled"; b.cancelBy = "noshow";
+          }
+          continue;
+        }
+        const r = { id: nid("rp"), slotId, bookingId: b.id, memberId: b.memberId, member: memberName(b.memberId), status: "pending", method: null, label: "회원 확인 대기", at: "8/17 12:00 보고", deducted: false, lineId: null };
+        DB.reports.unshift(r);
+        if (needConfirm) {
+          b.status = "confirm_wait"; asked++;
+        } else {
+          const res = confirmTx(b, r, "출석 체크");
+          if (res.ok) deducted++;
+          else { b.status = "confirm_wait"; r.label = "처리 보류 — " + res.msg; asked++; }
+        }
+      }
+      closeModal(); render();
+      const parts = [];
+      if (asked) parts.push(`확인 요청 ${asked}명`);
+      if (deducted) parts.push(`출석 체크 차감 ${deducted}명`);
+      if (noshow) parts.push(`노쇼 ${noshow}명 (회원 통지)`);
+      toast(`완료 보고했어요 — ${parts.join(" · ")}.`);
+    },
+    // 하-1: 회원 PIN 확인 목업 (04 수단 B)
+    pinStart(rpId) {
+      if (pinLocked[rpId]) { toast("PIN 확인이 잠겨 있어요. 회원·센터에 알림이 갔어요."); return; }
+      modal(`<h3>회원 PIN 확인</h3><p>기기를 회원에게 건네주세요. <b>회원 본인이 직접</b> PIN을 입력해요 — 선생님 화면에 PIN이 보이지 않아요.</p>
+        <div class="field mt12"><input type="password" id="pin-input" inputmode="numeric" maxlength="4" placeholder="PIN 4자리" autocomplete="off" style="text-align:center;letter-spacing:10px;font-size:22px;font-weight:800"></div>
+        <p class="muted small">5회 실패 시 잠기고 회원·센터에 알림이 가요. (데모 PIN — 김지은: 0417)</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">취소</button>
+        <button class="btn primary" onclick="App.pinSubmit('${rpId}')">확인</button></div>`);
+    },
+    pinSubmit(rpId) {
+      const r = DB.reports.find((x) => x.id === rpId);
+      const m = member(r.memberId);
+      const v = (document.getElementById("pin-input") || { value: "" }).value;
+      if (!m || pinLocked[rpId]) { closeModal(); return; }
+      if (v !== m.pin) {
+        pinTries[rpId] = (pinTries[rpId] || 0) + 1;
+        if (pinTries[rpId] >= 5) {
+          pinLocked[rpId] = true;
+          closeModal(); render();
+          toast("5회 실패 — PIN 확인이 잠겼어요. 회원·센터에 알림을 보냈어요.");
+          return;
+        }
+        toast(`PIN이 달라요 (${pinTries[rpId]}/5)`);
+        return;
+      }
+      const b = r.bookingId && DB.bookings.find((x) => x.id === r.bookingId);
+      if (!b || b.status !== "confirm_wait" || r.status !== "pending") { closeModal(); toast("확인할 수 없는 상태예요."); return; }
+      const res = confirmTx(b, r, "PIN 확인");
+      closeModal();
+      if (!res.ok) { toast(res.msg); return; }
+      render();
+      toast(`${m.name} 회원 PIN 확인 완료! 1회 차감됐어요.`);
+    },
+    // S-2: 과거 일시 즉시확정 차단 + 자격검증 + 기존 회차 합류
+    quickClassChange(role) {
       const cid = document.getElementById("qk-class").value;
       const c = cls(cid);
-      const d = document.getElementById("qk-date").value || "2026-08-22";
-      const t = document.getElementById("qk-time").value || "11:00";
-      const s = { id: "s" + (DB.slots.length + 1), classId: cid, date: d, time: t, booked: 1, status: "scheduled", attendees: [m.name] };
-      DB.slots.push(s);
-      if (m.id === DB.me.member) {
-        const myPass = DB.passes.find((p) => p.kind === c.kind && p.remaining > 0);
-        DB.bookings.push({ id: "bk" + (DB.bookings.length + 1), slotId: s.id, passId: myPass ? myPass.id : null, status: "booked", label: "예약 확정" });
+      const joinable = DB.slots.filter((s) => s.classId === cid && s.status === "scheduled" && !isPast(s) && seatCount(s.id) < c.capacity);
+      document.getElementById("qk-slot").innerHTML = `<option value="new">새 일시로 만들기</option>` +
+        joinable.map((s) => `<option value="${s.id}">${dlabel(s.date)} ${s.time} 기존 회차 합류 (${seatCount(s.id)}/${c.capacity}명)</option>`).join("");
+    },
+    quickBook(role) {
+      const m = member(document.getElementById("qk-member").value);
+      const c = cls(document.getElementById("qk-class").value);
+      if (!m || !c) { toast("회원과 수업을 선택해 주세요."); return; }
+      const g = bookGuard(c, m.id);
+      if (!g.ok) {
+        modal(`<h3>예약할 수 없어요</h3><p><b>${m.name}</b> 회원: ${g.msg}</p>
+          <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
+        return;
       }
-      toast(`${m.name} 회원 ${dlabel(d)} ${t} 예약 확정! 회원에게 알림을 보냈어요.`);
+      const slotSel = document.getElementById("qk-slot").value;
+      let s;
+      if (slotSel && slotSel !== "new") {
+        s = slot(slotSel);
+        if (seatCount(s.id) >= c.capacity) { toast("이미 만석인 회차예요."); render(); return; }
+        if (DB.bookings.some((b) => b.slotId === s.id && b.memberId === m.id && ACTIVE.includes(b.status))) { toast(`${m.name} 회원은 이미 이 회차에 예약이 있어요.`); return; }
+      } else {
+        const d = document.getElementById("qk-date").value || "2026-08-22";
+        const t = document.getElementById("qk-time").value || "11:00";
+        if (new Date(`${d}T${t}:00+09:00`) <= NOW) {
+          modal(`<h3>지난 일시로는 확정할 수 없어요</h3><p>즉시확정은 앞으로의 수업만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 감사 기록에 남아요.</p>
+            <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
+          return;
+        }
+        s = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true };
+        DB.slots.push(s);
+      }
+      DB.bookings.push({ id: nid("bk"), slotId: s.id, memberId: m.id, passId: g.pass.id, status: "booked", policySnap: snapPolicy() });
+      toast(`${m.name} 회원 ${dlabel(s.date)} ${s.time} 예약 확정! 회원에게 알림을 보냈어요.`);
       location.hash = role === "c" ? "#/c/bookings" : "#/t/schedule";
     },
     createProduct() {
@@ -731,7 +1319,7 @@
       const price = parseInt(document.getElementById("np-price").value, 10) || 0;
       const noDays = document.getElementById("np-nodays").checked;
       const days = noDays ? null : parseInt(document.getElementById("np-days").value, 10) || 90;
-      DB.products.push({ id: "pr" + (DB.products.length + 1), name, kind, sessions, price, validityDays: days });
+      DB.products.push({ id: nid("pr"), name, kind, sessions, price, validityDays: days });
       render();
       toast(`«${name}» 상품이 개설됐어요.`);
     },
@@ -742,33 +1330,157 @@
       const sched = document.querySelector("#nc-sched .on").dataset.v;
       const elig = document.querySelector("#nc-elig .on").dataset.v;
       const cap = kind === "private" ? 1 : parseInt(document.getElementById("nc-cap").value, 10) || 6;
-      DB.classes.push({ id: "c" + (DB.classes.length + 1), title, teacherId, kind, capacity: cap,
+      const prodIds = [...document.querySelectorAll("#nc-prods .chip.on")].map((b) => b.dataset.v);
+      const memIds = [...document.querySelectorAll("#nc-mems .chip.on")].map((b) => b.dataset.v);
+      // M-4: 자격 데이터 실검증
+      if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
+      if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return; }
+      DB.classes.push({ id: nid("c"), title, teacherId, kind, capacity: cap,
         schedule: sched, scheduleLabel: sched === "fixed" ? "매주 고정 (시간표 설정)" : "선생님과 조율", duration: 50,
-        eligibility: elig, eligibilityLabel: elig === "pass" ? "수업권 보유자" : elig === "list" ? "지정 회원만" : "수업권 + 지정 회원" });
+        eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" });
       render();
       toast(`«${title}» 수업이 개설됐어요.`);
     },
+    // B1: 수업 수정
+    updateClass(id) {
+      const c = cls(id);
+      const title = document.getElementById("ec-title").value.trim() || c.title;
+      let cap = c.capacity;
+      if (c.kind === "group") {
+        cap = parseInt(document.getElementById("ec-cap").value, 10) || c.capacity;
+        const maxSeat = Math.max(0, ...DB.slots.filter((s) => s.classId === id && s.status === "scheduled").map((s) => seatCount(s.id)));
+        if (cap < maxSeat) { toast(`정원을 ${maxSeat}명 미만으로 줄일 수 없어요 (예약 ${maxSeat}명 존재).`); return; }
+      }
+      const elig = document.querySelector("#ec-elig .on").dataset.v;
+      const prodIds = [...document.querySelectorAll("#ec-prods .chip.on")].map((b) => b.dataset.v);
+      const memIds = [...document.querySelectorAll("#ec-mems .chip.on")].map((b) => b.dataset.v);
+      if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
+      if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return; }
+      c.title = title; c.capacity = cap;
+      c.eligibility = elig;
+      c.eligibleProductIds = elig === "list" ? [] : prodIds;
+      c.memberIds = elig === "pass" ? [] : memIds;
+      render();
+      toast("수업 정보를 수정했어요. 기존 예약은 그대로 유지돼요.");
+    },
+    // B1: 폐강 — 사유 필수, 예정 예약 자동취소·알림, 진행분 정산 유지
+    askCloseClass(id) {
+      const c = cls(id);
+      const future = DB.slots.filter((s) => s.classId === id && s.status === "scheduled" && !isPast(s));
+      const affected = future.reduce((a, s) => a + DB.bookings.filter((b) => b.slotId === s.id && ["booked", "waitlisted"].includes(b.status)).length, 0);
+      modal(`<h3>«${c.title}» 폐강</h3><p>예정 회차 ${future.length}개 · 예약 ${affected}건이 자동취소되고 회원 ${affected}명에게 알림이 가요. 이미 진행된 회차의 정산 귀속은 유지돼요.</p>
+        <div class="field mt12"><label>폐강 사유 (필수 · 회원에게 전달)</label>
+        <textarea id="cc-reason" rows="2" placeholder="예: 강사 사정으로 9월부터 운영이 어려워요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn danger-ghost" onclick="App.closeClass('${id}')">폐강 확정</button></div>`);
+    },
+    closeClass(id) {
+      const reason = (document.getElementById("cc-reason") || { value: "" }).value.trim();
+      if (!reason) { toast("폐강 사유를 입력해 주세요 — 필수 기록이에요."); return; }
+      const c = cls(id);
+      c.status = "closed"; c.closedReason = reason; c.closedAt = nowStamp;
+      let n = 0;
+      for (const s of DB.slots.filter((s) => s.classId === id && s.status === "scheduled")) {
+        for (const b of DB.bookings.filter((b) => b.slotId === s.id && ["booked", "waitlisted"].includes(b.status))) {
+          b.status = "class_closed"; b.closeReason = reason; n++;
+          // 후차감 모델 — 예정 예약은 차감 전이라 복원할 횟수 없음. 위반취소·확정분(과거)은 건드리지 않음.
+        }
+        s.status = "canceled"; s.cancelReason = "폐강";
+      }
+      DB.arranges.filter((a) => a.classId === id && a.status === "pending").forEach((a) => { a.status = "declined"; a.reason = "폐강: " + reason; });
+      closeModal();
+      location.hash = "#/c/classes";
+      toast(`폐강 처리됐어요. 예약 ${n}건 자동취소 · 회원 알림 발송. 진행된 회차의 정산은 유지돼요.`);
+    },
+    // S-4: 기각 = 확인 성립 → 같은 tx에서 차감+정산 라인
     resolveDispute(rpId, accept) {
       const r = DB.reports.find((x) => x.id === rpId);
-      if (accept) { r.status = "resolved"; r.label = "인용 · 횟수 복원"; toast("이의를 인용했어요. 횟수가 복원되고 정산에서 제외돼요."); }
-      else { r.status = "confirmed"; r.label = "기각 · 확정 유지"; toast("이의를 기각했어요. 사유가 기록되고 회원에게 통지돼요."); }
-      render();
+      if (!r || r.status !== "disputed") return;
+      const b = r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
+      const l = r.lineId ? line(r.lineId) : null;
+      if (accept) {
+        if (r.deducted) {
+          const p = passForReport(r, b);
+          if (p) { p.remaining += 1; pushLedger(p.id, +1, "이의 인용 복원", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || ""); }
+          if (l) l.status = "removed";
+          r.deducted = false;
+        }
+        r.status = "resolved"; r.label = "인용 · 횟수 복원";
+        if (b) b.status = "restored";
+        render();
+        toast("이의를 인용했어요. 횟수가 복원되고 정산에서 제외됐어요." + (l && l.pushed ? " (전송분은 샐리 정정 필요)" : ""));
+      } else {
+        if (r.deducted) {
+          if (l && l.status === "held") l.status = "eligible";
+          r.status = r.method === "자동확정" ? "auto" : "confirmed"; r.label = "기각 · 확정 유지";
+          if (b) b.status = "confirmed";
+          render();
+          toast("이의를 기각했어요. 확정·차감이 유지되고 사유가 회원에게 통지돼요.");
+        } else if (b) {
+          const res = confirmTx(b, r, "센터 기각 확정");
+          if (!res.ok) { toast("기각 처리 불가 — " + res.msg); return; }
+          r.label = "기각 · 확정 (1회 차감)";
+          render();
+          toast("이의를 기각했어요. 확인이 성립해 1회 차감·정산 편입됐어요. 회원에게 통지돼요.");
+        } else {
+          r.status = "confirmed"; r.label = "기각 · 확정 유지";
+          render();
+          toast("이의를 기각했어요.");
+        }
+      }
     },
     overrideAuto(rpId) {
       const r = DB.reports.find((x) => x.id === rpId);
+      if (!r || r.status !== "auto") return;
+      const b = r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
+      const l = r.lineId ? line(r.lineId) : null;
+      if (l) l.status = "removed";
+      if (r.deducted) {
+        const p = passForReport(r, b);
+        if (p) { p.remaining += 1; pushLedger(p.id, +1, "자동확정 무효화 복원", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || ""); }
+        r.deducted = false;
+      }
       r.status = "resolved"; r.label = "자동확정 무효화 · 복원";
+      if (b) b.status = "restored";
       render();
-      toast("자동확정을 무효화했어요. 횟수가 복원되고 정산에서 제외돼요.");
+      toast("자동확정을 무효화했어요. 횟수가 복원되고 정산에서 제외돼요." + (l && l.pushed ? " (전송분은 샐리 정정 필요)" : ""));
     },
+    // C: 노쇼 처리 — 기본값: 회원 통지·이의기간 후 센터 확정 (⚠️ 형 확인 필요)
+    resolveNoshow(rpId, deduct) {
+      const r = DB.reports.find((x) => x.id === rpId);
+      if (!r || r.status !== "noshow_wait") return;
+      const b = r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
+      if (deduct) {
+        const p = passForReport(r, b);
+        if (!p || p.remaining <= 0) { toast("잔여 0회라 차감할 수 없어요 — 센터 예외처리로 넘어가요."); return; }
+        p.remaining -= 1;
+        pushLedger(p.id, -1, "노쇼 차감", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || "");
+        r.status = "noshow_final"; r.label = "노쇼 확정 · 차감"; r.deducted = true;
+        if (b) b.status = "noshow_final";
+        render();
+        toast("노쇼 확정 — 1회 차감됐어요. 정산 라인은 만들지 않아요(수강확인 미성립). 회원에게 통지돼요.");
+      } else {
+        r.status = "resolved"; r.label = "노쇼 취소 · 차감 없음";
+        if (b) { b.status = "canceled"; b.cancelBy = "noshow_waived"; }
+        render();
+        toast("노쇼를 취소 처리했어요. 차감 없이 종결돼요.");
+      }
+    },
+    // 멱등 push — eligible & 미전송만, held 제외
     sallyPush(tid) {
-      const st = DB.settlement.find((x) => x.teacherId === tid);
-      st.pushed = true; st.pushId = "sly_" + tid + "_202608";
+      const lines = DB.slines.filter((l) => l.teacherId === tid && l.status === "eligible" && !l.pushed);
+      const held = DB.slines.filter((l) => l.teacherId === tid && l.status === "held").length;
+      if (!lines.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
+      const pid = "sly_" + tid + "_202608_" + seq++;
+      lines.forEach((l) => { l.pushed = true; l.pushId = pid; });
       render();
-      toast(`${st.teacher} 선생님 ${st.sessions}회를 샐리로 보냈어요. (멱등 전송 · mock)`);
+      const t = teacher(tid);
+      toast(`${t.name} 선생님 ${lines.length}회를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. (externalId 멱등 · mock)`);
     },
     toggle(key) {
       const P = DB.policy;
       if (key === "cancelCond") P.cancelMode = P.cancelMode === "conditional" ? "none" : "conditional";
+      else if (key === "waitlistAuto") P.waitlistPromote = P.waitlistPromote === "auto" ? "manual" : "auto";
       else P[key] = !P[key];
       // 스위치 썸이 먼저 움직이고(즉시 피드백) 재렌더는 그 뒤에 — 상태·문구는 동일
       const sw = typeof event !== "undefined" && event && event.target ? event.target.closest(".sw") : null;
@@ -780,9 +1492,11 @@
         toast("저장됐어요. 기존 예약·수업권에는 소급되지 않아요.");
       }
     },
-    setCancelHours(v) { DB.policy.cancelHours = parseInt(v, 10); toast("취소 기한이 변경됐어요. (신규 예약부터 적용)"); },
-    setAutoConfirm(v) { DB.policy.autoConfirmHours = parseInt(v, 10); toast("자동확정 설정이 변경됐어요."); },
+    setCancelHours(v) { DB.policy.cancelHours = parseInt(v, 10); toast("취소 기한이 변경됐어요. (신규 예약부터 적용 — 기존 예약은 스냅샷 유지)"); },
+    setAutoConfirm(v) { DB.policy.autoConfirmHours = parseInt(v, 10); render(); toast("자동확정 설정이 변경됐어요."); },
     setDispute(v) { DB.policy.disputeDays = parseInt(v, 10); toast("이의제기 기간이 변경됐어요."); },
+    setQuickScope(v) { DB.policy.quickScope = v; toast("즉시확정 회원 표시 범위가 변경됐어요."); },
+    setNoshowActor(v) { DB.policy.noshowActor = v; toast("노쇼 판정 방식이 변경됐어요. ⚠️ 최종 정책은 형 확인 필요."); },
   };
   window.App = App;
 
@@ -800,6 +1514,7 @@
     [/^#\/m\/history$/, vMHistory],
     [/^#\/t\/home$/, vTHome],
     [/^#\/t\/schedule$/, vTSchedule],
+    [/^#\/t\/inbox$/, vTInbox],
     [/^#\/t\/slot\/(.+)$/, vTSlot],
     [/^#\/t\/quick$/, () => vTQuick("t")],
     [/^#\/t\/report$/, vTReport],
@@ -807,7 +1522,9 @@
     [/^#\/c\/home$/, vCHome],
     [/^#\/c\/products$/, vCProducts],
     [/^#\/c\/classes$/, vCClasses],
+    [/^#\/c\/class\/(.+)$/, vCClassManage],
     [/^#\/c\/bookings$/, vCBookings],
+    [/^#\/c\/slot\/(.+)$/, vCSlot],
     [/^#\/c\/quick$/, () => vTQuick("c")],
     [/^#\/c\/confirms$/, vCConfirms],
     [/^#\/c\/settlement$/, vCSettlement],
