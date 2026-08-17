@@ -171,6 +171,11 @@ window.DB = {
     noshowRewardPush: "auto",    // 샐리 전달: auto(special rewardCodes push)/manual(샐리 수동 체크)
     // P2-2 (시정①) 수업 개설·관리 권한: 센터 지정 회원 or 자격 멤버십 보유 회원. 둘 다 비우면 센터만.
     classAuth: { memberIds: ["m9"], productIds: ["pr3"] }, // 박코치=센터 지정, 이필라=필라테스 그룹 멤버십 자격
+    // P2-2b (v2.3) 선생님별 «지정 가능 회원 범위» — 키 없음 또는 mode:"all"=전체 회원(기본, v2.2까지 동작과 동일).
+    // custom: productIds(멤버십 단위 전체) ∪ memberIds(멤버십 하위 개별 선택 회원). 수업 개설 «지정 회원»·즉시확정 목록에 적용.
+    teacherScope: {
+      t2: { mode: "custom", productIds: ["pr3"], memberIds: ["m2"] }, // 이필라: 필라테스 그룹 20회 전체 + 개별 박서준 (데모 시드)
+    },
   },
 
   // 정산 라인 (8월) — 수강확인 성립 tx마다 1행. status: eligible|held(이의 보류)|removed(인용·무효화)

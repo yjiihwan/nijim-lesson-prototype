@@ -3,6 +3,8 @@
    v2.1 (2026-08-17 시정): 선생님 수업 개설·관리(수정·폐강) — 권한=센터 지정 회원 or 자격 멤버십 보유(02 P2-2).
    v2.2 (2026-08-17 형 확정 반영): ① P5-4b 노쇼=보고→통지→무이의 시 자동 확정·차감(이의 건만 센터 중재)
    ② P9-1 노쇼 보상=센터별 설정(없음/지원 — 정상·별도 단가, 샐리 자동 push·수동 체크) — 정산 미리보기 동적 반영.
+   v2.3 (2026-08-17): P2-2b 선생님별 «지정 가능 회원 범위» — 전체/멤버십 단위/멤버십 하위 개별 회원 선택,
+   수업 개설 «지정 회원» picker·즉시확정 목록에 적용(액션 재검증 포함). 미설정 기본값=전체 회원(02 문서).
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -69,6 +71,29 @@
     const p = passesOf(t.memberId).filter(passUsable).find((x) => (A.productIds || []).includes(x.productId));
     if (p) return { ok: true, via: `멤버십 자격 · ${p.name}` };
     return { ok: false };
+  }
+
+  // ── v2.3 (P2-2b): 선생님별 «지정 가능 회원 범위» ──
+  // 범위 = productIds(멤버십 단위: 유효 수업권 보유 회원 전체) ∪ memberIds(멤버십 하위 개별 선택).
+  // 미설정·mode:"all" = 전체 회원 (기본값 — v2.2까지의 동작과 동일, 02 문서).
+  function tScope(tid) {
+    const S = (DB.policy.teacherScope || {})[tid];
+    return S && S.mode === "custom" ? S : { mode: "all", productIds: [], memberIds: [] };
+  }
+  function inTScope(tid, mid) {
+    const S = tScope(tid);
+    if (S.mode === "all") return true;
+    if ((S.memberIds || []).includes(mid)) return true;
+    return passesOf(mid).filter(passUsable).some((p) => (S.productIds || []).includes(p.productId));
+  }
+  const tScopeMembers = (tid) => DB.members.filter((m) => !m.staff && inTScope(tid, m.id));
+  const holdersOf = (pid) => DB.members.filter((m) => !m.staff && passesOf(m.id).filter(passUsable).some((p) => p.productId === pid));
+  function tScopeLabel(tid) {
+    const S = tScope(tid);
+    if (S.mode === "all") return "전체 회원";
+    const parts = (S.productIds || []).map((pid) => (DB.products.find((p) => p.id === pid) || { name: pid }).name + " 전체");
+    if ((S.memberIds || []).length) parts.push(`개별 ${S.memberIds.length}명`);
+    return parts.length ? `${parts.join(" + ")} · 총 ${tScopeMembers(tid).length}명` : "빈 범위 — 지정 가능 회원 없음";
   }
 
   // ── 예약 자격 (M-3: eligibility 실검증) ──
@@ -693,6 +718,8 @@
       const mySlotIds = DB.slots.filter((s) => myClassIds.includes(s.classId)).map((s) => s.id);
       list = list.filter((m) => DB.bookings.some((b) => b.memberId === m.id && mySlotIds.includes(b.slotId)));
     }
+    // P2-2b: 선생님은 센터가 설정한 «지정 가능 회원 범위» 안의 회원만
+    if (role === "t") list = list.filter((m) => inTScope(DB.me.teacher, m.id));
     return list;
   }
   function vTQuick(role) {
@@ -705,9 +732,9 @@
     return shell(r, "즉시 예약확정", `
       <p class="muted" style="margin-bottom:12px">예약 절차 없이 일자와 회원을 골라 바로 확정해요. 지난 일시로는 만들 수 없어요.</p>
       <div class="card">
-        <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span></label>
+        <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span>${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
           <select id="qk-member">${members.map((m) => `<option value="${m.id}">${m.name} (${m.phone})</option>`).join("")}</select>
-          <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미. 표시 범위는 센터 설정에서 바꿔요.</div></div>
+          <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미. 표시 범위는 센터 설정에서 바꿔요.${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요 (P2-2b).` : ""}</div></div>
         <div class="field"><label>수업</label><select id="qk-class" onchange="App.quickClassChange('${r}')">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
         <div class="field"><label>회차</label><select id="qk-slot">
           <option value="new">새 일시로 만들기</option>
@@ -809,17 +836,20 @@
       </div>
       <p class="muted small">이미 판매된 수업권은 구매 시점 조건이 스냅샷으로 보존돼요. 환불·이용정지 처리는 호스트 앱(CRM) 결제·회원 관리와 연동돼요.</p>`, { back: true });
   }
-  // B2: 회원 지정 picker + 자격 수업권 지정
-  function eligExtraHtml(prefix, c) {
+  // B2: 회원 지정 picker + 자격 수업권 지정. v2.3: 선생님은 «지정 가능 회원 범위»(P2-2b) 안의 회원만
+  function eligExtraHtml(prefix, c, role) {
     const selP = c ? c.eligibleProductIds || [] : ["pr3", "pr4"];
     const selM = c ? c.memberIds || [] : [];
+    const scoped = role === "t" && tScope(DB.me.teacher).mode === "custom";
+    // 기존 지정 회원은 범위 밖이어도 표시·유지 (저장 시 조용히 빠지는 사고 방지)
+    const pool = DB.members.filter((m) => !m.staff && (!scoped || inTScope(DB.me.teacher, m.id) || selM.includes(m.id)));
     return `
       <div class="field" id="${prefix}-prod-wrap"><label>사용 가능 수업권 (예약자격)</label>
         <div class="chips" id="${prefix}-prods">${DB.products.map((p) => `<button class="chip${selP.includes(p.id) ? " on" : ""}" data-v="${p.id}" onclick="App.chip(this)">${p.name}</button>`).join("")}</div>
         <div class="hint">고른 수업권을 보유한 회원만 예약할 수 있어요.</div></div>
-      <div class="field" id="${prefix}-mem-wrap"><label>지정 회원</label>
-        <div class="chips" id="${prefix}-mems">${DB.members.filter((m) => !m.staff).map((m) => `<button class="chip${selM.includes(m.id) ? " on" : ""}" data-v="${m.id}" onclick="App.chip(this)">${m.name}</button>`).join("")}</div>
-        <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미.</div></div>`;
+      <div class="field" id="${prefix}-mem-wrap"><label>지정 회원${scoped ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
+        <div class="chips" id="${prefix}-mems">${pool.map((m) => `<button class="chip${selM.includes(m.id) ? " on" : ""}" data-v="${m.id}" onclick="App.chip(this)">${m.name}</button>`).join("")}</div>
+        <div class="hint">${scoped ? `센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)}) 안의 회원만 보여요. 기존 지정 회원은 범위 밖이어도 유지돼요.` : "회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미."}</div></div>`;
   }
   // 시정①: 센터·선생님 공용 수업 관리 — 선생님은 본인 수업 + classAuth(P2-2) 권한 필요
   function vClasses(role) {
@@ -859,7 +889,7 @@
           <button data-v="list" onclick="App.segElig(this,'nc')">회원 지정</button>
           <button data-v="both" onclick="App.segElig(this,'nc')">혼합</button></div>
           <div class="hint">그룹수업도 특정 회원만 지정할 수 있어요.</div></div>
-        ${eligExtraHtml("nc", null)}
+        ${eligExtraHtml("nc", null, role)}
         <button class="btn primary" onclick="App.createClass('${role}')">수업 개설</button>
       </div>` : ""}`, isT ? { back: true } : {});
   }
@@ -885,7 +915,7 @@
           <button${c.eligibility === "pass" ? ' class="on"' : ""} data-v="pass" onclick="App.segElig(this,'ec')">수업권 보유자</button>
           <button${c.eligibility === "list" ? ' class="on"' : ""} data-v="list" onclick="App.segElig(this,'ec')">회원 지정</button>
           <button${c.eligibility === "both" ? ' class="on"' : ""} data-v="both" onclick="App.segElig(this,'ec')">혼합</button></div></div>
-        ${eligExtraHtml("ec", c)}
+        ${eligExtraHtml("ec", c, role)}
         <button class="btn primary" onclick="App.updateClass('${c.id}','${role}')">수정 저장</button>
         <div class="hint mt8">종류(그룹/개인)·일정 방식은 기존 예약 보호를 위해 수정할 수 없어요. 필요하면 폐강 후 새로 개설해 주세요.</div>
       </div>
@@ -1050,6 +1080,34 @@
           <div class="hint">이 멤버십(유효 수업권)을 보유한 선생님 계정도 개설 권한을 가져요 — 예: 그룹 필라테스 멤버십.</div></div>
         <div class="muted small">현재 권한: ${DB.teachers.map((t) => { const a = classAuth(t); return `<b>${t.name}</b> ${a.ok ? a.via : "권한 없음"}`; }).join(" · ")}<br>둘 다 비우면 수업 개설·관리는 센터만 가능해요. 선생님 계정은 호스트 앱(니짐내짐) 회원 계정과 연결돼요.</div>
       </div>
+      <div class="sec-title">선생님별 지정 가능 회원 범위 · P2-2b</div>
+      <div class="card">
+        ${DB.teachers.map((t) => {
+          const S = tScope(t.id);
+          return `<div class="field">
+            <label>${t.name} (${t.subject})</label>
+            <div class="seg">
+              <button${S.mode === "all" ? ' class="on"' : ""} onclick="App.scopeMode('${t.id}','all')">전체 회원</button>
+              <button${S.mode === "custom" ? ' class="on"' : ""} onclick="App.scopeMode('${t.id}','custom')">범위 지정</button></div>
+            ${S.mode === "custom" ? DB.products.map((p) => {
+              const hs = holdersOf(p.id);
+              const full = (S.productIds || []).includes(p.id);
+              const openKey = t.id + ":" + p.id;
+              const open = !!scopeOpen[openKey];
+              const picked = hs.filter((m) => (S.memberIds || []).includes(m.id)).length;
+              return `<div class="scope-prod">
+                <div class="scope-head">
+                  <button class="chip${full ? " on" : ""}" onclick="App.scopeProduct('${t.id}','${p.id}')">${p.name} 전체</button>
+                  <button class="scope-toggle" onclick="App.scopeExpand('${openKey}')">보유 회원 ${hs.length}명${picked && !full ? ` · ${picked}명 선택` : ""} ${open ? "▴" : "▾"}</button>
+                </div>
+                ${open ? `<div class="chips mt8">${hs.length ? hs.map((m) => `<button class="chip sm${full || (S.memberIds || []).includes(m.id) ? " on" : ""}"${full ? " disabled" : ""} onclick="App.scopeMember('${t.id}','${m.id}')">${m.name}</button>`).join("") : '<span class="muted small">유효 수업권 보유 회원이 없어요.</span>'}</div>${hs.length ? `<div class="hint">${full ? "멤버십 전체가 범위에 들어 있어요 — 일부 회원만 지정하려면 «전체»를 해제하고 회원을 골라 주세요." : "체크한 회원만 범위에 개별 추가돼요."}</div>` : ""}` : ""}
+              </div>`;
+            }).join("") : ""}
+            <div class="muted small mt4">현재 범위: <b>${tScopeLabel(t.id)}</b></div>
+          </div>`;
+        }).join("")}
+        <div class="muted small">범위 미설정(기본)=<b>전체 회원</b>. 이 범위는 선생님의 <b>수업 개설 시 «지정 회원» 선택 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 단계는 ① 전체 회원 → ② 멤버십 단위(유효 수업권 보유 회원 전체) → ③ 멤버십 하위 개별 회원 선택. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.</div>
+      </div>
       <div class="sec-title">정산 · 샐리 연동</div>
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">노쇼 회차 선생님 보상</div><div class="td">P9-1 형 확정(08-17): 센터마다 방침이 달라 센터별 설정 — 정산 미리보기에 즉시 반영</div></span>
@@ -1067,6 +1125,7 @@
 
   // ── 액션 ──
   const pinTries = {}, pinLocked = {};
+  const scopeOpen = {}; // P2-2b 멤버십 하위 회원 목록 펼침 상태 (UI 전용)
   const App = {
     closeModal,
     seg(btn) {
@@ -1376,6 +1435,8 @@
       const m = member(document.getElementById("qk-member").value);
       const c = cls(document.getElementById("qk-class").value);
       if (!m || !c) { toast("회원과 수업을 선택해 주세요."); return; }
+      // P2-2b 재검증 (목록 필터만으론 부족 — 04 원칙)
+      if (role === "t" && !inTScope(DB.me.teacher, m.id)) { toast(`${m.name} 회원은 내 «지정 가능 회원 범위» 밖이에요 — 센터에 범위 확대를 요청해 주세요.`); return; }
       const g = bookGuard(c, m.id);
       if (!g.ok) {
         modal(`<h3>예약할 수 없어요</h3><p><b>${m.name}</b> 회원: ${g.msg}</p>
@@ -1433,6 +1494,11 @@
       // M-4: 자격 데이터 실검증
       if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
       if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return; }
+      // P2-2b 재검증: 선생님은 «지정 가능 회원 범위» 안의 회원만 지정 가능
+      if (role === "t" && elig !== "pass") {
+        const bad = memIds.filter((mid) => !inTScope(DB.me.teacher, mid));
+        if (bad.length) { toast(`내 «지정 가능 회원 범위» 밖 회원이에요: ${bad.map(memberName).join(", ")} — 센터에 범위 확대를 요청해 주세요.`); return; }
+      }
       DB.classes.push({ id: nid("c"), title, teacherId, kind, capacity: cap,
         schedule: sched, scheduleLabel: sched === "fixed" ? "매주 고정 (시간표 설정)" : "선생님과 조율", duration: 50,
         eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" });
@@ -1463,6 +1529,11 @@
       const memIds = [...document.querySelectorAll("#ec-mems .chip.on")].map((b) => b.dataset.v);
       if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
       if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return; }
+      // P2-2b 재검증: 신규 추가만 범위 검사 (기존 지정 회원은 소급 없이 유지)
+      if (role === "t" && elig !== "pass") {
+        const bad = memIds.filter((mid) => !inTScope(DB.me.teacher, mid) && !(c.memberIds || []).includes(mid));
+        if (bad.length) { toast(`내 «지정 가능 회원 범위» 밖 회원이에요: ${bad.map(memberName).join(", ")} — 센터에 범위 확대를 요청해 주세요.`); return; }
+      }
       c.title = title; c.capacity = cap;
       c.eligibility = elig;
       c.eligibleProductIds = elig === "list" ? [] : prodIds;
@@ -1651,6 +1722,25 @@
       A.productIds = (A.productIds || []).includes(pid) ? A.productIds.filter((x) => x !== pid) : [...(A.productIds || []), pid];
       render(); toast("자격 멤버십이 변경됐어요. 이미 개설된 수업은 그대로 운영돼요.");
     },
+    // v2.3 (P2-2b): 선생님별 지정 가능 회원 범위 — 모드 전환 시 기존 선택은 보존(다시 켜면 복원)
+    scopeMode(tid, mode) {
+      const T = DB.policy.teacherScope || (DB.policy.teacherScope = {});
+      T[tid] = { ...(T[tid] || { productIds: [], memberIds: [] }), mode };
+      render(); toast(mode === "all" ? "전체 회원 범위로 설정했어요 (기본값)." : "범위 지정 — 멤버십 단위 또는 하위 개별 회원을 선택해 주세요.");
+    },
+    scopeProduct(tid, pid) {
+      const S = (DB.policy.teacherScope || {})[tid];
+      if (!S) return;
+      S.productIds = (S.productIds || []).includes(pid) ? S.productIds.filter((x) => x !== pid) : [...(S.productIds || []), pid];
+      render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.");
+    },
+    scopeMember(tid, mid) {
+      const S = (DB.policy.teacherScope || {})[tid];
+      if (!S) return;
+      S.memberIds = (S.memberIds || []).includes(mid) ? S.memberIds.filter((x) => x !== mid) : [...(S.memberIds || []), mid];
+      render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.");
+    },
+    scopeExpand(key) { scopeOpen[key] = !scopeOpen[key]; render(); },
   };
   window.App = App;
 
