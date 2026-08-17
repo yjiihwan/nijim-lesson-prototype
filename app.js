@@ -1,5 +1,6 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
    v2 (2026-08-17 보완): 감사 결함 35건 + 신규 4건 반영.
+   v2.1 (2026-08-17 시정): 선생님 수업 개설·관리(수정·폐강) — 권한=센터 지정 회원 or 자격 멤버십 보유(02 P2-2).
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -57,6 +58,16 @@
   }
   const passUsable = (p) => passState(p) === "active";
   const passesOf = (mid) => DB.passes.filter((p) => p.memberId === mid);
+
+  // ── 시정①: 수업 개설·관리 권한 (02 P2-2) — 센터 지정 회원 or 자격 멤버십 보유 회원 ──
+  function classAuth(t) {
+    if (!t) return { ok: false };
+    const A = DB.policy.classAuth || { memberIds: [], productIds: [] };
+    if ((A.memberIds || []).includes(t.memberId)) return { ok: true, via: "센터 지정" };
+    const p = passesOf(t.memberId).filter(passUsable).find((x) => (A.productIds || []).includes(x.productId));
+    if (p) return { ok: true, via: `멤버십 자격 · ${p.name}` };
+    return { ok: false };
+  }
 
   // ── 예약 자격 (M-3: eligibility 실검증) ──
   function eligiblePass(c, mid) {
@@ -313,7 +324,7 @@
       <button class="role-card" onclick="location.hash='#/m/home'">
         <span class="em">🙋</span><span><span class="rt">회원</span><span class="rd">수업권 구매 · 예약 · 대기 · 취소 · 수강확인</span></span><span class="arrow">›</span></button>
       <button class="role-card" onclick="location.hash='#/t/home'">
-        <span class="em">💪</span><span><span class="rt">선생님</span><span class="rd">내 수업 · 조율 인박스 · 완료 보고 · 정산</span></span><span class="arrow">›</span></button>
+        <span class="em">💪</span><span><span class="rt">선생님</span><span class="rd">수업 개설·관리 · 조율 인박스 · 완료 보고 · 정산</span></span><span class="arrow">›</span></button>
       <button class="role-card" onclick="location.hash='#/c/home'">
         <span class="em">🏢</span><span><span class="rt">센터 (사장·관리자)</span><span class="rd">상품·수업 개설 · 폐강 · 정책 · 예약 · 정산</span></span><span class="arrow">›</span></button>
     </main>`;
@@ -580,6 +591,7 @@
           <button class="btn sm ghost" onclick="location.hash='#/t/slot/${s.id}'">상세</button></div>`;
       }).join("") : `<p class="muted">오늘 수업이 없어요.</p>`}</div>
       <a class="btn primary mt8" href="#/t/quick">+ 즉시 예약확정</a>
+      <a class="btn ghost mt8" href="#/t/classes">🧘 내 수업 관리 (개설·수정·폐강)</a>
       <p class="muted small mt8" style="text-align:center">즉시확정 시 회원에게 바로 알림이 가요.</p>`);
   }
   function vTSchedule() {
@@ -647,7 +659,7 @@
   }
   // B3: 즉시확정 — 회원 필터(센터 정책), 기존 회차 합류, 과거 차단(S-2)
   function quickMembers(role) {
-    let list = DB.members;
+    let list = DB.members.filter((m) => !m.staff); // 선생님 계정은 수강 회원 목록에서 제외
     const scope = DB.policy.quickScope;
     if (scope === "valid") list = list.filter((m) => passesOf(m.id).some(passUsable));
     else if (scope === "mine" && role === "t") {
@@ -774,24 +786,34 @@
         <div class="chips" id="${prefix}-prods">${DB.products.map((p) => `<button class="chip${selP.includes(p.id) ? " on" : ""}" data-v="${p.id}" onclick="App.chip(this)">${p.name}</button>`).join("")}</div>
         <div class="hint">고른 수업권을 보유한 회원만 예약할 수 있어요.</div></div>
       <div class="field" id="${prefix}-mem-wrap"><label>지정 회원</label>
-        <div class="chips" id="${prefix}-mems">${DB.members.map((m) => `<button class="chip${selM.includes(m.id) ? " on" : ""}" data-v="${m.id}" onclick="App.chip(this)">${m.name}</button>`).join("")}</div>
+        <div class="chips" id="${prefix}-mems">${DB.members.filter((m) => !m.staff).map((m) => `<button class="chip${selM.includes(m.id) ? " on" : ""}" data-v="${m.id}" onclick="App.chip(this)">${m.name}</button>`).join("")}</div>
         <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미.</div></div>`;
   }
-  function vCClasses() {
-    return shell("c", "수업 관리", `
-      <a class="btn ghost" href="#/c/products" style="margin-bottom:14px">🎟️ 수업상품 관리 ›</a>
-      ${DB.classes.map((c) => `<button class="card card-tap" onclick="location.hash='#/c/class/${c.id}'">
+  // 시정①: 센터·선생님 공용 수업 관리 — 선생님은 본인 수업 + classAuth(P2-2) 권한 필요
+  function vClasses(role) {
+    const isT = role === "t";
+    const me = isT ? teacher(DB.me.teacher) : null;
+    const auth = isT ? classAuth(me) : { ok: true };
+    const list = isT ? DB.classes.filter((c) => c.teacherId === DB.me.teacher) : DB.classes;
+    const card = (c) => `<${auth.ok ? `button class="card card-tap" onclick="location.hash='#/${role}/class/${c.id}'"` : `div class="card"`}>
         <div class="row"><span class="grow"><b>${c.title}</b>${c.status === "closed" ? ' <span class="badge b-danger">폐강</span>' : ""}
         <div class="muted small mt4">${teacher(c.teacherId).name} · ${c.scheduleLabel}</div>
         <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 ${c.capacity}명`}</span>
         <span class="badge b-gray">${eligLabel(c)}</span>
         <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "조율형"}</span></div>
         ${c.status === "closed" ? `<div class="muted small mt4">사유: ${c.closedReason}</div>` : ""}</span>
-        <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`).join("")}
-      <div class="sec-title">새 수업 개설</div>
+        ${auth.ok ? `<span class="arrow" style="color:var(--text-disabled)">›</span>` : ""}</div></${auth.ok ? "button" : "div"}>`;
+    return shell(role, isT ? "내 수업 관리" : "수업 관리", `
+      ${isT ? (auth.ok
+        ? `<div class="banner" style="margin-bottom:14px"><span class="ic">🔓</span><span>수업 개설·관리 권한: <b>${auth.via}</b> — 내 수업의 개설·수정·폐강이 가능해요.</span></div>`
+        : `<div class="banner warn" style="margin-bottom:14px"><span class="ic">🔒</span><span><b>수업 개설·관리 권한이 없어요.</b> 센터관리자의 지정을 받거나 자격 멤버십(예: 그룹 필라테스)을 보유해야 해요. 센터에 문의해 주세요.</span></div>`)
+        : `<a class="btn ghost" href="#/c/products" style="margin-bottom:14px">🎟️ 수업상품 관리 ›</a>`}
+      ${list.length ? list.map(card).join("") : `<div class="card flat"><p class="muted">담당 수업이 없어요.</p></div>`}
+      ${auth.ok ? `<div class="sec-title">새 수업 개설</div>
       <div class="card">
         <div class="field"><label>수업명</label><input type="text" id="nc-title" placeholder="예: 저녁 요가 클래스"></div>
-        <div class="field"><label>담당 선생님</label><select id="nc-teacher">${DB.teachers.map((t) => `<option value="${t.id}">${t.name} (${t.subject})</option>`).join("")}</select></div>
+        ${isT ? `<div class="field"><label>담당 선생님</label><input type="text" value="${me.name} (본인)" disabled><div class="hint">선생님 개설 수업은 본인 담당으로 만들어져요.</div></div>`
+          : `<div class="field"><label>담당 선생님</label><select id="nc-teacher">${DB.teachers.map((t) => `<option value="${t.id}">${t.name} (${t.subject})</option>`).join("")}</select></div>`}
         <div class="field"><label>종류</label><div class="seg" id="nc-kind">
           <button class="on" data-v="group" onclick="App.seg(this)">그룹 (다인)</button>
           <button data-v="private" onclick="App.seg(this)">개인 (1:1)</button></div></div>
@@ -806,21 +828,22 @@
           <button data-v="both" onclick="App.segElig(this,'nc')">혼합</button></div>
           <div class="hint">그룹수업도 특정 회원만 지정할 수 있어요.</div></div>
         ${eligExtraHtml("nc", null)}
-        <button class="btn primary" onclick="App.createClass()">수업 개설</button>
-      </div>`);
+        <button class="btn primary" onclick="App.createClass('${role}')">수업 개설</button>
+      </div>` : ""}`, isT ? { back: true } : {});
   }
-  // B1: 수업 수정·폐강
-  function vCClassManage(id) {
+  // B1+시정①: 수업 수정·폐강 — 선생님은 본인 수업 + 권한 있을 때만
+  function vClassManage(role, id) {
     const c = cls(id);
-    if (!c) return vCClasses();
+    if (!c) return vClasses(role);
+    if (role === "t" && (c.teacherId !== DB.me.teacher || !classAuth(teacher(DB.me.teacher)).ok)) return vClasses(role);
     const future = DB.slots.filter((s) => s.classId === id && s.status === "scheduled" && !isPast(s));
     const affected = future.reduce((a, s) => a + DB.bookings.filter((b) => b.slotId === s.id && ["booked", "waitlisted"].includes(b.status)).length, 0);
     if (c.status === "closed") {
-      return shell("c", c.title, `
+      return shell(role, c.title, `
         <div class="banner warn"><span class="ic">🚫</span><span><b>폐강된 수업</b> · ${c.closedAt || ""}<br>사유: ${c.closedReason}</span></div>
         <div class="card"><div class="muted small">폐강 시점에 예정 회차의 예약은 자동취소·알림 처리됐고, 이미 진행된 회차의 정산 귀속은 그대로 유지돼요.</div></div>`, { back: true });
     }
-    return shell("c", c.title, `
+    return shell(role, c.title, `
       <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · ${c.kind === "private" ? "개인 1:1" : `그룹 정원 ${c.capacity}명`} · 예정 회차 ${future.length}개 · 예약 ${affected}건</div></div>
       <div class="sec-title">수업 정보 수정</div>
       <div class="card">
@@ -831,13 +854,13 @@
           <button${c.eligibility === "list" ? ' class="on"' : ""} data-v="list" onclick="App.segElig(this,'ec')">회원 지정</button>
           <button${c.eligibility === "both" ? ' class="on"' : ""} data-v="both" onclick="App.segElig(this,'ec')">혼합</button></div></div>
         ${eligExtraHtml("ec", c)}
-        <button class="btn primary" onclick="App.updateClass('${c.id}')">수정 저장</button>
+        <button class="btn primary" onclick="App.updateClass('${c.id}','${role}')">수정 저장</button>
         <div class="hint mt8">종류(그룹/개인)·일정 방식은 기존 예약 보호를 위해 수정할 수 없어요. 필요하면 폐강 후 새로 개설해 주세요.</div>
       </div>
       <div class="sec-title">폐강</div>
       <div class="card">
         <p class="muted small">폐강하면 예정 회차 ${future.length}개의 예약 ${affected}건이 자동취소되고 회원에게 알림이 가요. 아직 차감 전이라 횟수 손실은 없고, 이미 진행된 회차의 정산은 유지돼요. 폐강 사유는 필수 기록이에요.</p>
-        <button class="btn danger-ghost mt8" onclick="App.askCloseClass('${c.id}')">이 수업 폐강하기</button>
+        <button class="btn danger-ghost mt8" onclick="App.askCloseClass('${c.id}','${role}')">이 수업 폐강하기</button>
       </div>`, { back: true });
   }
   function vCBookings() {
@@ -968,6 +991,16 @@
           ${sel("App.setAutoConfirm(this.value)", [[12, "12시간 후"], [24, "24시간 후"], [48, "48시간 후"], [0, "사용 안 함"]], P.autoConfirmHours)}</div>
         <div class="toggle-row"><span><div class="tl">이의제기 기간</div><div class="td">기간 내 접수 시 정산 보류</div></span>
           ${sel("App.setDispute(this.value)", [[3, "3일"], [7, "7일"], [14, "14일"]], P.disputeDays)}</div>
+      </div>
+      <div class="sec-title">수업 개설 권한 (선생님) · P2-2</div>
+      <div class="card">
+        <div class="field"><label>센터 지정 선생님</label>
+          <div class="chips">${DB.teachers.map((t) => `<button class="chip${(P.classAuth.memberIds || []).includes(t.memberId) ? " on" : ""}" onclick="App.authMember('${t.memberId}')">${t.name}</button>`).join("")}</div>
+          <div class="hint">지정된 선생님은 본인 수업의 개설·수정·폐강이 가능해요.</div></div>
+        <div class="field"><label>자격 멤버십</label>
+          <div class="chips">${DB.products.map((p) => `<button class="chip${(P.classAuth.productIds || []).includes(p.id) ? " on" : ""}" onclick="App.authProduct('${p.id}')">${p.name}</button>`).join("")}</div>
+          <div class="hint">이 멤버십(유효 수업권)을 보유한 선생님 계정도 개설 권한을 가져요 — 예: 그룹 필라테스 멤버십.</div></div>
+        <div class="muted small">현재 권한: ${DB.teachers.map((t) => { const a = classAuth(t); return `<b>${t.name}</b> ${a.ok ? a.via : "권한 없음"}`; }).join(" · ")}<br>둘 다 비우면 수업 개설·관리는 센터만 가능해요. 선생님 계정은 호스트 앱(니짐내짐) 회원 계정과 연결돼요.</div>
       </div>
       <div class="sec-title">정산 · 샐리 연동</div>
       <div class="card flat">
@@ -1323,9 +1356,16 @@
       render();
       toast(`«${name}» 상품이 개설됐어요.`);
     },
-    createClass() {
+    // 시정①: 선생님 개설은 classAuth 재검증(UI 숨김만으론 부족 — 04 원칙) + 본인 담당 고정
+    createClass(role) {
+      let teacherId;
+      if (role === "t") {
+        if (!classAuth(teacher(DB.me.teacher)).ok) { toast("수업 개설 권한이 없어요 — 센터 지정 또는 자격 멤버십이 필요해요."); return; }
+        teacherId = DB.me.teacher;
+      } else {
+        teacherId = document.getElementById("nc-teacher").value;
+      }
       const title = document.getElementById("nc-title").value.trim() || "새 수업";
-      const teacherId = document.getElementById("nc-teacher").value;
       const kind = document.querySelector("#nc-kind .on").dataset.v;
       const sched = document.querySelector("#nc-sched .on").dataset.v;
       const elig = document.querySelector("#nc-elig .on").dataset.v;
@@ -1341,8 +1381,17 @@
       render();
       toast(`«${title}» 수업이 개설됐어요.`);
     },
+    // 시정①: 선생님의 수정·폐강 가드 — 본인 수업 + 권한 보유
+    teachGuard(id, role) {
+      if (role !== "t") return true;
+      const c = cls(id);
+      if (!c || c.teacherId !== DB.me.teacher) { toast("내 담당 수업만 관리할 수 있어요."); return false; }
+      if (!classAuth(teacher(DB.me.teacher)).ok) { toast("수업 관리 권한이 없어요 — 센터 지정 또는 자격 멤버십이 필요해요."); return false; }
+      return true;
+    },
     // B1: 수업 수정
-    updateClass(id) {
+    updateClass(id, role) {
+      if (!App.teachGuard(id, role)) return;
       const c = cls(id);
       const title = document.getElementById("ec-title").value.trim() || c.title;
       let cap = c.capacity;
@@ -1364,7 +1413,8 @@
       toast("수업 정보를 수정했어요. 기존 예약은 그대로 유지돼요.");
     },
     // B1: 폐강 — 사유 필수, 예정 예약 자동취소·알림, 진행분 정산 유지
-    askCloseClass(id) {
+    askCloseClass(id, role) {
+      if (!App.teachGuard(id, role)) return;
       const c = cls(id);
       const future = DB.slots.filter((s) => s.classId === id && s.status === "scheduled" && !isPast(s));
       const affected = future.reduce((a, s) => a + DB.bookings.filter((b) => b.slotId === s.id && ["booked", "waitlisted"].includes(b.status)).length, 0);
@@ -1372,9 +1422,10 @@
         <div class="field mt12"><label>폐강 사유 (필수 · 회원에게 전달)</label>
         <textarea id="cc-reason" rows="2" placeholder="예: 강사 사정으로 9월부터 운영이 어려워요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
-        <button class="btn danger-ghost" onclick="App.closeClass('${id}')">폐강 확정</button></div>`);
+        <button class="btn danger-ghost" onclick="App.closeClass('${id}','${role || "c"}')">폐강 확정</button></div>`);
     },
-    closeClass(id) {
+    closeClass(id, role) {
+      if (!App.teachGuard(id, role)) return;
       const reason = (document.getElementById("cc-reason") || { value: "" }).value.trim();
       if (!reason) { toast("폐강 사유를 입력해 주세요 — 필수 기록이에요."); return; }
       const c = cls(id);
@@ -1389,7 +1440,7 @@
       }
       DB.arranges.filter((a) => a.classId === id && a.status === "pending").forEach((a) => { a.status = "declined"; a.reason = "폐강: " + reason; });
       closeModal();
-      location.hash = "#/c/classes";
+      location.hash = role === "t" ? "#/t/classes" : "#/c/classes";
       toast(`폐강 처리됐어요. 예약 ${n}건 자동취소 · 회원 알림 발송. 진행된 회차의 정산은 유지돼요.`);
     },
     // S-4: 기각 = 확인 성립 → 같은 tx에서 차감+정산 라인
@@ -1497,6 +1548,17 @@
     setDispute(v) { DB.policy.disputeDays = parseInt(v, 10); toast("이의제기 기간이 변경됐어요."); },
     setQuickScope(v) { DB.policy.quickScope = v; toast("즉시확정 회원 표시 범위가 변경됐어요."); },
     setNoshowActor(v) { DB.policy.noshowActor = v; toast("노쇼 판정 방식이 변경됐어요. ⚠️ 최종 정책은 형 확인 필요."); },
+    // 시정①: 수업 개설 권한 토글 (P2-2)
+    authMember(mid) {
+      const A = DB.policy.classAuth;
+      A.memberIds = (A.memberIds || []).includes(mid) ? A.memberIds.filter((x) => x !== mid) : [...(A.memberIds || []), mid];
+      render(); toast("수업 개설 권한이 변경됐어요. 이미 개설된 수업은 그대로 운영돼요.");
+    },
+    authProduct(pid) {
+      const A = DB.policy.classAuth;
+      A.productIds = (A.productIds || []).includes(pid) ? A.productIds.filter((x) => x !== pid) : [...(A.productIds || []), pid];
+      render(); toast("자격 멤버십이 변경됐어요. 이미 개설된 수업은 그대로 운영돼요.");
+    },
   };
   window.App = App;
 
@@ -1517,12 +1579,14 @@
     [/^#\/t\/inbox$/, vTInbox],
     [/^#\/t\/slot\/(.+)$/, vTSlot],
     [/^#\/t\/quick$/, () => vTQuick("t")],
+    [/^#\/t\/classes$/, () => vClasses("t")],
+    [/^#\/t\/class\/(.+)$/, (id) => vClassManage("t", id)],
     [/^#\/t\/report$/, vTReport],
     [/^#\/t\/earnings$/, vTEarnings],
     [/^#\/c\/home$/, vCHome],
     [/^#\/c\/products$/, vCProducts],
-    [/^#\/c\/classes$/, vCClasses],
-    [/^#\/c\/class\/(.+)$/, vCClassManage],
+    [/^#\/c\/classes$/, () => vClasses("c")],
+    [/^#\/c\/class\/(.+)$/, (id) => vClassManage("c", id)],
     [/^#\/c\/bookings$/, vCBookings],
     [/^#\/c\/slot\/(.+)$/, vCSlot],
     [/^#\/c\/quick$/, () => vTQuick("c")],

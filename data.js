@@ -15,10 +15,14 @@ window.DB = {
     { id: "m6", name: "한소라", phone: "010-6789-0123", pin: "0909" },
     { id: "m7", name: "오세훈", phone: "010-7890-1234", pin: "1010" },
     { id: "m8", name: "유나래", phone: "010-8901-2345", pin: "1111" }, // 수업권 없음 (필터 데모)
+    // 선생님의 호스트 앱 회원 계정 (staff=수강 회원 picker·즉시확정 목록에서 제외)
+    { id: "m9", name: "박코치", phone: "010-9012-3456", pin: "2222", staff: true },
+    { id: "m10", name: "이필라", phone: "010-0123-4567", pin: "3333", staff: true },
   ],
+  // 시정①: 선생님 계정 = 호스트 앱 회원 계정(memberId) — 수업 개설 권한 판정에 사용 (02 P2-2)
   teachers: [
-    { id: "t1", name: "박코치", subject: "PT" },
-    { id: "t2", name: "이필라", subject: "필라테스" },
+    { id: "t1", name: "박코치", subject: "PT", memberId: "m9" },
+    { id: "t2", name: "이필라", subject: "필라테스", memberId: "m10" },
   ],
 
   // 수업 멤버십 상품 (validityDays=null → 유효기간 없음)
@@ -45,6 +49,7 @@ window.DB = {
     { id: "ps9", memberId: "m5", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-10-05", remaining: 14 },
     { id: "ps10", memberId: "m6", productId: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group", total: 10, unitPrice: 35000, expiresAt: null, remaining: 4 },
     { id: "ps11", memberId: "m7", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-11-01", remaining: 17 },
+    { id: "ps12", memberId: "m10", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-12-31", remaining: 20 }, // 이필라: 멤버십 자격으로 수업 개설 (시정①)
   ],
 
   // 수업권 원장 (append-only) — m1 것만 시드
@@ -155,6 +160,8 @@ window.DB = {
     autoWarnRate: 30,           // P7-5 자동확정 비율 경고 임계 %
     disputeDays: 7,             // P7-4
     noshowSallyReward: false,   // P9-1 노쇼 회차 샐리 보상 전달 (기본 끔) ⚠️형 확인 필요
+    // P2-2 (시정①) 수업 개설·관리 권한: 센터 지정 회원 or 자격 멤버십 보유 회원. 둘 다 비우면 센터만.
+    classAuth: { memberIds: ["m9"], productIds: ["pr3"] }, // 박코치=센터 지정, 이필라=필라테스 그룹 멤버십 자격
   },
 
   // 정산 라인 (8월) — 수강확인 성립 tx마다 1행. status: eligible|held(이의 보류)|removed(인용·무효화)
