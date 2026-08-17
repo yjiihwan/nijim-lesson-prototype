@@ -1,6 +1,8 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
    v2 (2026-08-17 보완): 감사 결함 35건 + 신규 4건 반영.
    v2.1 (2026-08-17 시정): 선생님 수업 개설·관리(수정·폐강) — 권한=센터 지정 회원 or 자격 멤버십 보유(02 P2-2).
+   v2.2 (2026-08-17 형 확정 반영): ① P5-4b 노쇼=보고→통지→무이의 시 자동 확정·차감(이의 건만 센터 중재)
+   ② P9-1 노쇼 보상=센터별 설정(없음/지원 — 정상·별도 단가, 샐리 자동 push·수동 체크) — 정산 미리보기 동적 반영.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -116,6 +118,27 @@
     if (b && b.passId) return pass(b.passId);
     const mine = passesOf(r.memberId);
     return mine[0] || null;
+  }
+
+  // ── 노쇼 (형 확정 2026-08-17 · 02 P5-4b/P9-1) ──
+  // 판정: 선생님 보고 → 회원 즉시 통지 → 이의기간 내 무이의 시 자동 확정·차감. 이의 건만 센터 중재.
+  const noshowDeadline = (r) => addDays(r.date || (r.slotId ? slot(r.slotId).date : DB.TODAY), DB.policy.disputeDays);
+  const noshowTeacher = (r) => r.teacherId || (r.slotId ? cls(slot(r.slotId).classId).teacherId : null);
+  const noshowFinals = (tid) => DB.reports.filter((r) => r.status === "noshow_final" && noshowTeacher(r) === tid);
+  // 보상 단가는 현재 정책으로 동적 계산 — 옵션 전환이 정산 미리보기에 즉시 반영
+  const noshowUnit = (r) => (DB.policy.noshowRewardPrice === "custom" ? DB.policy.noshowRewardCustom : r.unitPrice || 0);
+  const rewardOn = () => DB.policy.noshowReward === "support";
+  function finalizeNoshow(r, mode) { // mode: "auto"(무이의 자동확정) | "reject"(이의 기각)
+    const b = r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
+    const p = passForReport(r, b);
+    if (!p || p.remaining <= 0) return { ok: false, msg: "잔여 0회라 차감할 수 없어요 — 센터 예외처리로 넘어가요." };
+    p.remaining -= 1;
+    pushLedger(p.id, -1, mode === "auto" ? "노쇼 차감 (무이의 자동확정)" : "노쇼 차감 (이의 기각)", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || "");
+    r.status = "noshow_final"; r.deducted = true;
+    if (mode === "auto") { r.autoFinal = true; r.method = "자동확정"; r.label = "노쇼 확정 · 무이의 자동확정"; }
+    else { r.autoFinal = false; r.method = "센터 기각 확정"; r.label = "노쇼 확정 · 이의 기각"; }
+    if (b) b.status = "noshow_final";
+    return { ok: true };
   }
 
   // M-10: 대기 자동 승격 (P4-4)
@@ -362,8 +385,11 @@
     return shell("m", "니짐내짐 레슨", `
       ${confirmWait.map((b) => `<button class="banner" onclick="location.hash='#/m/confirm/${b.id}'">
         <span class="ic">✍️</span><span>${slotDesc(slot(b.slotId))} 수업, 잘 받으셨나요? <u>수강 확인하기</u></span></button>`).join("")}
-      ${noshow.map((b) => `<button class="banner warn" onclick="location.hash='#/m/bookings'">
-        <span class="ic">⚠️</span><span>${slotDesc(slot(b.slotId))} 회차가 <b>노쇼</b>로 보고됐어요. 사실과 다르면 이의제기해 주세요.</span></button>`).join("")}
+      ${noshow.map((b) => {
+        const r = DB.reports.find((x) => x.bookingId === b.id && x.status === "noshow_wait");
+        return `<button class="banner warn" onclick="location.hash='#/m/bookings'">
+        <span class="ic">⚠️</span><span>${slotDesc(slot(b.slotId))} 회차가 <b>노쇼</b>로 보고됐어요. ${r ? `<b>${noshowDeadline(r).replaceAll("-", ".")}</b>까지 이의가 없으면 <b>자동 확정·1회 차감</b>돼요.` : ""} 사실과 다르면 이의제기해 주세요.</span></button>`;
+      }).join("")}
       <div class="sec-title">내 수업권</div>
       ${DB.passes.filter((p) => p.memberId === DB.me.member).map(passCard).join("")}
       <a class="btn ghost" href="#/m/shop">+ 수업 멤버십 구매</a>
@@ -709,23 +735,29 @@
     const held = lines.filter((l) => l.status === "held");
     const auto = elig.filter((l) => l.auto).length;
     const amount = elig.reduce((a, l) => a + l.unitPrice, 0);
+    const ns = noshowFinals(DB.me.teacher);
+    const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowUnit(r), 0) : 0;
     return shell("t", "내 정산", `
       <div class="card"><div class="muted small">2026년 8월 · 수강확인 성립분</div>
-        <div class="big mt4">${won(amount)}</div>
-        <div class="muted small mt4">확정 ${elig.length}회 × 회당 단가 (수업권 구매가 기준)</div>
+        <div class="big mt4">${won(amount + nsAmt)}</div>
+        <div class="muted small mt4">확정 ${elig.length}회 × 회당 단가 (수업권 구매가 기준)${nsAmt ? ` + 노쇼 보상` : ""}</div>
         <div class="divider"></div>
         <div class="row" style="justify-content:space-between"><span class="muted">앱·PIN 확인</span><b>${elig.length - auto}회</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${auto}회 ${auto ? '<span class="badge b-warn">검토 대상</span>' : ""}</b></div>
+        ${rewardOn() && ns.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">노쇼 보상 (센터 정책)</span><b>${ns.length}건 · ${won(nsAmt)}</b></div>` : ""}
         ${held.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">이의 심사 중 (보류)</span><b>${held.length}회 <span class="badge b-danger">정산 제외 중</span></b></div>` : ""}
       </div>
       <div class="banner"><span class="ic">💡</span><span>여기는 <b>정산 대상 금액</b>까지만 보여요. 배분율·공제·실지급액은 급여 시스템(샐리)에서 계산돼요.</span></div>`);
   }
 
   // ══ 센터 ══
+  // 04 원칙: 무이의 자동확정된 노쇼도 "무응답 자동확정" 계열로 비율 경고에 포함 (형 확정 08-17)
   function autoStats(teacherId) {
     const lines = DB.slines.filter((l) => l.teacherId === teacherId && l.status !== "removed");
-    const auto = lines.filter((l) => l.auto).length;
-    return { auto, total: lines.length, rate: lines.length ? Math.round((auto / lines.length) * 100) : 0 };
+    const ns = noshowFinals(teacherId);
+    const auto = lines.filter((l) => l.auto).length + ns.filter((r) => r.autoFinal).length;
+    const total = lines.length + ns.length;
+    return { auto, total, rate: total ? Math.round((auto / total) * 100) : 0 };
   }
   function vCHome() {
     const todaySlots = DB.slots.filter((s) => s.date === DB.TODAY && s.status !== "canceled");
@@ -920,17 +952,21 @@
       ${warns.map((x) => `<div class="banner warn"><span class="ic">🤖</span><span>${x.t.name} 자동확정 비율 <b>${x.rate}%</b> (임계 ${DB.policy.autoWarnRate}%). 자동확정 회차는 정산 전 검토를 권장해요.</span></div>`).join("")}
       <div class="sec-title">회차별 수강확인</div>
       <div class="card flat">${DB.reports.map((r) => `
-        <div class="tl-item"><span class="grow"><b>${r.member}</b> <span class="badge ${RP_BADGE[r.status] || "b-gray"}">${r.label}</span>
+        <div class="tl-item"><span class="grow"><b>${r.member}</b> <span class="badge ${RP_BADGE[r.status] || "b-gray"}">${r.label}</span>${r.autoFinal ? ` <span class="badge b-warn">무응답 자동확정</span>` : ""}
           <div class="muted small mt4">${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</div>
           <div class="muted small">${r.at}${r.method ? ` · 수단: ${r.method}` : ""}${r.disputeReason ? ` · 이의 사유: ${r.disputeReason}` : ""}</div>
-          ${r.status === "disputed" ? `<div class="btn-row">
+          ${r.status === "disputed" ? (r.noshow ? `<div class="btn-row">
+            <button class="btn sm primary" onclick="App.resolveDispute('${r.id}', true)">인용 (노쇼 취소 · 차감 없음)</button>
+            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">기각 (노쇼 확정·차감)</button></div>` : `<div class="btn-row">
             <button class="btn sm primary" onclick="App.resolveDispute('${r.id}', true)">인용 (횟수 복원)</button>
-            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">기각 (확정·차감)</button></div>` : ""}
+            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">기각 (확정·차감)</button></div>`) : ""}
           ${r.status === "auto" ? `<div class="btn-row"><button class="btn sm ghost" onclick="App.overrideAuto('${r.id}')">자동확정 무효화</button></div>` : ""}
-          ${r.status === "noshow_wait" ? `<div class="btn-row">
+          ${r.status === "noshow_wait" ? (DB.policy.noshowActor === "center_only" ? `<div class="btn-row">
             <button class="btn sm primary" onclick="App.resolveNoshow('${r.id}', true)">노쇼 확정 (차감)</button>
             <button class="btn sm ghost" onclick="App.resolveNoshow('${r.id}', false)">노쇼 취소 (차감 없음)</button></div>
-            <div class="muted small mt4">이의기간(${DB.policy.disputeDays}일) 내 회원 이의가 없으면 확정 처리해요. ⚠️ 판정 주체·시점은 형 확인 필요(02 P5-4b)</div>` : ""}
+            <div class="muted small mt4">센터만 판정 정책 — 센터가 직접 확정·취소를 결정해요.</div>` : `
+            <div class="muted small mt4">회원 통지됨 · 이의기간 <b>~${noshowDeadline(r).replaceAll("-", ".")}</b> — 무이의 시 <b>자동 확정·차감</b>, 이의 건만 센터 중재 (형 확정 08-17)</div>
+            <div class="btn-row"><button class="btn sm ghost" onclick="App.noshowExpire('${r.id}')">⏩ 이의기간 경과 (데모)</button></div>`) : ""}
         </span></div>`).join("")}</div>
       <p class="muted small">모든 확인에는 시각·기기 기록이 남고, 기록은 사후 수정이 불가능해요(원장·해시체인).</p>`, { back: true });
   }
@@ -944,20 +980,32 @@
       const pushed = elig.filter((l) => l.pushed);
       const pushedHeld = held.filter((l) => l.pushed);
       const auto = elig.filter((l) => l.auto).length;
-      return { t, elig, held, unpushed, pushed, pushedHeld, auto, amount: elig.reduce((a, l) => a + l.unitPrice, 0) };
+      // P9-1 (형 확정 08-17): 노쇼 보상은 센터별 설정 — 확정(noshow_final) 건만, 현재 정책 단가로 동적 집계
+      const ns = noshowFinals(t.id);
+      const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowUnit(r), 0) : 0;
+      const nsUnpushed = rewardOn() && DB.policy.noshowRewardPush === "auto" ? ns.filter((r) => !r.rewardPushed) : [];
+      return { t, elig, held, unpushed, pushed, pushedHeld, auto, ns, nsAmt, nsUnpushed, amount: elig.reduce((a, l) => a + l.unitPrice, 0) };
     });
     const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status)).length;
+    const rewardLabel = !rewardOn() ? "보상 없음 (기본)"
+      : `보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? `별도 단가 ${won(DB.policy.noshowRewardCustom)}` : "정상 단가"} · ${DB.policy.noshowRewardPush === "auto" ? "샐리 자동 push (rewardCodes)" : "샐리 수동 체크"}`;
     return shell("c", "정산 · 2026년 8월", `
       <p class="muted" style="margin-bottom:12px">수강확인이 성립한 회차만 집계돼요. 이의제기 중인 회차는 자동 보류되고 전송에서 빠져요.</p>
       ${per.map((x) => `<div class="card"><div class="row"><span class="grow"><b>${x.t.name} 선생님</b>
           <div class="muted small mt4">확정 ${x.elig.length}회 (자동확정 ${x.auto}회 포함)${x.held.length ? ` · <b style="color:var(--danger)">보류 ${x.held.length}건</b>` : ""}</div></span>
           <span class="big">${won(x.amount)}</span></div>
         ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0"><span class="ic">⏸️</span><span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 전송된 ${x.pushedHeld.length}건은 샐리 쪽 정정(DELETE externalId)이 필요해요.` : ""}</span></div>` : ""}
+        ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0"><span class="ic">🎗️</span><span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${DB.policy.noshowRewardPrice === "custom" ? `별도 단가 ${won(DB.policy.noshowRewardCustom)}` : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리 자동 push(special rewardCodes)${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}</span></div>` : ""}
         <div class="mt12">
           ${x.pushed.length ? `<span class="badge b-green">샐리 전송 완료 ${x.pushed.length}회 · ${x.pushed[x.pushed.length - 1].pushId}</span> ` : ""}
-          ${x.unpushed.length ? `<button class="btn sm primary" onclick="App.sallyPush('${x.t.id}')">${x.pushed.length ? `추가 ${x.unpushed.length}회 보내기` : `샐리로 보내기 (${x.unpushed.length}회)`}</button>` : x.pushed.length ? "" : `<span class="muted small">보낼 확정 회차가 없어요.</span>`}
+          ${x.unpushed.length || x.nsUnpushed.length ? `<button class="btn sm primary" onclick="App.sallyPush('${x.t.id}')">${(() => {
+            const parts = [];
+            if (x.unpushed.length) parts.push(`${x.unpushed.length}회`);
+            if (x.nsUnpushed.length) parts.push(`보상 ${x.nsUnpushed.length}건`);
+            return x.pushed.length ? `추가 ${parts.join(" + ")} 보내기` : `샐리로 보내기 (${parts.join(" + ")})`;
+          })()}</button>` : x.pushed.length ? "" : `<span class="muted small">보낼 확정 회차가 없어요.</span>`}
         </div></div>`).join("")}
-      ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건 — 정산 라인 미생성(수강확인 미성립). 샐리 노쇼 보상(rewardCodes) 전달: <b>${DB.policy.noshowSallyReward ? "사용" : "사용 안 함 (기본)"}</b> <span class="badge b-warn">⚠️ 형 확인 필요</span></div></div>` : ""}
+      ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건 — 정산 라인 미생성(수강확인 미성립). 선생님 보상: <b>${rewardLabel}</b> · P9-1 형 확정(08-17) 센터별 설정 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정 ›</a></div></div>` : ""}
       <div class="banner"><span class="ic">🔗</span><span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 사실(확정 회차)만 넘겨요. externalId 멱등이라 같은 회차는 두 번 전송되지 않아요.</span></div>`);
   }
   function vCPolicy() {
@@ -978,8 +1026,8 @@
         <div class="toggle-row"><span><div class="tl">취소 기한</div><div class="td">기한 지나 취소하면 횟수 차감</div></span>
           ${sel("App.setCancelHours(this.value)", [[6, "6시간 전"], [12, "12시간 전"], [24, "1일 전"], [48, "2일 전"], [72, "3일 전"]], P.cancelHours)}</div>
         <div class="toggle-row"><span><div class="tl">노쇼 시 횟수 차감</div><div class="td">P5-4 · 끄면 차감 없이 종결</div></span>${sw("noshowDeduct", P.noshowDeduct)}</div>
-        <div class="toggle-row"><span><div class="tl">노쇼 판정 <span class="badge b-warn">⚠️ 형 확인 필요</span></div><div class="td">기본: 선생님 보고 → 회원 통지 → 이의기간 후 확정</div></span>
-          ${sel("App.setNoshowActor(this.value)", [["teacher_report", "선생님 보고+이의기간"], ["center_only", "센터만 판정"]], P.noshowActor)}</div>
+        <div class="toggle-row"><span><div class="tl">노쇼 판정</div><div class="td">P5-4b 형 확정(08-17): 보고→통지→무이의 시 자동 확정·차감, 이의 건만 센터 중재. 이의기간=아래 이의제기 기간</div></span>
+          ${sel("App.setNoshowActor(this.value)", [["teacher_report", "선생님 보고 → 무이의 자동확정"], ["center_only", "센터만 판정"]], P.noshowActor)}</div>
       </div>
       <div class="sec-title">수강확인 (서명)</div>
       <div class="card flat">
@@ -1004,7 +1052,15 @@
       </div>
       <div class="sec-title">정산 · 샐리 연동</div>
       <div class="card flat">
-        <div class="toggle-row"><span><div class="tl">노쇼 회차 샐리 보상 전달 <span class="badge b-warn">⚠️ 형 확인 필요</span></div><div class="td">켜면 노쇼를 샐리 special 보상(rewardCodes)으로 전달 (05 문서)</div></span>${sw("noshowSallyReward", P.noshowSallyReward)}</div>
+        <div class="toggle-row"><span><div class="tl">노쇼 회차 선생님 보상</div><div class="td">P9-1 형 확정(08-17): 센터마다 방침이 달라 센터별 설정 — 정산 미리보기에 즉시 반영</div></span>
+          ${sel("App.setNoshowReward(this.value)", [["none", "보상 없음 (기본)"], ["support", "보상 지원"]], P.noshowReward)}</div>
+        ${P.noshowReward === "support" ? `
+        <div class="toggle-row"><span><div class="tl">보상 단가</div><div class="td">정상 단가=해당 수업권 회당 단가 그대로</div></span>
+          ${sel("App.setNoshowRewardPrice(this.value)", [["normal", "정상 단가"], ["custom", "별도 단가 지정"]], P.noshowRewardPrice)}</div>
+        ${P.noshowRewardPrice === "custom" ? `<div class="toggle-row"><span><div class="tl">별도 단가 (원)</div><div class="td">노쇼 1건당 보상액</div></span>
+          <input type="number" value="${P.noshowRewardCustom}" onchange="App.setNoshowRewardCustom(this.value)" style="width:110px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"></div>` : ""}
+        <div class="toggle-row"><span><div class="tl">샐리 전달 방식</div><div class="td">자동=special 보상(rewardCodes) push (05 문서) / 수동=샐리에서 직접 체크</div></span>
+          ${sel("App.setNoshowRewardPush(this.value)", [["auto", "자동 push"], ["manual", "샐리 수동 체크"]], P.noshowRewardPush)}</div>` : ""}
       </div>
       <p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 수업권에는 소급되지 않아요 — 취소규정은 예약 시점에 스냅샷으로 보존돼요.</p>`);
   }
@@ -1233,7 +1289,7 @@
         <p class="muted small mt8">${needConfirm
           ? "보고하면 각 회원에게 수강 확인 요청이 가요. 회원이 확인해야 차감·정산돼요."
           : `이 수업은 확인 생략(출석 체크) 정책이라 보고 즉시 차감돼요. 회원에게 즉시 알림이 가고 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.`}
-          ${DB.policy.noshowDeduct ? ` 노쇼는 회원 통지 후 이의기간이 지나면 차감돼요.` : " 노쇼는 차감 없이 종결돼요."}</p>
+          ${DB.policy.noshowDeduct ? ` 노쇼는 회원에게 즉시 통지되고, 이의기간(${DB.policy.disputeDays}일) 내 이의가 없으면 자동 확정·차감돼요.` : " 노쇼는 차감 없이 종결돼요."}</p>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">취소</button>
         <button class="btn primary" onclick="App.submitReport('${slotId}')">보고하기</button></div>`);
     },
@@ -1250,7 +1306,9 @@
           noshow++;
           if (DB.policy.noshowDeduct) {
             b.status = "noshow_wait";
-            DB.reports.unshift({ id: nid("rp"), slotId, bookingId: b.id, memberId: b.memberId, member: memberName(b.memberId), status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: "8/17 12:00 보고", deducted: false, lineId: null });
+            // 형 확정(08-17): 보고 즉시 회원 통지 → 무이의 시 자동 확정. unitPrice=보상 정산용 스냅샷(P9-1)
+            const np = b.passId && pass(b.passId);
+            DB.reports.unshift({ id: nid("rp"), slotId, bookingId: b.id, memberId: b.memberId, member: memberName(b.memberId), teacherId: c.teacherId, date: s.date, unitPrice: np ? np.unitPrice : 0, noshow: true, status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: "8/17 12:00 보고", deducted: false, lineId: null });
           } else {
             b.status = "canceled"; b.cancelBy = "noshow";
           }
@@ -1270,7 +1328,7 @@
       const parts = [];
       if (asked) parts.push(`확인 요청 ${asked}명`);
       if (deducted) parts.push(`출석 체크 차감 ${deducted}명`);
-      if (noshow) parts.push(`노쇼 ${noshow}명 (회원 통지)`);
+      if (noshow) parts.push(DB.policy.noshowDeduct ? `노쇼 ${noshow}명 (회원 즉시 통지 · 무이의 시 자동확정)` : `노쇼 ${noshow}명 (차감 없이 종결)`);
       toast(`완료 보고했어요 — ${parts.join(" · ")}.`);
     },
     // 하-1: 회원 PIN 확인 목업 (04 수단 B)
@@ -1448,6 +1506,21 @@
       const r = DB.reports.find((x) => x.id === rpId);
       if (!r || r.status !== "disputed") return;
       const b = r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
+      // 형 확정(08-17): 노쇼 이의만 센터 중재 — 인용=노쇼 취소(차감 없음), 기각=노쇼 확정·차감(정산 라인은 미생성)
+      if (r.noshow) {
+        if (accept) {
+          r.status = "resolved"; r.label = "이의 인용 · 노쇼 취소";
+          if (b) { b.status = "canceled"; b.cancelBy = "noshow_waived"; }
+          render();
+          toast("이의를 인용했어요. 노쇼가 취소되고 차감 없이 종결돼요. 회원·선생님에게 통지돼요.");
+        } else {
+          const res = finalizeNoshow(r, "reject");
+          if (!res.ok) { toast("기각 처리 불가 — " + res.msg); return; }
+          render();
+          toast("이의를 기각했어요. 노쇼 확정 — 1회 차감돼요. 회원에게 통지돼요." + (rewardOn() ? " (센터 정책에 따라 보상 정산에 포함)" : ""));
+        }
+        return;
+      }
       const l = r.lineId ? line(r.lineId) : null;
       if (accept) {
         if (r.deducted) {
@@ -1496,7 +1569,16 @@
       render();
       toast("자동확정을 무효화했어요. 횟수가 복원되고 정산에서 제외돼요." + (l && l.pushed ? " (전송분은 샐리 정정 필요)" : ""));
     },
-    // C: 노쇼 처리 — 기본값: 회원 통지·이의기간 후 센터 확정 (⚠️ 형 확인 필요)
+    // 형 확정(08-17): 이의기간 무이의 → 자동 확정·차감. 프로토타입은 기간 경과를 데모 버튼으로 시뮬레이션.
+    noshowExpire(rpId) {
+      const r = DB.reports.find((x) => x.id === rpId);
+      if (!r || r.status !== "noshow_wait") return;
+      const res = finalizeNoshow(r, "auto");
+      if (!res.ok) { toast(res.msg); return; }
+      render();
+      toast("이의기간 경과 — 무이의 자동확정으로 1회 차감됐어요. «무응답 자동확정» 계열로 표시되고 비율 경고에 포함돼요." + (rewardOn() ? " 센터 보상 정책에 따라 정산 미리보기에 반영돼요." : ""));
+    },
+    // 센터만 판정(P5-4b 대안 옵션) 전용 — 기본 정책(무이의 자동확정)에선 노출되지 않음
     resolveNoshow(rpId, deduct) {
       const r = DB.reports.find((x) => x.id === rpId);
       if (!r || r.status !== "noshow_wait") return;
@@ -1517,16 +1599,21 @@
         toast("노쇼를 취소 처리했어요. 차감 없이 종결돼요.");
       }
     },
-    // 멱등 push — eligible & 미전송만, held 제외
+    // 멱등 push — eligible & 미전송만, held 제외. P9-1 auto 모드면 노쇼 보상(rewardCodes)도 함께 전송
     sallyPush(tid) {
       const lines = DB.slines.filter((l) => l.teacherId === tid && l.status === "eligible" && !l.pushed);
       const held = DB.slines.filter((l) => l.teacherId === tid && l.status === "held").length;
-      if (!lines.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
+      const rewards = rewardOn() && DB.policy.noshowRewardPush === "auto" ? noshowFinals(tid).filter((r) => !r.rewardPushed) : [];
+      if (!lines.length && !rewards.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
       const pid = "sly_" + tid + "_202608_" + seq++;
       lines.forEach((l) => { l.pushed = true; l.pushId = pid; });
+      rewards.forEach((r) => { r.rewardPushed = true; r.rewardPushId = pid; });
       render();
       const t = teacher(tid);
-      toast(`${t.name} 선생님 ${lines.length}회를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. (externalId 멱등 · mock)`);
+      const parts = [];
+      if (lines.length) parts.push(`${lines.length}회`);
+      if (rewards.length) parts.push(`노쇼 보상 ${rewards.length}건 (special rewardCodes)`);
+      toast(`${t.name} 선생님 ${parts.join(" + ")}를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. (externalId 멱등 · mock)`);
     },
     toggle(key) {
       const P = DB.policy;
@@ -1547,7 +1634,12 @@
     setAutoConfirm(v) { DB.policy.autoConfirmHours = parseInt(v, 10); render(); toast("자동확정 설정이 변경됐어요."); },
     setDispute(v) { DB.policy.disputeDays = parseInt(v, 10); toast("이의제기 기간이 변경됐어요."); },
     setQuickScope(v) { DB.policy.quickScope = v; toast("즉시확정 회원 표시 범위가 변경됐어요."); },
-    setNoshowActor(v) { DB.policy.noshowActor = v; toast("노쇼 판정 방식이 변경됐어요. ⚠️ 최종 정책은 형 확인 필요."); },
+    setNoshowActor(v) { DB.policy.noshowActor = v; render(); toast(v === "center_only" ? "센터만 판정으로 변경했어요 — 노쇼 확정·취소를 센터가 직접 결정해요." : "선생님 보고 → 무이의 자동확정 방식이에요 (형 확정 08-17 기본값)."); },
+    // P9-1 (형 확정 08-17): 노쇼 보상 센터별 설정 — 변경 즉시 정산 미리보기 재계산
+    setNoshowReward(v) { DB.policy.noshowReward = v; render(); toast(v === "support" ? "노쇼 보상을 지원해요 — 정산·샐리 전송 미리보기에 반영됐어요." : "노쇼 보상 없음(기본)으로 설정했어요."); },
+    setNoshowRewardPrice(v) { DB.policy.noshowRewardPrice = v; render(); toast(v === "custom" ? "별도 단가로 보상해요 — 아래에서 금액을 지정해 주세요." : "정상 단가(수업권 회당 단가)로 보상해요."); },
+    setNoshowRewardCustom(v) { DB.policy.noshowRewardCustom = Math.max(0, parseInt(v, 10) || 0); render(); toast(`별도 단가 ${won(DB.policy.noshowRewardCustom)}로 저장했어요.`); },
+    setNoshowRewardPush(v) { DB.policy.noshowRewardPush = v; render(); toast(v === "auto" ? "샐리 자동 push(special rewardCodes)로 전달해요." : "샐리에서 수동 체크로 지급해요 — push에 포함되지 않아요."); },
     // 시정①: 수업 개설 권한 토글 (P2-2)
     authMember(mid) {
       const A = DB.policy.classAuth;

@@ -142,6 +142,9 @@ window.DB = {
     { id: "rp2", slotId: null, bookingId: null, memberId: "m2", member: "박서준", desc: "8/13 (목) 19:00 PT", status: "confirmed", method: "PIN", label: "확인 완료", at: "8/13 20:12 확인", deducted: true, lineId: "sl3" },
     { id: "rp3", slotId: null, bookingId: null, memberId: "m3", member: "이하늘", desc: "8/12 (수) 18:00 PT", status: "auto", method: "자동확정", label: "자동확정", at: "8/13 18:00", deducted: true, lineId: "sl4" },
     { id: "rp4", slotId: null, bookingId: null, memberId: "m4", member: "최민아", desc: "8/11 (화) 06:30 크로스핏", status: "disputed", method: null, label: "이의제기", at: "8/12 09:30 접수", deducted: true, lineId: "sl12" },
+    // 노쇼 데모 시드 (형 확정 08-17) — noshow=이의 시 센터 중재 분기, teacherId·date·unitPrice=보상 정산·기한 계산용
+    { id: "rp6", slotId: null, bookingId: null, memberId: "m6", member: "한소라", desc: "8/5 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-05", unitPrice: 35000, noshow: true, status: "noshow_final", method: "자동확정", autoFinal: true, label: "노쇼 확정 · 무이의 자동확정", at: "8/5 11:05 보고 · 8/12 무이의 자동확정", deducted: true, lineId: null },
+    { id: "rp7", slotId: null, bookingId: null, memberId: "m7", member: "오세훈", desc: "8/12 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-12", unitPrice: 30000, noshow: true, status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: "8/12 11:10 보고", deducted: false, lineId: null },
   ],
 
   // 센터 정책 (02 문서) — 예약·수업권엔 스냅샷으로 소급 안 됨
@@ -151,7 +154,9 @@ window.DB = {
     cancelMode: "conditional",  // P5-1 불가|conditional
     cancelHours: 24,            // P5-2
     noshowDeduct: true,         // P5-4 노쇼 차감 여부
-    noshowActor: "teacher_report", // P5-4b 판정: teacher_report(선생님 보고+회원 통지·이의기간)/center_only ⚠️형 확인 필요
+    // P5-4b 형 확정(2026-08-17): teacher_report=보고→회원 즉시 통지→이의기간(P7-4) 무이의 시 자동 확정·차감,
+    // 이의 건만 센터 중재. center_only=센터만 판정(대안 옵션). 이의기간 길이는 disputeDays(센터별, 기본 7일).
+    noshowActor: "teacher_report",
     quickScope: "valid",        // P6-4 즉시확정 회원 표시: valid(유효 수업권 보유자만)/all/mine(담당만)
     signPrivate: true,          // P7-1 개인수업 수강확인 필수
     signGroup: false,           // P7-1 그룹수업
@@ -159,7 +164,11 @@ window.DB = {
     autoConfirmHours: 24,       // P7-3 (0=사용 안 함)
     autoWarnRate: 30,           // P7-5 자동확정 비율 경고 임계 %
     disputeDays: 7,             // P7-4
-    noshowSallyReward: false,   // P9-1 노쇼 회차 샐리 보상 전달 (기본 끔) ⚠️형 확인 필요
+    // P9-1 형 확정(2026-08-17): 노쇼 보상은 센터별 설정 — none(없음·기본)/support(지원)
+    noshowReward: "none",
+    noshowRewardPrice: "normal", // 단가: normal(정상=수업권 회당 단가)/custom(별도 지정)
+    noshowRewardCustom: 20000,   // 별도 단가(원)
+    noshowRewardPush: "auto",    // 샐리 전달: auto(special rewardCodes push)/manual(샐리 수동 체크)
     // P2-2 (시정①) 수업 개설·관리 권한: 센터 지정 회원 or 자격 멤버십 보유 회원. 둘 다 비우면 센터만.
     classAuth: { memberIds: ["m9"], productIds: ["pr3"] }, // 박코치=센터 지정, 이필라=필라테스 그룹 멤버십 자격
   },
