@@ -240,3 +240,35 @@ window.DB = {
     }
   }
 })();
+
+// v2.7 선생님 대규모 시드 — 32명 추가(총 34명, 직군 혼합. 형 지적 08-17: 선생님 수십 명 센터에서
+// 정책 화면 P2-2·P2-2b가 표현 불가 → 검색·요약형 UI 검증용). 기명 데모(박코치 t1·이필라 t2)와
+// 시나리오 시드(classAuth·teacherScope t2)는 그대로 유지. LCG 결정적 생성 — 새로고침·테스트 간 동일.
+(function seedScaleTeachers() {
+  const T = window.DB.teachers, M = window.DB.members, P = window.DB.passes;
+  const used = new Set(M.map((m) => m.name));
+  T.forEach((t) => used.add(t.name));
+  const SUBJ = ["PT", "필라테스", "요가", "크로스핏", "수영", "GX"];
+  const SUR = "김이박최정강조윤장임한오서신권황안송전홍고문양손배백허유남심노하곽성차주우구민류";
+  const GA = "지민서예도하주윤채현수시은태정소연재영준";
+  const GB = "안은호원우연아영준희린솔빈결담율찬경환";
+  let rng = 20260818;
+  // 상위 비트 사용 — LCG 하위 비트는 주기가 짧아 % n 시 분포가 심하게 쏠림
+  const rnd = (n) => ((rng = (rng * 1103515245 + 12345) % 2147483648), Math.floor((rng / 2147483648) * n));
+  for (let i = 3; i <= 34; i++) {
+    let name = SUR[rnd(SUR.length)] + GA[rnd(GA.length)] + GB[rnd(GB.length)];
+    while (used.has(name)) name = SUR[rnd(SUR.length)] + GA[rnd(GA.length)] + GB[rnd(GB.length)];
+    used.add(name);
+    const s4 = String(i).padStart(4, "0");
+    const mid = "gtm" + i;
+    M.push({ id: mid, name, phone: "010-8000-" + s4, pin: "0000", staff: true });
+    T.push({ id: "gt" + i, name, subject: SUBJ[rnd(SUBJ.length)], memberId: mid });
+    // 일부는 자격 멤버십(pr3) 보유 — «멤버십 자격» 권한 경로가 규모에서도 동작하는지 검증용
+    if (i % 11 === 0) P.push({ id: "gtps" + i, memberId: mid, productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
+      total: 20, unitPrice: 30000, expiresAt: "2026-12-31", remaining: 20 });
+  }
+  // P2-2b 범위 시드 — 리스트 요약 표기가 다양하게 보이도록 (gt5=멤버십 2개, gt12=개별 회원 5명)
+  const TS = window.DB.policy.teacherScope;
+  TS.gt5 = { mode: "custom", productIds: ["pr1", "pr2"], memberIds: [] };
+  TS.gt12 = { mode: "custom", productIds: [], memberIds: ["gm1", "gm2", "gm3", "gm4", "gm5"] };
+})();

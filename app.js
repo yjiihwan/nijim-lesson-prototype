@@ -9,6 +9,10 @@
    점진 로딩(전체 렌더 금지)+선택 칩 요약. 더미 회원 3,000명 규모에서 검증. 칩 전체 나열 UI 제거.
    v2.5 (2026-08-17): P9-1 별도 단가에 «수업료의 %» 방식 추가 — 회당 단가(정상 단가)×n%(0~100), 원 단위
    반올림(Math.round) 일관 적용. 설정 실시간 예시 미리보기. 기존 고정 금액 저장분(customMode 키 없음)=하위 호환.
+   v2.7 (2026-08-17 형 지적): 정책 화면 선생님 권한 UI를 수십 명 규모 대응으로 개편 — P2-2 센터 지정
+   선생님·자격 멤버십=요약+편집(검색·체크 리스트), P2-2b=검색 리스트(행=이름·직군·설정 요약)→행 탭 시
+   상세 화면(#/c/policy/scope/:tid)에서 편집. 기능(전체/범위 지정·멤버십 단위·개별 회원)은 전부 유지.
+   더미 선생님 32명 추가(총 34명, 직군 혼합) — 정산 화면은 내역 있는 선생님만 표시.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -107,6 +111,16 @@
     const parts = (S.productIds || []).map((pid) => (DB.products.find((p) => p.id === pid) || { name: pid }).name + " 전체");
     if ((S.memberIds || []).length) parts.push(`개별 ${S.memberIds.length.toLocaleString("ko-KR")}명`);
     return parts.length ? `${parts.join(" + ")} · 총 ${tScopeMembers(tid).length.toLocaleString("ko-KR")}명` : "빈 범위 — 지정 가능 회원 없음";
+  }
+  // v2.7: P2-2b 리스트 행 요약 — 상세 나열 대신 개수 요약 (수십 명 규모 리스트용)
+  function tScopeShort(tid) {
+    const S = tScope(tid);
+    if (S.mode === "all") return "전체 회원";
+    const np = (S.productIds || []).length, nm = (S.memberIds || []).length;
+    const parts = [];
+    if (np) parts.push(`멤버십 ${np}개`);
+    if (nm) parts.push(`회원 ${nm.toLocaleString("ko-KR")}명`);
+    return parts.length ? `범위 지정 · ${parts.join(" · ")} · 총 ${tScopeMembers(tid).length.toLocaleString("ko-KR")}명` : "범위 지정 · 빈 범위 — 지정 가능 회원 없음";
   }
 
   // ── 예약 자격 (M-3: eligibility 실검증) ──
@@ -950,6 +964,61 @@
     if (bar) bar.innerHTML = pkSelbarHtml(id, st);
   }
 
+  // ── v2.7: 정책 화면 선생님 권한 UI (형 지적 08-17: 수십 명 규모) ──
+  // polUI: 편집 펼침·검색어 — 같은 화면(해시) 안에서만 유지, 화면 이동 시 초기화.
+  // 검색 입력은 해당 리스트 서브트리만 갱신(포커스 유지) — 토글·저장은 기존 액션이 전체 render.
+  // 유지 범위=정책 화면군(#/c/policy·상세) — 상세 편집을 다녀와도 검색·펼침 맥락 유지, 밖으로 나가면 초기화(render에서).
+  const polUI = { live: false, open: {}, q: {} };
+  function polState() {
+    if (!polUI.live) { polUI.live = true; polUI.open = {}; polUI.q = {}; }
+    return polUI;
+  }
+  function polFilterTeachers(key) {
+    const q = (polState().q[key] || "").trim();
+    return q ? DB.teachers.filter((t) => t.name.includes(q) || t.subject.includes(q)) : DB.teachers;
+  }
+  const POL_EMPTY = '<p class="muted small" style="padding:12px">검색 결과가 없어요.</p>';
+  // P2-2 센터 지정 선생님 — 체크 리스트
+  function polAuthRows() {
+    const on = new Set(DB.policy.classAuth.memberIds || []);
+    return polFilterTeachers("auth").map((t) => `<button class="pk-row${on.has(t.memberId) ? " on" : ""}" onclick="App.authMember('${t.memberId}')">
+        <span class="grow"><b>${t.name}</b> <span class="muted small">${t.subject}</span></span>
+        <span class="pk-check">${on.has(t.memberId) ? "✓" : "+"}</span></button>`).join("") || POL_EMPTY;
+  }
+  // P2-2 자격 멤버십 — 체크 리스트 (멤버십도 늘어날 수 있어 동일 패턴)
+  function polProdRows() {
+    const q = (polState().q.prod || "").trim();
+    const list = q ? DB.products.filter((p) => p.name.includes(q)) : DB.products;
+    const on = new Set(DB.policy.classAuth.productIds || []);
+    return list.map((p) => `<button class="pk-row${on.has(p.id) ? " on" : ""}" onclick="App.authProduct('${p.id}')">
+        <span class="grow"><b>${p.name}</b> <span class="muted small">${p.kind === "private" ? "개인" : "그룹"} · ${p.sessions}회</span></span>
+        <span class="pk-check">${on.has(p.id) ? "✓" : "+"}</span></button>`).join("") || POL_EMPTY;
+  }
+  // P2-2b 선생님 리스트 — 행=이름·직군·설정 요약, 탭하면 상세 화면에서 편집
+  function polScopeRows() {
+    return polFilterTeachers("scope").map((t) => `<button class="pk-row" onclick="location.hash='#/c/policy/scope/${t.id}'">
+        <span class="grow"><b>${t.name}</b> <span class="muted small">${t.subject}</span>
+          <div class="muted small">${tScopeShort(t.id)}</div></span>
+        <span class="arrow">›</span></button>`).join("") || POL_EMPTY;
+  }
+  const polRows = { auth: polAuthRows, prod: polProdRows, scope: polScopeRows };
+  // 접힘 요약: "지정 N명 — 박코치 외 N-1" (전체 나열 금지)
+  function polSummary(names, unit) {
+    if (!names.length) return "지정 없음";
+    return `<b>지정 ${names.length.toLocaleString("ko-KR")}${unit}</b> — ${names[0]}${names.length > 1 ? ` 외 ${names.length - 1}` : ""}`;
+  }
+  // 요약+편집 블록 (P2-2 공용)
+  function polEditBlock(key, summary, placeholder, totalLabel) {
+    const U = polState();
+    return `<div class="row"><span class="grow muted">${summary}</span>
+        <button class="btn sm ghost" onclick="App.polOpen('${key}')">${U.open[key] ? "닫기" : "편집"}</button></div>
+      ${U.open[key] ? `<div class="pk mt8">
+        <div class="pk-tools"><input type="search" placeholder="${placeholder}" value="${(U.q[key] || "").replaceAll('"', "&quot;")}" oninput="App.polQuery('${key}', this.value)" autocomplete="off" aria-label="${placeholder}"></div>
+        <div class="pk-total">${totalLabel}</div>
+        <div class="pk-results"><div id="pol-${key}-list">${polRows[key]()}</div></div>
+      </div>` : ""}`;
+  }
+
   // B2: 회원 지정 picker + 자격 수업권 지정. v2.3: 선생님은 «지정 가능 회원 범위»(P2-2b) 안의 회원만
   function eligExtraHtml(prefix, c, role) {
     const selP = c ? c.eligibleProductIds || [] : ["pr3", "pr4"];
@@ -1131,7 +1200,10 @@
       const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowUnit(r), 0) : 0;
       const nsUnpushed = rewardOn() && DB.policy.noshowRewardPush === "auto" ? ns.filter((r) => !r.rewardPushed) : [];
       return { t, elig, held, unpushed, pushed, pushedHeld, auto, ns, nsAmt, nsUnpushed, amount: elig.reduce((a, l) => a + l.unitPrice, 0) };
-    });
+    })
+      // v2.7: 선생님 수십 명 규모 — 이번 달 내역(정산 라인·노쇼)이 있는 선생님만 표시
+      .filter((x) => x.elig.length || x.held.length || x.ns.length);
+    const hiddenN = DB.teachers.length - per.length;
     const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status)).length;
     const rewardLabel = !rewardOn() ? "보상 없음 (기본)"
       : `보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"} · ${DB.policy.noshowRewardPush === "auto" ? "샐리 자동 push (rewardCodes)" : "샐리 수동 체크"}`;
@@ -1151,6 +1223,7 @@
             return x.pushed.length ? `추가 ${parts.join(" + ")} 보내기` : `샐리로 보내기 (${parts.join(" + ")})`;
           })()}</button>` : x.pushed.length ? "" : `<span class="muted small">보낼 확정 회차가 없어요.</span>`}
         </div></div>`).join("")}
+      ${hiddenN > 0 ? `<div class="card flat"><div class="muted small">이번 달 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
       ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건 — 정산 라인 미생성(수강확인 미성립). 선생님 보상: <b>${rewardLabel}</b> · P9-1 형 확정(08-17) 센터별 설정 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정 ›</a></div></div>` : ""}
       <div class="banner"><span class="ic">🔗</span><span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 사실(확정 회차)만 넘겨요. externalId 멱등이라 같은 회차는 두 번 전송되지 않아요.</span></div>`);
   }
@@ -1189,35 +1262,29 @@
       <div class="sec-title">수업 개설 권한 (선생님) · P2-2</div>
       <div class="card">
         <div class="field"><label>센터 지정 선생님</label>
-          <div class="chips">${DB.teachers.map((t) => `<button class="chip${(P.classAuth.memberIds || []).includes(t.memberId) ? " on" : ""}" onclick="App.authMember('${t.memberId}')">${t.name}</button>`).join("")}</div>
+          ${polEditBlock("auth",
+            polSummary((P.classAuth.memberIds || []).map((mid) => (DB.teachers.find((t) => t.memberId === mid) || { name: mid }).name), "명"),
+            "선생님 이름·직군 검색", `선생님 총 ${DB.teachers.length.toLocaleString("ko-KR")}명 — 검색해 지정·해제해 주세요`)}
           <div class="hint">지정된 선생님은 본인 수업의 개설·수정·폐강이 가능해요.</div></div>
         <div class="field"><label>자격 멤버십</label>
-          <div class="chips">${DB.products.map((p) => `<button class="chip${(P.classAuth.productIds || []).includes(p.id) ? " on" : ""}" onclick="App.authProduct('${p.id}')">${p.name}</button>`).join("")}</div>
+          ${polEditBlock("prod",
+            polSummary((P.classAuth.productIds || []).map((pid) => (DB.products.find((p) => p.id === pid) || { name: pid }).name), "개"),
+            "멤버십 이름 검색", `멤버십 총 ${DB.products.length.toLocaleString("ko-KR")}개`)}
           <div class="hint">이 멤버십(유효 수업권)을 보유한 선생님 계정도 개설 권한을 가져요 — 예: 그룹 필라테스 멤버십.</div></div>
-        <div class="muted small">현재 권한: ${DB.teachers.map((t) => { const a = classAuth(t); return `<b>${t.name}</b> ${a.ok ? a.via : "권한 없음"}`; }).join(" · ")}<br>둘 다 비우면 수업 개설·관리는 센터만 가능해요. 선생님 계정은 호스트 앱(니짐내짐) 회원 계정과 연결돼요.</div>
+        <div class="muted small">${(() => {
+          const authed = DB.teachers.filter((t) => classAuth(t).ok);
+          const byCenter = authed.filter((t) => classAuth(t).via === "센터 지정").length;
+          return `현재 개설 권한 보유: <b>${authed.length.toLocaleString("ko-KR")}명</b> / 선생님 ${DB.teachers.length.toLocaleString("ko-KR")}명 (센터 지정 ${byCenter}명 · 멤버십 자격 ${authed.length - byCenter}명)`;
+        })()}<br>둘 다 비우면 수업 개설·관리는 센터만 가능해요. 선생님 계정은 호스트 앱(니짐내짐) 회원 계정과 연결돼요.</div>
       </div>
       <div class="sec-title">선생님별 지정 가능 회원 범위 · P2-2b</div>
       <div class="card">
-        ${DB.teachers.map((t) => {
-          const S = tScope(t.id);
-          return `<div class="field">
-            <label>${t.name} (${t.subject})</label>
-            <div class="seg">
-              <button${S.mode === "all" ? ' class="on"' : ""} onclick="App.scopeMode('${t.id}','all')">전체 회원</button>
-              <button${S.mode === "custom" ? ' class="on"' : ""} onclick="App.scopeMode('${t.id}','custom')">범위 지정</button></div>
-            ${S.mode === "custom" ? `<div class="scope-prod">
-              <div class="muted small" style="font-weight:700;margin-bottom:6px">멤버십 단위 (보유 회원 전체 포함)</div>
-              <div class="chips">${DB.products.map((p) => {
-                const full = (S.productIds || []).includes(p.id);
-                return `<button class="chip${full ? " on" : ""}" onclick="App.scopeProduct('${t.id}','${p.id}')">${p.name} 전체 (${holdersOf(p.id).length.toLocaleString("ko-KR")}명)</button>`;
-              }).join("")}</div>
-              <div class="hint">«전체»를 켜면 그 멤버십의 유효 수업권 보유 회원 전체가 범위에 들어요. 일부 회원만 지정하려면 «전체»를 끄고 아래에서 검색해 개별 추가해 주세요.</div>
-              <div class="mt8">${pickerHtml("scope-" + t.id, { multi: true, selected: S.memberIds || [], pool: DB.members.filter((m) => !m.staff), commit: (mid) => App.scopeMember(t.id, mid) })}</div>
-            </div>` : ""}
-            <div class="muted small mt4">현재 범위: <b>${tScopeLabel(t.id)}</b></div>
-          </div>`;
-        }).join("")}
-        <div class="muted small">범위 미설정(기본)=<b>전체 회원</b>. 이 범위는 선생님의 <b>수업 개설 시 «지정 회원» 선택 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 단계는 ① 전체 회원 → ② 멤버십 단위(유효 수업권 보유 회원 전체) → ③ 멤버십 하위 개별 회원 선택. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.</div>
+        <div class="pk">
+          <div class="pk-tools"><input type="search" placeholder="선생님 이름·직군 검색" value="${(polState().q.scope || "").replaceAll('"', "&quot;")}" oninput="App.polQuery('scope', this.value)" autocomplete="off" aria-label="선생님 검색"></div>
+          <div class="pk-total">선생님 총 ${DB.teachers.length.toLocaleString("ko-KR")}명 — 행을 누르면 범위를 설정해요</div>
+          <div class="pk-results tall"><div id="pol-scope-list">${polScopeRows()}</div></div>
+        </div>
+        <div class="muted small mt8">범위 미설정(기본)=<b>전체 회원</b>. 이 범위는 선생님의 <b>수업 개설 시 «지정 회원» 선택 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 단계는 ① 전체 회원 → ② 멤버십 단위(유효 수업권 보유 회원 전체) → ③ 멤버십 하위 개별 회원 선택. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.</div>
       </div>
       <div class="sec-title">정산 · 샐리 연동</div>
       <div class="card flat">
@@ -1236,6 +1303,32 @@
           ${sel("App.setNoshowRewardPush(this.value)", [["auto", "자동 push"], ["manual", "샐리 수동 체크"]], P.noshowRewardPush)}</div>` : ""}
       </div>
       <p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 수업권에는 소급되지 않아요 — 취소규정은 예약 시점에 스냅샷으로 보존돼요.</p>`);
+  }
+  // v2.7: P2-2b 범위 편집 상세 화면 — 리스트 행 탭으로 진입 (인라인 전체 펼침 제거, 기능은 v2.3 그대로)
+  function vCPolicyScope(tid) {
+    const t = teacher(tid);
+    if (!t) return vCPolicy();
+    const S = tScope(tid);
+    return shell("c", `회원 범위 · ${t.name}`, `
+      <div class="card">
+        <div class="field"><label>${t.name} 선생님 (${t.subject}) — 지정 가능 회원 범위</label>
+          <div class="seg">
+            <button${S.mode === "all" ? ' class="on"' : ""} onclick="App.scopeMode('${tid}','all')">전체 회원</button>
+            <button${S.mode === "custom" ? ' class="on"' : ""} onclick="App.scopeMode('${tid}','custom')">범위 지정</button></div>
+          ${S.mode === "custom" ? `<div class="scope-prod">
+            <div class="muted small" style="font-weight:700;margin-bottom:6px">멤버십 단위 (보유 회원 전체 포함)</div>
+            <div class="chips">${DB.products.map((p) => {
+              const full = (S.productIds || []).includes(p.id);
+              return `<button class="chip${full ? " on" : ""}" onclick="App.scopeProduct('${tid}','${p.id}')">${p.name} 전체 (${holdersOf(p.id).length.toLocaleString("ko-KR")}명)</button>`;
+            }).join("")}</div>
+            <div class="hint">«전체»를 켜면 그 멤버십의 유효 수업권 보유 회원 전체가 범위에 들어요. 일부 회원만 지정하려면 «전체»를 끄고 아래에서 검색해 개별 추가해 주세요.</div>
+            <div class="mt8">${pickerHtml("scope-" + tid, { multi: true, selected: S.memberIds || [], pool: DB.members.filter((m) => !m.staff), commit: (mid) => App.scopeMember(tid, mid) })}</div>
+          </div>` : ""}
+          <div class="muted small mt4">현재 범위: <b>${tScopeLabel(tid)}</b></div>
+        </div>
+        <div class="muted small">범위 미설정(기본)=<b>전체 회원</b>. 이 범위는 선생님의 <b>수업 개설 시 «지정 회원» 선택 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.</div>
+      </div>
+      <button class="btn ghost" onclick="location.hash='#/c/policy'">‹ 정책 설정으로 돌아가기</button>`, { back: true });
   }
 
   // ── 액션 ──
@@ -1878,6 +1971,13 @@
     // oninput 실시간 예시 — 저장 전에도 미리보기 갱신 (포커스 유지 위해 부분 갱신)
     previewNoshowPct(v) { const el = document.getElementById("nsPctPreview"); if (el) el.innerHTML = pctPreviewText(v); },
     setNoshowRewardPush(v) { DB.policy.noshowRewardPush = v; render(); toast(v === "auto" ? "샐리 자동 push(special rewardCodes)로 전달해요." : "샐리에서 수동 체크로 지급해요 — push에 포함되지 않아요."); },
+    // v2.7: 정책 화면 요약+편집·검색 (검색은 리스트 서브트리만 갱신 — 입력 포커스 유지)
+    polOpen(k) { const U = polState(); U.open[k] = !U.open[k]; render(); },
+    polQuery(k, v) {
+      const U = polState(); U.q[k] = v;
+      const el = document.getElementById("pol-" + k + "-list");
+      if (el) el.innerHTML = polRows[k]();
+    },
     // 시정①: 수업 개설 권한 토글 (P2-2)
     authMember(mid) {
       const A = DB.policy.classAuth;
@@ -1941,11 +2041,13 @@
     [/^#\/c\/confirms$/, vCConfirms],
     [/^#\/c\/settlement$/, vCSettlement],
     [/^#\/c\/policy$/, vCPolicy],
+    [/^#\/c\/policy\/scope\/(.+)$/, vCPolicyScope],
   ];
   let lastHash = null;
   function render() {
     const h = location.hash || "#/";
     if (h !== lastHash) Object.keys(pickers).forEach((k) => { if (pickers[k].hash !== h) delete pickers[k]; }); // 화면 이동 시 picker 상태 초기화
+    if (h !== lastHash && !h.startsWith("#/c/policy")) polUI.live = false; // v2.7: 정책 화면군 밖으로 나가면 검색·펼침 초기화
     let body = null;
     for (const [re, fn] of routes) {
       const m = h.match(re);
