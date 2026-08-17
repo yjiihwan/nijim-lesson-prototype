@@ -167,7 +167,10 @@ window.DB = {
     // P9-1 형 확정(2026-08-17): 노쇼 보상은 센터별 설정 — none(없음·기본)/support(지원)
     noshowReward: "none",
     noshowRewardPrice: "normal", // 단가: normal(정상=수업권 회당 단가)/custom(별도 지정)
-    noshowRewardCustom: 20000,   // 별도 단가(원)
+    noshowRewardCustom: 20000,   // 별도 단가(원) — customMode:"amount"일 때 사용
+    // 별도 단가 방식: amount(고정 금액·원)/percent(수업료의 %). 키 없음=amount(v2.4까지 저장분 하위 호환).
+    noshowRewardCustomMode: "amount",
+    noshowRewardPercent: 30,     // percent 모드: 회당 단가(정상 단가)의 n% (0~100), 원 단위 반올림
     noshowRewardPush: "auto",    // 샐리 전달: auto(special rewardCodes push)/manual(샐리 수동 체크)
     // P2-2 (시정①) 수업 개설·관리 권한: 센터 지정 회원 or 자격 멤버십 보유 회원. 둘 다 비우면 센터만.
     classAuth: { memberIds: ["m9"], productIds: ["pr3"] }, // 박코치=센터 지정, 이필라=필라테스 그룹 멤버십 자격

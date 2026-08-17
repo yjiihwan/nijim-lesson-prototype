@@ -7,6 +7,8 @@
    수업 개설 «지정 회원» picker·즉시확정 목록에 적용(액션 재검증 포함). 미설정 기본값=전체 회원(02 문서).
    v2.4 (2026-08-17 형 지적): 회원 선택 전 지점을 검색 기반 공통 picker로 교체 — 이름·전화 검색+멤버십 필터+
    점진 로딩(전체 렌더 금지)+선택 칩 요약. 더미 회원 3,000명 규모에서 검증. 칩 전체 나열 UI 제거.
+   v2.5 (2026-08-17): P9-1 별도 단가에 «수업료의 %» 방식 추가 — 회당 단가(정상 단가)×n%(0~100), 원 단위
+   반올림(Math.round) 일관 적용. 설정 실시간 예시 미리보기. 기존 고정 금액 저장분(customMode 키 없음)=하위 호환.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -162,7 +164,24 @@
   const noshowTeacher = (r) => r.teacherId || (r.slotId ? cls(slot(r.slotId).classId).teacherId : null);
   const noshowFinals = (tid) => DB.reports.filter((r) => r.status === "noshow_final" && noshowTeacher(r) === tid);
   // 보상 단가는 현재 정책으로 동적 계산 — 옵션 전환이 정산 미리보기에 즉시 반영
-  const noshowUnit = (r) => (DB.policy.noshowRewardPrice === "custom" ? DB.policy.noshowRewardCustom : r.unitPrice || 0);
+  // percent 모드: 해당 노쇼 회차의 수업권 회당 단가(정상 단가) × n% — 원 단위 반올림(Math.round) 일관 적용.
+  // noshowRewardCustomMode 키 없음=amount (구버전 저장분 하위 호환).
+  const pctAmount = (unit, pct) => Math.round(((unit || 0) * pct) / 100);
+  const noshowUnit = (r) => {
+    if (DB.policy.noshowRewardPrice !== "custom") return r.unitPrice || 0;
+    if ((DB.policy.noshowRewardCustomMode || "amount") === "percent") return pctAmount(r.unitPrice, DB.policy.noshowRewardPercent || 0);
+    return DB.policy.noshowRewardCustom;
+  };
+  // 정산·설정 화면 공통 라벨 — 별도 단가의 두 방식(고정 금액/%)을 한 곳에서 표기
+  const customPriceLabel = () => ((DB.policy.noshowRewardCustomMode || "amount") === "percent"
+    ? `수업료의 ${DB.policy.noshowRewardPercent || 0}%`
+    : `별도 단가 ${won(DB.policy.noshowRewardCustom)}`);
+  // % 설정 실시간 예시 — 예시 단가 5만원 + 실제 시드 단가 반영
+  const clampPct = (v) => Math.min(100, Math.max(0, parseInt(v, 10) || 0));
+  const pctPreviewText = (pct) => {
+    const p = clampPct(pct);
+    return `예시: <b>${p}%</b> → 회당 단가 50,000원이면 <b>${won(pctAmount(50000, p))}</b> · 35,000원이면 <b>${won(pctAmount(35000, p))}</b> (원 단위 반올림)`;
+  };
   const rewardOn = () => DB.policy.noshowReward === "support";
   function finalizeNoshow(r, mode) { // mode: "auto"(무이의 자동확정) | "reject"(이의 기각)
     const b = r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
@@ -1094,14 +1113,14 @@
     });
     const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status)).length;
     const rewardLabel = !rewardOn() ? "보상 없음 (기본)"
-      : `보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? `별도 단가 ${won(DB.policy.noshowRewardCustom)}` : "정상 단가"} · ${DB.policy.noshowRewardPush === "auto" ? "샐리 자동 push (rewardCodes)" : "샐리 수동 체크"}`;
+      : `보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"} · ${DB.policy.noshowRewardPush === "auto" ? "샐리 자동 push (rewardCodes)" : "샐리 수동 체크"}`;
     return shell("c", "정산 · 2026년 8월", `
       <p class="muted" style="margin-bottom:12px">수강확인이 성립한 회차만 집계돼요. 이의제기 중인 회차는 자동 보류되고 전송에서 빠져요.</p>
       ${per.map((x) => `<div class="card"><div class="row"><span class="grow"><b>${x.t.name} 선생님</b>
           <div class="muted small mt4">확정 ${x.elig.length}회 (자동확정 ${x.auto}회 포함)${x.held.length ? ` · <b style="color:var(--danger)">보류 ${x.held.length}건</b>` : ""}</div></span>
           <span class="big">${won(x.amount)}</span></div>
         ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0"><span class="ic">⏸️</span><span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 전송된 ${x.pushedHeld.length}건은 샐리 쪽 정정(DELETE externalId)이 필요해요.` : ""}</span></div>` : ""}
-        ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0"><span class="ic">🎗️</span><span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${DB.policy.noshowRewardPrice === "custom" ? `별도 단가 ${won(DB.policy.noshowRewardCustom)}` : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리 자동 push(special rewardCodes)${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}</span></div>` : ""}
+        ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0"><span class="ic">🎗️</span><span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리 자동 push(special rewardCodes)${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}</span></div>` : ""}
         <div class="mt12">
           ${x.pushed.length ? `<span class="badge b-green">샐리 전송 완료 ${x.pushed.length}회 · ${x.pushed[x.pushed.length - 1].pushId}</span> ` : ""}
           ${x.unpushed.length || x.nsUnpushed.length ? `<button class="btn sm primary" onclick="App.sallyPush('${x.t.id}')">${(() => {
@@ -1186,8 +1205,12 @@
         ${P.noshowReward === "support" ? `
         <div class="toggle-row"><span><div class="tl">보상 단가</div><div class="td">정상 단가=해당 수업권 회당 단가 그대로</div></span>
           ${sel("App.setNoshowRewardPrice(this.value)", [["normal", "정상 단가"], ["custom", "별도 단가 지정"]], P.noshowRewardPrice)}</div>
-        ${P.noshowRewardPrice === "custom" ? `<div class="toggle-row"><span><div class="tl">별도 단가 (원)</div><div class="td">노쇼 1건당 보상액</div></span>
-          <input type="number" value="${P.noshowRewardCustom}" onchange="App.setNoshowRewardCustom(this.value)" style="width:110px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"></div>` : ""}
+        ${P.noshowRewardPrice === "custom" ? `<div class="toggle-row"><span><div class="tl">별도 단가 방식</div><div class="td">고정 금액 또는 수업료 대비 비율</div></span>
+          ${sel("App.setNoshowRewardCustomMode(this.value)", [["amount", "고정 금액(원)"], ["percent", "수업료의 %"]], P.noshowRewardCustomMode || "amount")}</div>
+        ${(P.noshowRewardCustomMode || "amount") === "percent" ? `<div class="toggle-row"><span><div class="tl">보상 비율 (%)</div><div class="td">회당 단가(정상 단가)의 n% · 0~100 · 원 단위 반올림</div></span>
+          <span style="display:inline-flex;align-items:center;gap:6px"><input type="number" min="0" max="100" value="${P.noshowRewardPercent}" oninput="App.previewNoshowPct(this.value)" onchange="App.setNoshowRewardPercent(this.value)" style="width:80px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"><b>%</b></span></div>
+        <div class="muted small" id="nsPctPreview" style="padding:0 4px 10px">${pctPreviewText(P.noshowRewardPercent)}</div>` : `<div class="toggle-row"><span><div class="tl">별도 단가 (원)</div><div class="td">노쇼 1건당 보상액</div></span>
+          <input type="number" value="${P.noshowRewardCustom}" onchange="App.setNoshowRewardCustom(this.value)" style="width:110px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"></div>`}` : ""}
         <div class="toggle-row"><span><div class="tl">샐리 전달 방식</div><div class="td">자동=special 보상(rewardCodes) push (05 문서) / 수동=샐리에서 직접 체크</div></span>
           ${sel("App.setNoshowRewardPush(this.value)", [["auto", "자동 push"], ["manual", "샐리 수동 체크"]], P.noshowRewardPush)}</div>` : ""}
       </div>
@@ -1766,12 +1789,13 @@
       if (!lines.length && !rewards.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
       const pid = "sly_" + tid + "_202608_" + seq++;
       lines.forEach((l) => { l.pushed = true; l.pushId = pid; });
-      rewards.forEach((r) => { r.rewardPushed = true; r.rewardPushId = pid; });
+      // 전송 시점 금액 스냅샷 — 현재 정책 단가(noshowUnit: 고정 금액 또는 수업료 %·원 단위 반올림)로 확정
+      rewards.forEach((r) => { r.rewardPushed = true; r.rewardPushId = pid; r.rewardAmount = noshowUnit(r); });
       render();
       const t = teacher(tid);
       const parts = [];
       if (lines.length) parts.push(`${lines.length}회`);
-      if (rewards.length) parts.push(`노쇼 보상 ${rewards.length}건 (special rewardCodes)`);
+      if (rewards.length) parts.push(`노쇼 보상 ${rewards.length}건 · ${won(rewards.reduce((a, r) => a + r.rewardAmount, 0))} (special rewardCodes)`);
       toast(`${t.name} 선생님 ${parts.join(" + ")}를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. (externalId 멱등 · mock)`);
     },
     toggle(key) {
@@ -1798,6 +1822,10 @@
     setNoshowReward(v) { DB.policy.noshowReward = v; render(); toast(v === "support" ? "노쇼 보상을 지원해요 — 정산·샐리 전송 미리보기에 반영됐어요." : "노쇼 보상 없음(기본)으로 설정했어요."); },
     setNoshowRewardPrice(v) { DB.policy.noshowRewardPrice = v; render(); toast(v === "custom" ? "별도 단가로 보상해요 — 아래에서 금액을 지정해 주세요." : "정상 단가(수업권 회당 단가)로 보상해요."); },
     setNoshowRewardCustom(v) { DB.policy.noshowRewardCustom = Math.max(0, parseInt(v, 10) || 0); render(); toast(`별도 단가 ${won(DB.policy.noshowRewardCustom)}로 저장했어요.`); },
+    setNoshowRewardCustomMode(v) { DB.policy.noshowRewardCustomMode = v; render(); toast(v === "percent" ? `수업료의 %로 보상해요 — 회당 단가(정상 단가) 기준, 원 단위 반올림.` : `고정 금액(원)으로 보상해요.`); },
+    setNoshowRewardPercent(v) { DB.policy.noshowRewardPercent = Math.min(100, Math.max(0, parseInt(v, 10) || 0)); render(); toast(`수업료의 ${DB.policy.noshowRewardPercent}%로 저장했어요 — 정산 미리보기에 반영됐어요.`); },
+    // oninput 실시간 예시 — 저장 전에도 미리보기 갱신 (포커스 유지 위해 부분 갱신)
+    previewNoshowPct(v) { const el = document.getElementById("nsPctPreview"); if (el) el.innerHTML = pctPreviewText(v); },
     setNoshowRewardPush(v) { DB.policy.noshowRewardPush = v; render(); toast(v === "auto" ? "샐리 자동 push(special rewardCodes)로 전달해요." : "샐리에서 수동 체크로 지급해요 — push에 포함되지 않아요."); },
     // 시정①: 수업 개설 권한 토글 (P2-2)
     authMember(mid) {
