@@ -752,6 +752,24 @@
     if (role === "t") list = list.filter((m) => inTScope(DB.me.teacher, m.id));
     return list;
   }
+  // 형 지적 08-17: 즉시확정도 그룹수업은 정원 한도 내 복수 선택 (1:1만 1명 제한 + 안내)
+  function qkLimitOf(c, slotSel) {
+    if (!c) return { max: 0, msg: "수업을 먼저 선택해 주세요." };
+    if (c.kind === "private" || c.capacity === 1)
+      return { max: 1, one: true, msg: `«${c.title}»은 1:1 수업이라 회원을 1명만 선택할 수 있어요.` };
+    if (slotSel && slotSel !== "new") {
+      const remain = Math.max(0, c.capacity - seatCount(slotSel));
+      return { max: remain, msg: `이 회차는 잔여 ${remain}석까지만 선택할 수 있어요 (정원 ${c.capacity}명).` };
+    }
+    return { max: c.capacity, msg: `그룹수업은 정원(${c.capacity}명)까지 선택할 수 있어요.` };
+  }
+  function qkLimit() {
+    const cid = (document.getElementById("qk-class") || {}).value;
+    return qkLimitOf(cid ? cls(cid) : null, (document.getElementById("qk-slot") || {}).value);
+  }
+  const qkHintHtml = (lim) => lim.one
+    ? `⚠️ <b>${lim.msg}</b>`
+    : `그룹수업은 정원 한도까지 복수 선택할 수 있어요 — 지금은 최대 <b>${lim.max}명</b>.`;
   function vTQuick(role) {
     const r = role || "t";
     const classes = (r === "t" ? DB.classes.filter((c) => c.teacherId === DB.me.teacher) : DB.classes).filter((c) => c.status !== "closed");
@@ -763,10 +781,11 @@
       <p class="muted" style="margin-bottom:12px">예약 절차 없이 일자와 회원을 골라 바로 확정해요. 지난 일시로는 만들 수 없어요.</p>
       <div class="card">
         <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span>${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
-          ${pickerHtml("qk-member", { multi: false, pool: members })}
+          ${pickerHtml("qk-member", { multi: true, pool: members, limit: qkLimit })}
+          <div class="hint" id="qk-cap-hint">${qkHintHtml(qkLimitOf(firstClass, "new"))}</div>
           <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미. 표시 범위는 센터 설정에서 바꿔요.${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요 (P2-2b).` : ""}</div></div>
         <div class="field"><label>수업</label><select id="qk-class" onchange="App.quickClassChange('${r}')">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
-        <div class="field"><label>회차</label><select id="qk-slot">
+        <div class="field"><label>회차</label><select id="qk-slot" onchange="App.quickSlotChange()">
           <option value="new">새 일시로 만들기</option>
           ${joinable.map((s) => `<option value="${s.id}">${dlabel(s.date)} ${s.time} 기존 회차 합류 (${seatCount(s.id)}/${cls(s.classId).capacity}명)</option>`).join("")}</select>
           <div class="hint">기존 회차를 고르면 아래 날짜·시간은 무시돼요.</div></div>
@@ -935,14 +954,16 @@
   function eligExtraHtml(prefix, c, role) {
     const selP = c ? c.eligibleProductIds || [] : ["pr3", "pr4"];
     const selM = c ? c.memberIds || [] : [];
+    // 초기 렌더도 segElig와 같은 규칙 적용 — 안 하면 «수업권 보유자» 선택인데 지정 회원이 노출돼 혼합처럼 보임 (형 지적 08-17)
+    const mode = c ? c.eligibility : "pass";
     const scoped = role === "t" && tScope(DB.me.teacher).mode === "custom";
     // 기존 지정 회원은 범위 밖이어도 표시·유지 (저장 시 조용히 빠지는 사고 방지)
     const pool = DB.members.filter((m) => !m.staff && (!scoped || inTScope(DB.me.teacher, m.id) || selM.includes(m.id)));
     return `
-      <div class="field" id="${prefix}-prod-wrap"><label>사용 가능 수업권 (예약자격)</label>
+      <div class="field" id="${prefix}-prod-wrap"${mode === "list" ? ' style="display:none"' : ""}><label>사용 가능 수업권 (예약자격)</label>
         <div class="chips" id="${prefix}-prods">${DB.products.map((p) => `<button class="chip${selP.includes(p.id) ? " on" : ""}" data-v="${p.id}" onclick="App.chip(this)">${p.name}</button>`).join("")}</div>
         <div class="hint">고른 수업권을 보유한 회원만 예약할 수 있어요.</div></div>
-      <div class="field" id="${prefix}-mem-wrap"><label>지정 회원${scoped ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
+      <div class="field" id="${prefix}-mem-wrap"${mode === "pass" ? ' style="display:none"' : ""}><label>지정 회원${scoped ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
         ${pickerHtml(prefix + "-mems", { multi: true, initial: selM, pool })}
         <div class="hint">${scoped ? `센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)}) 안의 회원만 보여요. 기존 지정 회원은 범위 밖이어도 유지돼요.` : "회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미."}</div></div>`;
   }
@@ -1233,7 +1254,13 @@
       const st = pickers[id]; if (!st) return;
       if (st.opts.commit) { st.opts.commit(mid); return; } // controlled(P2-2b): DB가 진실 — 커밋이 재렌더
       if (!st.opts.multi) st.sel = st.sel.has(mid) ? new Set() : new Set([mid]);
-      else st.sel.has(mid) ? st.sel.delete(mid) : st.sel.add(mid);
+      else if (st.sel.has(mid)) st.sel.delete(mid);
+      else {
+        // opts.limit: 추가 시점마다 재평가 — 수업·회차 셀렉트에 따라 한도가 실시간으로 달라짐
+        const lim = st.opts.limit ? st.opts.limit() : null;
+        if (lim && st.sel.size >= lim.max) { toast(lim.msg); return; }
+        st.sel.add(mid);
+      }
       pkRefresh(id);
     },
     seg(btn) {
@@ -1538,39 +1565,63 @@
       const joinable = DB.slots.filter((s) => s.classId === cid && s.status === "scheduled" && !isPast(s) && seatCount(s.id) < c.capacity);
       document.getElementById("qk-slot").innerHTML = `<option value="new">새 일시로 만들기</option>` +
         joinable.map((s) => `<option value="${s.id}">${dlabel(s.date)} ${s.time} 기존 회차 합류 (${seatCount(s.id)}/${c.capacity}명)</option>`).join("");
+      App.quickSlotChange();
     },
+    // 수업·회차 변경 시 선택 한도 재계산 — 한도 초과분은 앞선 선택만 남기고 잘라냄 (1:1 전환 등)
+    quickSlotChange() {
+      const lim = qkLimit();
+      const st = pickers["qk-member"];
+      if (st && st.sel.size > lim.max) {
+        st.sel = new Set([...st.sel].slice(0, lim.max));
+        toast(lim.msg);
+        pkRefresh("qk-member");
+      }
+      const h = document.getElementById("qk-cap-hint");
+      if (h) h.innerHTML = qkHintHtml(lim);
+    },
+    // 형 지적 08-17: 복수 회원 일괄 확정 — 전원 가능해야 확정(부분 확정 없음), 자격은 회원별 검증
     quickBook(role) {
-      const m = member(pkSelected("qk-member")[0] || "");
+      const mids = pkSelected("qk-member");
       const c = cls(document.getElementById("qk-class").value);
-      if (!m) { toast("회원을 검색해 선택해 주세요."); return; }
+      if (!mids.length) { toast("회원을 검색해 선택해 주세요."); return; }
       if (!c) { toast("수업을 선택해 주세요."); return; }
-      // P2-2b 재검증 (목록 필터만으론 부족 — 04 원칙)
-      if (role === "t" && !inTScope(DB.me.teacher, m.id)) { toast(`${m.name} 회원은 내 «지정 가능 회원 범위» 밖이에요 — 센터에 범위 확대를 요청해 주세요.`); return; }
-      const g = bookGuard(c, m.id);
-      if (!g.ok) {
-        modal(`<h3>예약할 수 없어요</h3><p><b>${m.name}</b> 회원: ${g.msg}</p>
-          <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
-        return;
+      const lim = qkLimit();
+      if (mids.length > lim.max) { toast(lim.msg); return; }
+      const errs = [];
+      const passOf = {};
+      for (const mid of mids) {
+        const m = member(mid);
+        // P2-2b 재검증 (목록 필터만으론 부족 — 04 원칙)
+        if (role === "t" && !inTScope(DB.me.teacher, mid)) { errs.push(`<b>${m.name}</b>: 내 «지정 가능 회원 범위» 밖이에요 — 센터에 범위 확대를 요청해 주세요.`); continue; }
+        const g = bookGuard(c, mid);
+        if (!g.ok) { errs.push(`<b>${m.name}</b>: ${g.msg}`); continue; }
+        passOf[mid] = g.pass;
       }
       const slotSel = document.getElementById("qk-slot").value;
-      let s;
+      let s = null, d, t;
       if (slotSel && slotSel !== "new") {
         s = slot(slotSel);
-        if (seatCount(s.id) >= c.capacity) { toast("이미 만석인 회차예요."); render(); return; }
-        if (DB.bookings.some((b) => b.slotId === s.id && b.memberId === m.id && ACTIVE.includes(b.status))) { toast(`${m.name} 회원은 이미 이 회차에 예약이 있어요.`); return; }
+        if (seatCount(s.id) + mids.length > c.capacity) errs.push(`정원 초과: 잔여 ${Math.max(0, c.capacity - seatCount(s.id))}석인데 ${mids.length}명을 선택했어요.`);
+        for (const mid of mids) if (DB.bookings.some((b) => b.slotId === s.id && b.memberId === mid && ACTIVE.includes(b.status))) errs.push(`<b>${memberName(mid)}</b>: 이미 이 회차에 예약이 있어요.`);
       } else {
-        const d = document.getElementById("qk-date").value || "2026-08-22";
-        const t = document.getElementById("qk-time").value || "11:00";
+        d = document.getElementById("qk-date").value || "2026-08-22";
+        t = document.getElementById("qk-time").value || "11:00";
         if (new Date(`${d}T${t}:00+09:00`) <= NOW) {
           modal(`<h3>지난 일시로는 확정할 수 없어요</h3><p>즉시확정은 앞으로의 수업만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 감사 기록에 남아요.</p>
             <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
           return;
         }
-        s = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true };
-        DB.slots.push(s);
       }
-      DB.bookings.push({ id: nid("bk"), slotId: s.id, memberId: m.id, passId: g.pass.id, status: "booked", policySnap: snapPolicy() });
-      toast(`${m.name} 회원 ${dlabel(s.date)} ${s.time} 예약 확정! 회원에게 알림을 보냈어요.`);
+      if (errs.length) {
+        modal(`<h3>예약할 수 없어요</h3><p>선택 인원 전원이 가능해야 확정돼요 — 부분 확정은 하지 않아요.</p>
+          <p class="mt8">${errs.join("<br>")}</p>
+          <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
+        return;
+      }
+      if (!s) { s = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true }; DB.slots.push(s); }
+      for (const mid of mids) DB.bookings.push({ id: nid("bk"), slotId: s.id, memberId: mid, passId: passOf[mid].id, status: "booked", policySnap: snapPolicy() });
+      const who = mids.length === 1 ? `${memberName(mids[0])} 회원` : `${memberName(mids[0])} 외 ${mids.length - 1}명`;
+      toast(`${who} ${dlabel(s.date)} ${s.time} 예약 확정! 회원에게 알림을 보냈어요.`);
       location.hash = role === "c" ? "#/c/bookings" : "#/t/schedule";
     },
     createProduct() {
