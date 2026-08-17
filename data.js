@@ -206,3 +206,34 @@ window.DB = {
     L.push({ id: "sl" + (13 + i), teacherId: "t2", memberId: null, member: "필라테스 수강회원", desc: `8/${3 + Math.floor(i / 3)} 필라테스 기구 초급`, unitPrice: 35000, method: i === 5 ? "자동확정" : "앱 확인", auto: i === 5, status: "eligible", pushed: false, pushId: null });
   }
 })();
+
+// v2.4 대규모 회원 시드 — 총 3,000명 (형 지적 08-17: 수천 명 센터에서 칩 전체 나열 UI 불가 → 검색 기반 선택 UI 검증용).
+// 기명 데모 회원(m1~m10)·시나리오는 그대로 유지. LCG 결정적 생성 — 새로고침·테스트 간 동일 데이터.
+(function seedScaleMembers() {
+  const M = window.DB.members, P = window.DB.passes, prods = window.DB.products;
+  const demoNames = new Set(M.map((m) => m.name));
+  const SUR = "김이박최정강조윤장임한오서신권황안송전홍고문양손배백허유남심노하곽성차주우구민류";
+  const GA = "지민서예도하주윤채현수시은태정소연재영준";
+  const GB = "안은호원우연아영준희린솔빈결담율찬경환";
+  let rng = 20260817;
+  // 상위 비트 사용 — LCG 하위 비트는 주기가 짧아 % n 시 분포가 심하게 쏠림
+  const rnd = (n) => ((rng = (rng * 1103515245 + 12345) % 2147483648), Math.floor((rng / 2147483648) * n));
+  const EXPIRES = ["2026-09-15", "2026-10-20", "2026-11-30", "2026-12-31"];
+  for (let i = 1; i <= 2990; i++) {
+    let name = SUR[rnd(SUR.length)] + GA[rnd(GA.length)] + GB[rnd(GB.length)];
+    while (demoNames.has(name)) name = SUR[rnd(SUR.length)] + GA[rnd(GA.length)] + GB[rnd(GB.length)];
+    const s7 = String(i).padStart(7, "0");
+    const m = { id: "gm" + i, name, phone: "010-9" + s7.slice(0, 3) + "-" + s7.slice(3), pin: "0000" };
+    M.push(m);
+    const roll = rnd(100);
+    if (roll < 28) continue; // 28%는 수업권 미보유 (유효 수업권 필터 검증용)
+    const npass = roll >= 88 ? 2 : 1;
+    for (let k = 0; k < npass; k++) {
+      const pr = prods[rnd(prods.length)];
+      const expired = rnd(100) < 6; // 일부는 기간 만료 (만료 필터 검증용)
+      const expiresAt = pr.validityDays == null ? null : expired ? "2026-08-01" : EXPIRES[rnd(EXPIRES.length)];
+      P.push({ id: "gps" + i + "_" + k, memberId: m.id, productId: pr.id, name: pr.name, kind: pr.kind,
+        total: pr.sessions, unitPrice: Math.floor(pr.price / pr.sessions), expiresAt, remaining: 1 + rnd(pr.sessions) });
+    }
+  }
+})();

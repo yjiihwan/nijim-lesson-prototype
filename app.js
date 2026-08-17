@@ -5,6 +5,8 @@
    ② P9-1 노쇼 보상=센터별 설정(없음/지원 — 정상·별도 단가, 샐리 자동 push·수동 체크) — 정산 미리보기 동적 반영.
    v2.3 (2026-08-17): P2-2b 선생님별 «지정 가능 회원 범위» — 전체/멤버십 단위/멤버십 하위 개별 회원 선택,
    수업 개설 «지정 회원» picker·즉시확정 목록에 적용(액션 재검증 포함). 미설정 기본값=전체 회원(02 문서).
+   v2.4 (2026-08-17 형 지적): 회원 선택 전 지점을 검색 기반 공통 picker로 교체 — 이름·전화 검색+멤버십 필터+
+   점진 로딩(전체 렌더 금지)+선택 칩 요약. 더미 회원 3,000명 규모에서 검증. 칩 전체 나열 UI 제거.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -61,7 +63,16 @@
     return "active";
   }
   const passUsable = (p) => passState(p) === "active";
-  const passesOf = (mid) => DB.passes.filter((p) => p.memberId === mid);
+  // v2.4: 회원 3,000명 규모 — 매 호출 전체 스캔 대신 memberId 인덱스 (passes는 append만 되므로 길이로 무효화)
+  let passIdxLen = -1, passIdx = null;
+  function passesOf(mid) {
+    if (passIdxLen !== DB.passes.length) {
+      passIdx = new Map();
+      DB.passes.forEach((p) => { const a = passIdx.get(p.memberId); a ? a.push(p) : passIdx.set(p.memberId, [p]); });
+      passIdxLen = DB.passes.length;
+    }
+    return passIdx.get(mid) || [];
+  }
 
   // ── 시정①: 수업 개설·관리 권한 (02 P2-2) — 센터 지정 회원 or 자격 멤버십 보유 회원 ──
   function classAuth(t) {
@@ -92,8 +103,8 @@
     const S = tScope(tid);
     if (S.mode === "all") return "전체 회원";
     const parts = (S.productIds || []).map((pid) => (DB.products.find((p) => p.id === pid) || { name: pid }).name + " 전체");
-    if ((S.memberIds || []).length) parts.push(`개별 ${S.memberIds.length}명`);
-    return parts.length ? `${parts.join(" + ")} · 총 ${tScopeMembers(tid).length}명` : "빈 범위 — 지정 가능 회원 없음";
+    if ((S.memberIds || []).length) parts.push(`개별 ${S.memberIds.length.toLocaleString("ko-KR")}명`);
+    return parts.length ? `${parts.join(" + ")} · 총 ${tScopeMembers(tid).length.toLocaleString("ko-KR")}명` : "빈 범위 — 지정 가능 회원 없음";
   }
 
   // ── 예약 자격 (M-3: eligibility 실검증) ──
@@ -733,7 +744,7 @@
       <p class="muted" style="margin-bottom:12px">예약 절차 없이 일자와 회원을 골라 바로 확정해요. 지난 일시로는 만들 수 없어요.</p>
       <div class="card">
         <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span>${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
-          <select id="qk-member">${members.map((m) => `<option value="${m.id}">${m.name} (${m.phone})</option>`).join("")}</select>
+          ${pickerHtml("qk-member", { multi: false, pool: members })}
           <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미. 표시 범위는 센터 설정에서 바꿔요.${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요 (P2-2b).` : ""}</div></div>
         <div class="field"><label>수업</label><select id="qk-class" onchange="App.quickClassChange('${r}')">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
         <div class="field"><label>회차</label><select id="qk-slot">
@@ -836,6 +847,71 @@
       </div>
       <p class="muted small">이미 판매된 수업권은 구매 시점 조건이 스냅샷으로 보존돼요. 환불·이용정지 처리는 호스트 앱(CRM) 결제·회원 관리와 연동돼요.</p>`, { back: true });
   }
+  // ── v2.4: 대규모 회원 «검색 기반 선택» 공통 컴포넌트 (형 지적 08-17: 수천 명 센터 — 칩 전체 나열 금지) ──
+  // 사용처: 수업 개설·수정 «지정 회원»(nc-mems/ec-mems), 즉시확정 회원(qk-member, 단일), P2-2b 개별 회원(scope-*).
+  // 상태: pickers[id] — 같은 해시(화면) 안에서만 유지, 화면 이동 시 초기화. 결과는 PK_PAGE씩 점진 로딩(전체 렌더 금지).
+  // controlled(opts.commit): 선택의 진실=DB(P2-2b) — 토글은 커밋 함수로 위임. uncontrolled: 내부 Set, 저장 액션이 pkSelected로 읽음.
+  const PK_PAGE = 40;
+  const pickers = {};
+  const pkSelected = (id) => (pickers[id] ? [...pickers[id].sel] : []);
+  function pkState(id, opts) {
+    let st = pickers[id];
+    if (!st || st.hash !== location.hash) st = pickers[id] = { hash: location.hash, query: "", prod: "", shown: PK_PAGE, sel: new Set(opts.initial || []) };
+    st.opts = opts;
+    if (opts.selected) st.sel = new Set(opts.selected);
+    return st;
+  }
+  function pkMatches(st) {
+    const q = st.query.trim();
+    const qd = q.replace(/\D/g, "");
+    let list = st.opts.pool;
+    if (st.prod) list = list.filter((m) => passesOf(m.id).filter(passUsable).some((p) => p.productId === st.prod));
+    if (q) list = list.filter((m) => m.name.includes(q) || (qd.length >= 2 && m.phone.replace(/-/g, "").includes(qd)));
+    return list;
+  }
+  function pkListHtml(id, st) {
+    const all = pkMatches(st);
+    const rows = all.slice(0, st.shown).map((m) => {
+      const on = st.sel.has(m.id);
+      const ps = passesOf(m.id).filter(passUsable);
+      return `<button class="pk-row${on ? " on" : ""}" onclick="App.pkToggle('${id}','${m.id}')">
+        <span class="grow"><b>${m.name}</b> <span class="muted small">${m.phone}</span>
+          <div class="muted small">${ps.length ? ps.map((p) => p.name).join(" · ") : "유효 수업권 없음"}</div></span>
+        <span class="pk-check">${on ? "✓" : "+"}</span></button>`;
+    }).join("");
+    return `${rows || '<p class="muted small" style="padding:12px">검색 결과가 없어요.</p>'}
+      ${all.length > st.shown ? `<button class="pk-more" onclick="App.pkMore('${id}')">더 보기 (${st.shown}/${all.length.toLocaleString("ko-KR")}명)</button>` : ""}`;
+  }
+  function pkSelbarHtml(id, st) {
+    if (!st.opts.multi) {
+      const m = st.sel.size ? member([...st.sel][0]) : null;
+      return m ? `<span class="pk-count">선택</span><button class="chip on sm" onclick="App.pkToggle('${id}','${m.id}')">${m.name} (${m.phone}) ✕</button>`
+        : '<span class="muted small">아래에서 검색해 회원을 선택해 주세요.</span>';
+    }
+    const chips = [...st.sel].map((mid) => `<button class="chip on sm" onclick="App.pkToggle('${id}','${mid}')">${memberName(mid)} ✕</button>`).join("");
+    return `<span class="pk-count">선택 ${st.sel.size.toLocaleString("ko-KR")}명</span>${chips || '<span class="muted small">선택된 회원이 없어요.</span>'}`;
+  }
+  function pickerHtml(id, opts) {
+    const st = pkState(id, opts);
+    return `<div class="pk" id="${id}">
+      <div class="pk-selbar" id="${id}-selbar">${pkSelbarHtml(id, st)}</div>
+      <div class="pk-tools">
+        <input type="search" placeholder="이름·전화번호 검색" value="${st.query.replaceAll('"', "&quot;")}" oninput="App.pkQuery('${id}', this.value)" autocomplete="off" aria-label="회원 검색">
+        <select onchange="App.pkProd('${id}', this.value)" aria-label="멤버십 필터"><option value="">멤버십 전체</option>
+          ${DB.products.map((p) => `<option value="${p.id}"${st.prod === p.id ? " selected" : ""}>${p.name}</option>`).join("")}</select>
+      </div>
+      <div class="pk-total">총 ${st.opts.pool.length.toLocaleString("ko-KR")}명 — 검색·필터로 좁혀 선택해 주세요</div>
+      <div class="pk-results" onscroll="App.pkScroll('${id}', this)"><div id="${id}-list">${pkListHtml(id, st)}</div></div>
+    </div>`;
+  }
+  function pkRefresh(id) {
+    const st = pickers[id];
+    const list = document.getElementById(id + "-list");
+    const bar = document.getElementById(id + "-selbar");
+    if (list) list.innerHTML = pkListHtml(id, st);
+    if (bar) bar.innerHTML = pkSelbarHtml(id, st);
+  }
+
   // B2: 회원 지정 picker + 자격 수업권 지정. v2.3: 선생님은 «지정 가능 회원 범위»(P2-2b) 안의 회원만
   function eligExtraHtml(prefix, c, role) {
     const selP = c ? c.eligibleProductIds || [] : ["pr3", "pr4"];
@@ -848,7 +924,7 @@
         <div class="chips" id="${prefix}-prods">${DB.products.map((p) => `<button class="chip${selP.includes(p.id) ? " on" : ""}" data-v="${p.id}" onclick="App.chip(this)">${p.name}</button>`).join("")}</div>
         <div class="hint">고른 수업권을 보유한 회원만 예약할 수 있어요.</div></div>
       <div class="field" id="${prefix}-mem-wrap"><label>지정 회원${scoped ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
-        <div class="chips" id="${prefix}-mems">${pool.map((m) => `<button class="chip${selM.includes(m.id) ? " on" : ""}" data-v="${m.id}" onclick="App.chip(this)">${m.name}</button>`).join("")}</div>
+        ${pickerHtml(prefix + "-mems", { multi: true, initial: selM, pool })}
         <div class="hint">${scoped ? `센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)}) 안의 회원만 보여요. 기존 지정 회원은 범위 밖이어도 유지돼요.` : "회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미."}</div></div>`;
   }
   // 시정①: 센터·선생님 공용 수업 관리 — 선생님은 본인 수업 + classAuth(P2-2) 권한 필요
@@ -1089,20 +1165,15 @@
             <div class="seg">
               <button${S.mode === "all" ? ' class="on"' : ""} onclick="App.scopeMode('${t.id}','all')">전체 회원</button>
               <button${S.mode === "custom" ? ' class="on"' : ""} onclick="App.scopeMode('${t.id}','custom')">범위 지정</button></div>
-            ${S.mode === "custom" ? DB.products.map((p) => {
-              const hs = holdersOf(p.id);
-              const full = (S.productIds || []).includes(p.id);
-              const openKey = t.id + ":" + p.id;
-              const open = !!scopeOpen[openKey];
-              const picked = hs.filter((m) => (S.memberIds || []).includes(m.id)).length;
-              return `<div class="scope-prod">
-                <div class="scope-head">
-                  <button class="chip${full ? " on" : ""}" onclick="App.scopeProduct('${t.id}','${p.id}')">${p.name} 전체</button>
-                  <button class="scope-toggle" onclick="App.scopeExpand('${openKey}')">보유 회원 ${hs.length}명${picked && !full ? ` · ${picked}명 선택` : ""} ${open ? "▴" : "▾"}</button>
-                </div>
-                ${open ? `<div class="chips mt8">${hs.length ? hs.map((m) => `<button class="chip sm${full || (S.memberIds || []).includes(m.id) ? " on" : ""}"${full ? " disabled" : ""} onclick="App.scopeMember('${t.id}','${m.id}')">${m.name}</button>`).join("") : '<span class="muted small">유효 수업권 보유 회원이 없어요.</span>'}</div>${hs.length ? `<div class="hint">${full ? "멤버십 전체가 범위에 들어 있어요 — 일부 회원만 지정하려면 «전체»를 해제하고 회원을 골라 주세요." : "체크한 회원만 범위에 개별 추가돼요."}</div>` : ""}` : ""}
-              </div>`;
-            }).join("") : ""}
+            ${S.mode === "custom" ? `<div class="scope-prod">
+              <div class="muted small" style="font-weight:700;margin-bottom:6px">멤버십 단위 (보유 회원 전체 포함)</div>
+              <div class="chips">${DB.products.map((p) => {
+                const full = (S.productIds || []).includes(p.id);
+                return `<button class="chip${full ? " on" : ""}" onclick="App.scopeProduct('${t.id}','${p.id}')">${p.name} 전체 (${holdersOf(p.id).length.toLocaleString("ko-KR")}명)</button>`;
+              }).join("")}</div>
+              <div class="hint">«전체»를 켜면 그 멤버십의 유효 수업권 보유 회원 전체가 범위에 들어요. 일부 회원만 지정하려면 «전체»를 끄고 아래에서 검색해 개별 추가해 주세요.</div>
+              <div class="mt8">${pickerHtml("scope-" + t.id, { multi: true, selected: S.memberIds || [], pool: DB.members.filter((m) => !m.staff), commit: (mid) => App.scopeMember(t.id, mid) })}</div>
+            </div>` : ""}
             <div class="muted small mt4">현재 범위: <b>${tScopeLabel(t.id)}</b></div>
           </div>`;
         }).join("")}
@@ -1125,9 +1196,23 @@
 
   // ── 액션 ──
   const pinTries = {}, pinLocked = {};
-  const scopeOpen = {}; // P2-2b 멤버십 하위 회원 목록 펼침 상태 (UI 전용)
   const App = {
     closeModal,
+    // v2.4: 검색 picker — 검색·필터·점진 로딩은 picker 서브트리만 갱신 (입력 포커스 유지, 전체 재렌더 금지)
+    pkQuery(id, v) { const st = pickers[id]; if (!st) return; st.query = v; st.shown = PK_PAGE; pkRefresh(id); },
+    pkProd(id, v) { const st = pickers[id]; if (!st) return; st.prod = v; st.shown = PK_PAGE; pkRefresh(id); },
+    pkMore(id) { const st = pickers[id]; if (!st) return; st.shown += PK_PAGE; pkRefresh(id); },
+    pkScroll(id, el) {
+      const st = pickers[id]; if (!st) return;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60 && st.shown < pkMatches(st).length) { st.shown += PK_PAGE; pkRefresh(id); }
+    },
+    pkToggle(id, mid) {
+      const st = pickers[id]; if (!st) return;
+      if (st.opts.commit) { st.opts.commit(mid); return; } // controlled(P2-2b): DB가 진실 — 커밋이 재렌더
+      if (!st.opts.multi) st.sel = st.sel.has(mid) ? new Set() : new Set([mid]);
+      else st.sel.has(mid) ? st.sel.delete(mid) : st.sel.add(mid);
+      pkRefresh(id);
+    },
     seg(btn) {
       btn.parentElement.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
       btn.classList.add("on");
@@ -1432,9 +1517,10 @@
         joinable.map((s) => `<option value="${s.id}">${dlabel(s.date)} ${s.time} 기존 회차 합류 (${seatCount(s.id)}/${c.capacity}명)</option>`).join("");
     },
     quickBook(role) {
-      const m = member(document.getElementById("qk-member").value);
+      const m = member(pkSelected("qk-member")[0] || "");
       const c = cls(document.getElementById("qk-class").value);
-      if (!m || !c) { toast("회원과 수업을 선택해 주세요."); return; }
+      if (!m) { toast("회원을 검색해 선택해 주세요."); return; }
+      if (!c) { toast("수업을 선택해 주세요."); return; }
       // P2-2b 재검증 (목록 필터만으론 부족 — 04 원칙)
       if (role === "t" && !inTScope(DB.me.teacher, m.id)) { toast(`${m.name} 회원은 내 «지정 가능 회원 범위» 밖이에요 — 센터에 범위 확대를 요청해 주세요.`); return; }
       const g = bookGuard(c, m.id);
@@ -1490,7 +1576,7 @@
       const elig = document.querySelector("#nc-elig .on").dataset.v;
       const cap = kind === "private" ? 1 : parseInt(document.getElementById("nc-cap").value, 10) || 6;
       const prodIds = [...document.querySelectorAll("#nc-prods .chip.on")].map((b) => b.dataset.v);
-      const memIds = [...document.querySelectorAll("#nc-mems .chip.on")].map((b) => b.dataset.v);
+      const memIds = pkSelected("nc-mems");
       // M-4: 자격 데이터 실검증
       if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
       if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return; }
@@ -1502,6 +1588,7 @@
       DB.classes.push({ id: nid("c"), title, teacherId, kind, capacity: cap,
         schedule: sched, scheduleLabel: sched === "fixed" ? "매주 고정 (시간표 설정)" : "선생님과 조율", duration: 50,
         eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" });
+      delete pickers["nc-mems"]; // 개설 폼 리셋 (입력란은 재렌더로 초기화되므로 picker 선택도 함께)
       render();
       toast(`«${title}» 수업이 개설됐어요.`);
     },
@@ -1526,7 +1613,7 @@
       }
       const elig = document.querySelector("#ec-elig .on").dataset.v;
       const prodIds = [...document.querySelectorAll("#ec-prods .chip.on")].map((b) => b.dataset.v);
-      const memIds = [...document.querySelectorAll("#ec-mems .chip.on")].map((b) => b.dataset.v);
+      const memIds = pkSelected("ec-mems");
       if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
       if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return; }
       // P2-2b 재검증: 신규 추가만 범위 검사 (기존 지정 회원은 소급 없이 유지)
@@ -1538,6 +1625,7 @@
       c.eligibility = elig;
       c.eligibleProductIds = elig === "list" ? [] : prodIds;
       c.memberIds = elig === "pass" ? [] : memIds;
+      delete pickers["ec-mems"]; // 저장된 지정 회원 기준으로 picker 재초기화
       render();
       toast("수업 정보를 수정했어요. 기존 예약은 그대로 유지돼요.");
     },
@@ -1740,7 +1828,6 @@
       S.memberIds = (S.memberIds || []).includes(mid) ? S.memberIds.filter((x) => x !== mid) : [...(S.memberIds || []), mid];
       render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.");
     },
-    scopeExpand(key) { scopeOpen[key] = !scopeOpen[key]; render(); },
   };
   window.App = App;
 
@@ -1779,15 +1866,18 @@
   let lastHash = null;
   function render() {
     const h = location.hash || "#/";
+    if (h !== lastHash) Object.keys(pickers).forEach((k) => { if (pickers[k].hash !== h) delete pickers[k]; }); // 화면 이동 시 picker 상태 초기화
     let body = null;
     for (const [re, fn] of routes) {
       const m = h.match(re);
       if (m) { body = fn(m[1]); break; }
     }
     const keepToasts = [...$app.querySelectorAll(".toast")]; // 화면 이동해도 토스트 유지
+    const prevY = window.scrollY;
     $app.innerHTML = body != null ? body : vLanding();
     keepToasts.forEach((el) => $app.appendChild(el));
-    window.scrollTo(0, 0);
+    // 같은 화면 내 상태 갱신(토글·커밋)은 스크롤 유지 — 화면 이동 시에만 최상단으로
+    window.scrollTo(0, h !== lastHash ? 0 : prevY);
     // 화면 진입 모션은 해시 이동 시에만 — 같은 화면 내 상태 갱신엔 재생하지 않음
     if (h !== lastHash) {
       const sc = $app.querySelector(".screen");
