@@ -452,8 +452,8 @@ button.stat:active { transform: scale(.97); }
 .cb-day.on .dn { background: var(--cta); color: var(--text-on-brand); box-shadow: 0 4px 10px rgba(240,25,95,.26); }
 .cb-day .cnt { font-size: 9.5px; font-weight: 700; color: var(--text-muted); height: 12px; line-height: 12px; }
 .cb-day.past .cnt { color: var(--text-disabled); }
-.cb-day .arrmark { position: absolute; top: 3px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 0 2px var(--surface); }
-.cb-day.on .arrmark { box-shadow: 0 0 0 2px var(--surface-rose); }
+/* v2.24 U22: 조율 표식은 날짜 셀 위 절대배치(셀 밖 부유)를 폐기하고 상태 점 줄에 인라인 배치 */
+.mb-dots .ar { background: var(--warning); }
 .mb-dots .fl, .mb-legend .fl { background: var(--danger); }
 .mb-dots .pd, .mb-legend .pd { background: var(--border-strong); }
 .mb-legend .ar { background: var(--warning); }
@@ -471,3 +471,8 @@ button.stat:active { transform: scale(.97); }
 .pp-shift .old { color: var(--text-muted); text-decoration: line-through; }
 .pp-shift .arw { color: var(--text-disabled); }
 .pp-shift .new { font-weight: 700; color: var(--cta); }
+
+/* v2.24 U3: 홈 «다가오는 예약» 행 탭 → 회차 상세 (취소·변경 동선의 입구) */
+.slot.tapable { cursor: pointer; border-radius: 10px; transition: background .15s ease, transform .12s var(--ease-out); }
+.slot.tapable:active { transform: scale(.985); background: var(--surface-alt, rgba(0,0,0,.03)); }
+.slot .chev { flex-shrink: 0; font-size: 17px; font-weight: 700; color: var(--text-disabled); line-height: 1; }

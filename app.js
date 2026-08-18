@@ -52,6 +52,11 @@
    건별 수업명·일시·선생님+«받았어요» 원탭(확인=차감·정산 증빙이라 일괄 확인 버튼은 두지 않는다).
    확인마다 목록·탭 배지·요약 건수 즉시 갱신, 잔여 2건 이하가 되면 홈은 개별 카드 모드로 자연 복귀.
    검증 시드는 ?case=confirmstack 프리셋(data.js) — 기본 시드·기존 회귀 기대값 불변.
+   v2.24 (2026-08-19 감사 1차 수정 8건): U2 다가오는 예약 일시 오름차순(예약+조율 단일 시간축) /
+   U3 예약 취소 동선 — 회차 상세에 «예약 취소» 노출 + 홈 예약 행 탭 → 회차 상세 / U14 지난 회차를
+   «수업 종료 · 보고 대기»로 분리하고 취소 버튼 제거 / A6 엑셀 내보내기에 화면 필터(월·선생님) 반영 /
+   B9 노쇼 보상은 전송된 건이면 전송 시점 금액을 계속 표시 / U10 폐지된 «서명» 용어 제거(수강확인 관리) /
+   U11 홈 탭 배지 = 확인 요청 카드와 같은 소스 / U17 로즈 배너 아이콘 교체·U22 캘린더 조율 표식을 셀 안으로.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -225,6 +230,9 @@
     if ((DB.policy.noshowRewardCustomMode || "amount") === "percent") return pctAmount(r.unitPrice, DB.policy.noshowRewardPercent || 0);
     return DB.policy.noshowRewardCustom;
   };
+  // v2.24 B9: 표시·집계용 금액 — 샐리로 보낸 건은 전송 시점 스냅샷(rewardAmount)을 그대로 쓴다.
+  // 미전송 건만 현재 정책으로 동적 계산(옵션 전환 즉시 반영이라는 원래 의도 유지).
+  const noshowAmt = (r) => (r.rewardPushed && r.rewardAmount != null ? r.rewardAmount : noshowUnit(r));
   // 정산·설정 화면 공통 라벨 — 별도 단가의 두 방식(고정 금액/%)을 한 곳에서 표기
   const customPriceLabel = () => ((DB.policy.noshowRewardCustomMode || "amount") === "percent"
     ? `수업료의 ${DB.policy.noshowRewardPercent || 0}%`
@@ -476,8 +484,9 @@
   function shell(role, title, body, opts = {}) {
     const tabs = TABS[role] || [];
     const cur = location.hash.split("/").slice(0, 3).join("/");
-    // v2.13: 회원 홈 탭 알림 배지 — 확인 요청·노쇼 통지 건수
-    const mAlerts = role === "m" ? myConfirmWait().length + myBk().filter((b) => b.status === "noshow_wait").length : 0;
+    // v2.24 U11: 홈 탭 배지 = 홈 «수업 확인 요청» 카드와 같은 소스(myConfirmWait) — 한 화면에 4와 5가 동시에 뜨던 불일치 제거.
+    // 노쇼 통지는 홈 경고 배너·«내 예약» 배지로 계속 노출된다.
+    const mAlerts = role === "m" ? myConfirmWait().length : 0;
     return `
       <header class="hd"><div class="hd-in">
         ${opts.back ? `<button class="hd-back" onclick="history.back()" aria-label="뒤로">‹</button>` : ""}
@@ -486,7 +495,7 @@
       </div></header>
       <main class="screen${tabs.length ? "" : " no-tab"}">${body}</main>
       ${tabs.length ? `<nav class="tabbar">${tabs.map(([h, ic, l]) =>
-        `<a class="tab${h.startsWith(cur) && cur !== "#" ? " on" : ""}" href="${h}"><span class="ic">${role === "m" && M_TAB_SVG[l] ? M_TAB_SVG[l] : ic}${l === "홈" && mAlerts ? `<i class="tab-dot" aria-label="알림 ${mAlerts}건">${mAlerts}</i>` : ""}</span>${l}</a>`).join("")}</nav>` : ""}`;
+        `<a class="tab${h.startsWith(cur) && cur !== "#" ? " on" : ""}" href="${h}"><span class="ic">${role === "m" && M_TAB_SVG[l] ? M_TAB_SVG[l] : ic}${l === "홈" && mAlerts ? `<i class="tab-dot" aria-label="수업 확인 요청 ${mAlerts}건">${mAlerts}</i>` : ""}</span>${l}</a>`).join("")}</nav>` : ""}`;
   }
 
   // ══ 랜딩 ══
@@ -570,12 +579,20 @@
       : `<div class="card flat mb-empty"><div class="em">🎟️</div><p class="muted mt8">보유한 멤버십이 없어요.</p></div>`}
       <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>`, { center: true });
   }
+  // v2.24 U2: «다가오는 예약»은 일시 오름차순 — 목록의 존재 이유가 "다음 수업이 언제냐"라서.
+  // v2.24 U14: 이미 끝난 회차는 여기서 제외(myEnded로 분리) — 예정 목록에 취소 버튼을 달고 남으면 오조작 차감 분쟁.
+  const bkAt = (b) => slotAt(slot(b.slotId));
+  const upcomingBase = () => myBk().filter((b) => {
+    if (!["booked", "waitlisted"].includes(b.status)) return false;
+    const s = slot(b.slotId);
+    return s && s.status !== "canceled";
+  });
   function myUpcoming() {
-    return myBk().filter((b) => {
-      if (!["booked", "waitlisted"].includes(b.status)) return false;
-      const s = slot(b.slotId);
-      return s && s.status !== "canceled" && (s.status === "scheduled" || !isPast(s));
-    });
+    return upcomingBase().filter((b) => !isPast(slot(b.slotId))).sort((a, b) => bkAt(a) - bkAt(b));
+  }
+  // 수업 시각이 지났는데 아직 선생님 완료 보고 전인 내 회차 — «수업 종료 · 보고 대기» (취소 불가)
+  function myEnded() {
+    return upcomingBase().filter((b) => isPast(slot(b.slotId))).sort((a, b) => bkAt(b) - bkAt(a));
   }
   function vMHome() {
     // S-1: 확인 카드는 pending 보고가 실존하는 confirm_wait 예약에만 (v2.13: 원탭 확인 카드)
@@ -617,17 +634,22 @@
       ${mpCarousel(myPasses())}
       <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>
       <div class="sec-title row">다가오는 예약<a href="#/m/bookings" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
-      <div class="card flat">${upcoming.length || arrs.length ? upcoming.map((b) => {
-        const s = slot(b.slotId); const c = cls(s.classId); const bd = bkBadge(b);
-        return `<div class="slot"><span class="time">${s.time}</span>
+      <div class="card flat">${(() => {
+        // v2.24 U2: 예약(확정·대기)과 조율 희망일을 한 시간축에 병합해 오름차순.
+        // v2.24 U3: 행 전체를 탭하면 그 회차 상세로 — 취소·변경 동선의 입구(조율 건은 «내 예약»으로).
+        const rows = upcoming.map((b) => {
+          const s = slot(b.slotId); const c = cls(s.classId); const bd = bkBadge(b);
+          return { at: slotAt(s), html: `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/slot/${s.id}'"><span class="time">${s.time}</span>
           <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(s.date)} · ${teacher(c.teacherId).name} 선생님</div></span>
-          <span class="badge ${bd.badge}">${bd.label}</span></div>`;
-      }).join("") + arrs.map((a) => {
-        const c = cls(a.classId);
-        return `<div class="slot"><span class="time">${a.time}</span>
+          <span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>` };
+        }).concat(arrs.map((a) => {
+          const c = cls(a.classId);
+          return { at: new Date(`${a.date}T${a.time}:00+09:00`), html: `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/bookings'"><span class="time">${a.time}</span>
           <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(a.date)} 희망 · 선생님 확인 중</div></span>
-          <span class="badge b-warn">조율 대기</span></div>`;
-      }).join("") : `<p class="muted">예약이 없어요.</p>`}</div>
+          <span class="badge b-warn">조율 대기</span><span class="chev" aria-hidden="true">›</span></div>` };
+        })).sort((x, y) => x.at - y.at);
+        return rows.length ? rows.map((r) => r.html).join("") : `<p class="muted">예약이 없어요.</p>`;
+      })()}</div>
       <a class="btn primary mt8" href="#/m/book">수업 예약하기</a>`);
   }
   // v2.16: 실서비스 «멤버십 구매» 카드 문법 전면 교체 (purchase_ui_spec.md v1 — 실측 레드 사용, 브랜드 팔레트 치환 금지)
@@ -827,7 +849,14 @@
     let action;
     if (mine) {
       const bd = bkBadge(mine);
-      action = `<div class="banner"><span class="ic">✅</span><span>이 회차에 이미 <b>${bd.label}</b> 상태예요. 중복 예약은 안 돼요.</span></div>`;
+      // v2.24 U17: 로즈(경고) 배너에 초록 ✅는 톤 충돌 — 금지 아이콘으로 교체.
+      // v2.24 U3: 확정·대기 회차의 취소 입구를 여기에 노출(막다른 상세 화면 해소). 지난 회차는 취소 대신 안내.
+      const canCancel = ["booked", "waitlisted"].includes(mine.status) && !isPast(s);
+      action = `<div class="banner"><span class="ic">🚫</span><span>이 회차에 이미 <b>${bd.label}</b> 상태예요. 중복 예약은 안 돼요.</span></div>
+        ${canCancel ? `<button class="btn danger-ghost" onclick="App.askCancel('${mine.id}')">${mine.status === "waitlisted" ? "예약대기 취소" : "예약 취소"}</button>
+        <a class="btn ghost mt8" href="#/m/bookings">내 예약 전체 보기</a>`
+        : `<div class="card flat"><div class="muted small">${isPast(s) ? "수업 시각이 지나 취소할 수 없어요. 선생님 완료 보고 뒤 «수강 확인»으로 넘어가요." : "이 상태에서는 취소할 수 없어요."}</div></div>
+        <a class="btn ghost" href="#/m/bookings">내 예약 전체 보기</a>`}`;
     } else if (isPast(s)) {
       action = `<button class="btn primary" disabled>지난 회차는 예약할 수 없어요</button>`;
     } else if (!g.ok) {
@@ -855,11 +884,15 @@
   function vMBookings() {
     const mine = myBk();
     const arrs = DB.arranges.filter((a) => a.memberId === DB.me.member);
-    const act = mine.filter((b) => ["booked", "waitlisted"].includes(b.status) && slot(b.slotId).status !== "canceled");
+    // v2.24 U2·U14: 예정=미래 회차만 일시 오름차순, 이미 끝난 회차는 «수업 종료 · 보고 대기»로 분리(취소 버튼 없음)
+    const act = myUpcoming();
+    const ended = myEnded();
     const need = mine.filter((b) => ["confirm_wait", "noshow_wait", "disputed"].includes(b.status));
     const past = mine.filter((b) => ["canceled", "forfeited", "confirmed", "restored", "class_closed", "noshow_final"].includes(b.status) || (slot(b.slotId).status === "canceled" && b.status === "booked"));
-    const item = (b, withCancel) => {
-      const s = slot(b.slotId); const c = cls(s.classId); const bd = bkBadge(b);
+    const item = (b, withCancel, endedRow) => {
+      const s = slot(b.slotId); const c = cls(s.classId);
+      // 종료 회차는 상태 원본(booked/waitlisted) 대신 «수업 종료 · 보고 대기»로 표기 — 예약 확정 라벨이 남으면 아직 취소 가능한 것처럼 읽힘
+      const bd = endedRow ? { label: "수업 종료 · 보고 대기", badge: "b-gray" } : bkBadge(b);
       return `<div class="slot"><span class="grow"><span class="t">${c.title}</span>
         <div class="muted small">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         ${b.status === "class_closed" ? `<div class="muted small">폐강 사유: ${b.closeReason || "-"}</div>` : ""}</span>
@@ -883,6 +916,9 @@
     return shell("m", "내 예약", `
       <div class="sec-title">예정 · 대기</div>
       <div class="card flat">${act.length ? act.map((b) => item(b, true)).join("") : `<p class="muted">예약이 없어요.</p>`}</div>
+      ${ended.length ? `<div class="sec-title">수업 종료 · 보고 대기</div>
+      <div class="card flat">${ended.map((b) => item(b, false, true)).join("")}
+        <p class="muted small mt8">수업 시각이 지난 회차예요. 선생님이 완료 보고를 하면 «수강 확인 대기»로 넘어가요. 이미 받은 수업이라 취소는 할 수 없어요.</p></div>` : ""}
       ${arrs.length ? `<div class="sec-title">조율 요청</div><div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
       ${need.length ? `<div class="sec-title">확인 필요</div><div class="card flat">${need.map((b) => item(b, false)).join("")}</div>` : ""}
       ${past.length ? `<div class="sec-title">지난 예약</div><div class="card flat">${past.map((b) => item(b, false)).join("")}</div>` : ""}`, { back: true });
@@ -1190,7 +1226,7 @@
     const auto = elig.filter((l) => l.auto).length;
     const amount = elig.reduce((a, l) => a + l.unitPrice, 0);
     const ns = noshowFinals(DB.me.teacher);
-    const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowUnit(r), 0) : 0;
+    const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowAmt(r), 0) : 0;
     return shell("t", "내 정산", `
       <div class="card"><div class="muted small">2026년 8월 · 수강확인 완료분</div>
         <div class="big mt4">${won(amount + nsAmt)}</div>
@@ -1239,7 +1275,7 @@
       <div class="sec-title">바로가기</div>
       <div class="stat-grid">
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/quick'"><div class="k">예약</div><div class="v" style="font-size:15px">⚡ 즉시 예약확정</div></button>
-        <button class="stat" style="text-align:left" onclick="location.hash='#/c/confirms'"><div class="k">수강확인</div><div class="v" style="font-size:15px">✍️ 완료·서명 관리</div></button>
+        <button class="stat" style="text-align:left" onclick="location.hash='#/c/confirms'"><div class="k">수강확인</div><div class="v" style="font-size:15px">🧾 수강확인 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/products'"><div class="k">판매</div><div class="v" style="font-size:15px">🎟️ 수업상품 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/settlement'"><div class="k">월말</div><div class="v" style="font-size:15px">💰 정산·샐리 전송</div></button>
       </div>`);
@@ -1532,10 +1568,9 @@
       if (!d) return `<span class="cb-day blank"></span>`;
       const ss = byDate[d] || [];
       const st = new Set(ss.map((s) => (s.status === "done" || isPast(s)) ? "pd" : seatCount(s.id) >= cls(s.classId).capacity ? "fl" : "av"));
-      return `<button type="button" class="cb-day${d === sel ? " on" : ""}${d === DB.TODAY ? " today" : ""}${d < DB.TODAY ? " past" : ""}" onclick="App.cbDay('${d}')" aria-label="${dlabel(d)}${ss.length ? ` · 수업 ${ss.length}건` : ""}">
-        ${arrDates.has(d) ? `<i class="arrmark" aria-hidden="true"></i>` : ""}
+      return `<button type="button" class="cb-day${d === sel ? " on" : ""}${d === DB.TODAY ? " today" : ""}${d < DB.TODAY ? " past" : ""}" onclick="App.cbDay('${d}')" aria-label="${dlabel(d)}${ss.length ? ` · 수업 ${ss.length}건` : ""}${arrDates.has(d) ? " · 조율 확인 필요" : ""}">
         <span class="dn">${Number(d.slice(8))}</span>
-        <span class="mb-dots">${["av", "fl", "pd"].filter((k) => st.has(k)).map((k) => `<i class="${k}"></i>`).join("")}</span>
+        <span class="mb-dots">${["av", "fl", "pd"].filter((k) => st.has(k)).map((k) => `<i class="${k}"></i>`).join("")}${arrDates.has(d) ? `<i class="ar"></i>` : ""}</span>
         <span class="cnt">${ss.length ? `${ss.length}건` : ""}</span></button>`;
     };
     const fchip = (label, on, fn) => `<button type="button" class="cb-chip${on ? " on" : ""}" onclick="${fn}">${label}</button>`;
@@ -1612,7 +1647,7 @@
   function vCConfirms() {
     const warns = DB.policy.autoConfirmHours > 0
       ? DB.teachers.map((t) => ({ t, ...autoStats(t.id) })).filter((x) => x.total && x.rate >= DB.policy.autoWarnRate) : [];
-    return shell("c", "완료·서명 관리", `
+    return shell("c", "수강확인 관리", `
       ${warns.map((x) => `<div class="banner warn"><span class="ic">🤖</span><span>${x.t.name} 자동확정 비율 <b>${x.rate}%</b> (임계 ${DB.policy.autoWarnRate}%). 자동확정 회차는 정산 전 검토를 권장해요.</span></div>`).join("")}
       <div class="sec-title">회차별 수강확인</div>
       <div class="card flat">${DB.reports.map((r) => `
@@ -1700,12 +1735,17 @@
   };
   const slineTime = (l) => { const m = (l.desc || "").match(/\d{1,2}:\d{2}/); return m ? m[0] : ""; };
   // 엑셀 행 구성 — vCSettlement와 같은 집계(확정=합계 포함, 이의 보류=제외 표기, 노쇼 보상=정책 지원 시 포함)
+  // v2.24 A6: 화면에 적용된 필터(선택 월 csUI.sel · 선생님 csUI.teacher)를 그대로 반영.
+  // 이전엔 전 기간·전 선생님을 무필터 집계해서, 데이터가 두 달 이상 쌓이면 화면과 다른 금액의 정산 파일이 나갔다.
   function settlementExportRows() {
     const split = splitSlineDesc;
+    const ym = (csUI.sel || DB.TODAY).slice(0, 7);
+    const tOk = (tid) => csUI.teacher === "all" || tid === csUI.teacher;
+    const inYm = (d) => (d || "").slice(0, 7) === ym;
     const rows = [["수업일시", "수업명", "선생님", "회원", "수업권", "구분", "회당 단가(원)", "정산 금액(원)"]];
     let total = 0, cnt = 0, heldN = 0, nsCnt = 0;
-    DB.teachers.forEach((t) => {
-      const lines = DB.slines.filter((l) => l.teacherId === t.id);
+    DB.teachers.filter((t) => tOk(t.id)).forEach((t) => {
+      const lines = DB.slines.filter((l) => l.teacherId === t.id && inYm(slineDate(l)));
       lines.filter((l) => l.status === "eligible").forEach((l) => {
         const [when, title] = split(l.desc);
         rows.push([when, title, t.name, l.member, l.passName || "수업권", `수강 확인 완료 (${l.method})`, l.unitPrice, l.unitPrice]);
@@ -1716,16 +1756,16 @@
         rows.push([when, title, t.name, l.member, l.passName || "수업권", "이의 심사 중 — 합계에서 제외", l.unitPrice, ""]);
         heldN++;
       });
-      if (rewardOn()) noshowFinals(t.id).forEach((r) => {
+      if (rewardOn()) noshowFinals(t.id).filter((r) => inYm(r.date || (r.slotId ? slot(r.slotId).date : null))).forEach((r) => {
         const [when, title] = split(r.desc || (r.slotId ? slotDesc(slot(r.slotId)) : ""));
-        const amt = noshowUnit(r);
+        const amt = noshowAmt(r);
         rows.push([when, title, t.name, r.member, "", "노쇼 보상 (센터 정책)", amt, amt]);
         total += amt; nsCnt++;
       });
     });
     rows.push([]);
     rows.push(["합계", `수강 확인 ${cnt}회${nsCnt ? ` + 노쇼 보상 ${nsCnt}건` : ""}${heldN ? ` · 이의 심사 중 ${heldN}건은 제외` : ""}`, "", "", "", "", "", total]);
-    return { rows, total, cnt, heldN, nsCnt };
+    return { rows, total, cnt, heldN, nsCnt, ym, teacherName: csUI.teacher === "all" ? null : teacher(csUI.teacher).name };
   }
   // S-5: 정산 = 라인 동적 집계. held 제외·멱등 전송·전송 후 이의 경고
   // v2.21 (형 지시 08-18): 상단 월간 캘린더(날짜별 회차 수·상태 점) + 날짜 탭 시 그 날 내역 리스트.
@@ -1747,7 +1787,7 @@
       const auto = elig.filter((l) => l.auto).length;
       // P9-1 (형 확정 08-17): 노쇼 보상은 센터별 설정 — 확정(noshow_final) 건만, 현재 정책 단가로 동적 집계
       const ns = noshowFinals(t.id).filter((r) => inYm(r.date || (r.slotId ? slot(r.slotId).date : null)));
-      const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowUnit(r), 0) : 0;
+      const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowAmt(r), 0) : 0;
       const nsUnpushed = rewardOn() && DB.policy.noshowRewardPush === "auto" ? ns.filter((r) => !r.rewardPushed) : [];
       return { t, elig, held, unpushed, pushed, pushedHeld, auto, ns, nsAmt, nsUnpushed, amount: elig.reduce((a, l) => a + l.unitPrice, 0) };
     })
@@ -1795,13 +1835,13 @@
       return `<div class="slot"><span class="time">${tm || "—"}</span>
         <span class="grow"><span class="t">${title}</span>
           <div class="muted small mt4">${(teacher(noshowTeacher(r)) || { name: "선생님" }).name} 선생님 · ${r.member} · 노쇼 보상 (센터 정책)</div></span>
-        <span class="cs-right"><span class="badge b-rose">보상</span><b class="cs-amt">${won(noshowUnit(r))}</b></span></div>`;
+        <span class="cs-right"><span class="badge b-rose">보상</span><b class="cs-amt">${won(noshowAmt(r))}</b></span></div>`;
     };
     const timeOf = (l) => slineTime(l) || "";
     const dayLines = (byDate[sel] || []).slice().sort((a, b) => timeOf(a).localeCompare(timeOf(b)));
     const dayNs = nsByDate[sel] || [];
     const dayN = dayLines.length + dayNs.length;
-    const dayTotal = dayLines.filter((l) => l.status === "eligible").reduce((a, l) => a + l.unitPrice, 0) + dayNs.reduce((a, r) => a + noshowUnit(r), 0);
+    const dayTotal = dayLines.filter((l) => l.status === "eligible").reduce((a, l) => a + l.unitPrice, 0) + dayNs.reduce((a, r) => a + noshowAmt(r), 0);
     const near = dayN ? null : (() => {
       const dates = [...new Set([...monthLines.map(slineDate), ...Object.keys(nsByDate)])].sort();
       return dates.find((d) => d > sel) || dates.slice().reverse().find((d) => d < sel) || null;
@@ -1846,7 +1886,7 @@
       ${csUI.teacher === "all" && per.length && hiddenN > 0 ? `<div class="card flat"><div class="muted small">이번 달 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
       ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건은 수강확인이 안 돼 정산에 포함되지 않았어요. 노쇼 보상은 현재 <b>${rewardLabel}</b>이에요 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정에서 변경 ›</a></div></div>` : ""}
       <div class="card"><div class="row" style="gap:12px"><span class="grow"><b>엑셀로 내려받기</b>
-        <div class="muted small mt4">지금 화면의 이번 달 정산 내역을 엑셀 파일로 저장해요. 이의 심사 중인 회차는 제외 표시가 붙고, 마지막 줄에 합계가 들어 있어요.</div></span>
+        <div class="muted small mt4">지금 화면 그대로 — <b>${y}년 ${m}월</b>${csUI.teacher === "all" ? "" : ` · <b>${teacher(csUI.teacher).name} 선생님</b>`} 정산 내역을 엑셀 파일로 저장해요. 이의 심사 중인 회차는 제외 표시가 붙고, 마지막 줄에 합계가 들어 있어요.</div></span>
         <button class="btn sm" onclick="App.exportSettlement()">📥 내려받기</button></div></div>
       <div class="banner"><span class="ic">🔗</span><span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 확정된 회차만 넘겨요. 같은 회차는 여러 번 보내도 한 번만 반영되니 안심하고 누르세요.</span></div>`);
   }
@@ -1871,7 +1911,7 @@
         <div class="toggle-row"><span><div class="tl">노쇼 판정</div><div class="td">선생님이 노쇼를 보고하면 회원에게 알림이 가요. 아래 이의제기 기간 안에 이의가 없으면 자동 확정되고 횟수가 차감돼요. 이의가 들어온 건만 센터가 판단해요.</div></span>
           ${sel("App.setNoshowActor(this.value)", [["teacher_report", "선생님 보고 → 자동확정"], ["center_only", "센터만 판정"]], P.noshowActor)}</div>
       </div>
-      <div class="sec-title">수강확인 (서명)</div>
+      <div class="sec-title">수강확인</div>
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">개인수업 확인 필수</div><div class="td">회원이 확인해야 횟수가 차감되고 정산돼요</div></span>${sw("signPrivate", P.signPrivate)}</div>
         <div class="toggle-row"><span><div class="tl">그룹수업 확인 필수</div><div class="td">끄면 그룹수업은 출석 체크만으로 차감돼요 · 이의제기 기간은 그대로 유지돼요</div></span>${sw("signGroup", P.signGroup)}</div>
@@ -2388,7 +2428,7 @@
       location.hash = "#/m/bookings";
       toast(pre ? "접수됐어요. 확인·차감 없이 센터가 심사해요." : "접수됐어요. 차감은 유지된 채 정산이 보류돼요 — 이의가 인정되면 복원돼요.");
     },
-    // 선생님 완료 보고 — 회원별 참석/노쇼 (M-11), 서명 정책 분기 (M-6)
+    // 선생님 완료 보고 — 회원별 참석/노쇼 (M-11), 수강확인 필수 정책 분기 (M-6)
     reportAsk(slotId) {
       const s = slot(slotId);
       const c = cls(s.classId);
@@ -2787,15 +2827,16 @@
     },
     // v2.19: 정산 화면 «엑셀로 내려받기» — 화면 집계 그대로 .xlsx 저장, 마지막 행=합계
     exportSettlement() {
-      const { rows, total } = settlementExportRows();
-      const month = DB.TODAY.slice(0, 7);
+      const { rows, total, ym, teacherName } = settlementExportRows();
+      const month = ym;
       const blob = new Blob([xlsxBytes(rows, [16, 30, 12, 12, 26, 30, 14, 14])], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `니짐내짐_정산_${month}.xlsx`;
+      a.download = `니짐내짐_정산_${month}${teacherName ? `_${teacherName}` : ""}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      toast(`엑셀 파일을 내려받았어요 — 합계 ${won(total)}. 지금 화면의 정산 내역이 그대로 담겨 있어요.`);
+      const [my, mm] = month.split("-");
+      toast(`엑셀 파일을 내려받았어요 — ${my}년 ${Number(mm)}월${teacherName ? ` · ${teacherName} 선생님` : ""} 합계 ${won(total)}. 지금 화면의 정산 내역이 그대로 담겨 있어요.`);
     },
     toggle(key) {
       const P = DB.policy;
