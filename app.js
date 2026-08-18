@@ -645,7 +645,16 @@
     const dates = [...new Set(DB.slots.filter(mbBookable).map((s) => s.date))].sort();
     return dates.find((d) => d > sel) || dates.slice().reverse().find((d) => d < sel) || null;
   }
-  // v2.20: 월 이동 시트 — 회원(mbGoto)·센터(cbGoto) 캘린더 공용. 회차가 있는 달+다음 달 노출
+  // v2.21: 월간 그리드 셀 — 센터 예약(vCBookings)·정산(vCSettlement) 캘린더 공용 (월요일 시작)
+  function monthCells(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    const dim = new Date(y, m, 0).getDate();
+    const lead = (new Date(`${ym}-01T12:00:00+09:00`).getDay() + 6) % 7;
+    const cells = [...Array(lead).fill(null), ...Array.from({ length: dim }, (_, i) => `${ym}-${String(i + 1).padStart(2, "0")}`)];
+    while (cells.length % 7) cells.push(null);
+    return cells;
+  }
+  // v2.20: 월 이동 시트 — 회원(mbGoto)·센터(cbGoto)·정산(csGoto) 캘린더 공용. 회차가 있는 달+다음 달 노출
   function monthSheet(cur, gotoFn) {
     const months = [...new Set([...DB.slots.map((s) => s.date.slice(0, 7)), DB.TODAY.slice(0, 7)])].sort();
     const [ly, lm] = months[months.length - 1].split("-").map(Number);
@@ -1391,10 +1400,7 @@
     const sel = cbUI.sel || (cbUI.sel = DB.TODAY);
     const ym = sel.slice(0, 7);
     const [y, m] = ym.split("-").map(Number);
-    const dim = new Date(y, m, 0).getDate();
-    const lead = (new Date(`${ym}-01T12:00:00+09:00`).getDay() + 6) % 7; // 월요일 시작
-    const cells = [...Array(lead).fill(null), ...Array.from({ length: dim }, (_, i) => `${ym}-${String(i + 1).padStart(2, "0")}`)];
-    while (cells.length % 7) cells.push(null);
+    const cells = monthCells(ym);
     const all = cbSlots();
     const byDate = {};
     all.forEach((s) => (byDate[s.date] = byDate[s.date] || []).push(s));
@@ -1560,13 +1566,20 @@
     let p = 0; all.forEach((u) => { out.set(u, p); p += u.length; });
     return out;
   }
+  // v2.21: 정산 라인 desc 파싱 — 엑셀·정산 캘린더 공용.
+  // desc 형식 두 가지 수용: "8/13 (목) 19:00 · PT"(슬롯) / "8/13 (목) 19:00 PT"·"8/8 수업명"(시드)
+  const splitSlineDesc = (d) => {
+    const m = (d || "").match(/^(\d{1,2}\/\d{1,2}(?:\s*\([^)]+\))?(?:\s+\d{1,2}:\d{2})?)(?:\s*·\s*|\s+)(.*)$/);
+    return m ? [m[1], m[2]] : [d || "", ""];
+  };
+  const slineDate = (l) => { // 라인 desc 선두 "8/13 …" → "2026-08-13" (런타임 생성분=slotDesc 형식 동일)
+    const m = (l.desc || "").match(/^(\d{1,2})\/(\d{1,2})/);
+    return m ? `${DB.TODAY.slice(0, 4)}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
+  };
+  const slineTime = (l) => { const m = (l.desc || "").match(/\d{1,2}:\d{2}/); return m ? m[0] : ""; };
   // 엑셀 행 구성 — vCSettlement와 같은 집계(확정=합계 포함, 이의 보류=제외 표기, 노쇼 보상=정책 지원 시 포함)
   function settlementExportRows() {
-    // desc 형식 두 가지 수용: "8/13 (목) 19:00 · PT"(슬롯) / "8/13 (목) 19:00 PT"·"8/8 수업명"(시드)
-    const split = (d) => {
-      const m = (d || "").match(/^(\d{1,2}\/\d{1,2}(?:\s*\([^)]+\))?(?:\s+\d{1,2}:\d{2})?)(?:\s*·\s*|\s+)(.*)$/);
-      return m ? [m[1], m[2]] : [d || "", ""];
-    };
+    const split = splitSlineDesc;
     const rows = [["수업일시", "수업명", "선생님", "회원", "수업권", "구분", "회당 단가(원)", "정산 금액(원)"]];
     let total = 0, cnt = 0, heldN = 0, nsCnt = 0;
     DB.teachers.forEach((t) => {
@@ -1593,9 +1606,17 @@
     return { rows, total, cnt, heldN, nsCnt };
   }
   // S-5: 정산 = 라인 동적 집계. held 제외·멱등 전송·전송 후 이의 경고
+  // v2.21 (형 지시 08-18): 상단 월간 캘린더(날짜별 회차 수·상태 점) + 날짜 탭 시 그 날 내역 리스트.
+  // 선생님 필터 칩은 캘린더·날짜 리스트·하단 선생님 카드에 공통 적용. 캘린더 문법=센터 예약(v2.20)·회원 캘린더 공용.
+  let csUI = { sel: null, teacher: "all" };
   function vCSettlement() {
-    const per = DB.teachers.map((t) => {
-      const lines = DB.slines.filter((l) => l.teacherId === t.id);
+    const sel = csUI.sel || (csUI.sel = DB.TODAY);
+    const ym = sel.slice(0, 7);
+    const [y, m] = ym.split("-").map(Number);
+    const tOk = (tid) => csUI.teacher === "all" || tid === csUI.teacher;
+    const inYm = (d) => (d || "").slice(0, 7) === ym;
+    const per = DB.teachers.filter((t) => tOk(t.id)).map((t) => {
+      const lines = DB.slines.filter((l) => l.teacherId === t.id && inYm(slineDate(l)));
       const elig = lines.filter((l) => l.status === "eligible");
       const held = lines.filter((l) => l.status === "held");
       const unpushed = elig.filter((l) => !l.pushed);
@@ -1603,7 +1624,7 @@
       const pushedHeld = held.filter((l) => l.pushed);
       const auto = elig.filter((l) => l.auto).length;
       // P9-1 (형 확정 08-17): 노쇼 보상은 센터별 설정 — 확정(noshow_final) 건만, 현재 정책 단가로 동적 집계
-      const ns = noshowFinals(t.id);
+      const ns = noshowFinals(t.id).filter((r) => inYm(r.date || (r.slotId ? slot(r.slotId).date : null)));
       const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowUnit(r), 0) : 0;
       const nsUnpushed = rewardOn() && DB.policy.noshowRewardPush === "auto" ? ns.filter((r) => !r.rewardPushed) : [];
       return { t, elig, held, unpushed, pushed, pushedHeld, auto, ns, nsAmt, nsUnpushed, amount: elig.reduce((a, l) => a + l.unitPrice, 0) };
@@ -1614,8 +1635,76 @@
     const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status)).length;
     const rewardLabel = !rewardOn() ? "보상 없음 (기본)"
       : `보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"} · ${DB.policy.noshowRewardPush === "auto" ? "샐리 자동 전송" : "샐리에서 수동 체크"}`;
-    return shell("c", "정산 · 2026년 8월", `
+    // ── 캘린더 집계 (removed 제외 · 선생님 필터 반영) ──
+    const monthLines = DB.slines.filter((l) => l.status !== "removed" && tOk(l.teacherId) && inYm(slineDate(l)));
+    const byDate = {};
+    monthLines.forEach((l) => (byDate[slineDate(l)] = byDate[slineDate(l)] || []).push(l));
+    const nsByDate = {};
+    if (rewardOn()) DB.reports.filter((r) => r.status === "noshow_final" && tOk(noshowTeacher(r)) && inYm(r.date || (r.slotId ? slot(r.slotId).date : null)))
+      .forEach((r) => { const d = r.date || slot(r.slotId).date; (nsByDate[d] = nsByDate[d] || []).push(r); });
+    const cells = monthCells(ym);
+    const cell = (d) => {
+      if (!d) return `<span class="cb-day blank"></span>`;
+      const ls = byDate[d] || [];
+      const nsl = nsByDate[d] || [];
+      const n = ls.length + nsl.length;
+      const st = new Set([...ls.map((l) => l.status === "held" ? "hd" : l.auto ? "au" : "cf"), ...nsl.map(() => "cf")]);
+      return `<button type="button" class="cb-day${d === sel ? " on" : ""}${d === DB.TODAY ? " today" : ""}${d < DB.TODAY ? " past" : ""}" onclick="App.csDay('${d}')" aria-label="${dlabel(d)}${n ? ` · 정산 ${n}회` : ""}">
+        <span class="dn">${Number(d.slice(8))}</span>
+        <span class="mb-dots">${["cf", "au", "hd"].filter((k) => st.has(k)).map((k) => `<i class="${k}"></i>`).join("")}</span>
+        <span class="cnt">${n ? `${n}회` : ""}</span></button>`;
+    };
+    const fchip = (label, on, fn) => `<button type="button" class="cb-chip${on ? " on" : ""}" onclick="${fn}">${label}</button>`;
+    const chipTeachers = DB.teachers.filter((t) => DB.slines.some((l) => l.status !== "removed" && l.teacherId === t.id)
+      || DB.reports.some((r) => r.status === "noshow_final" && noshowTeacher(r) === t.id));
+    // ── 선택 날짜 내역 리스트 ──
+    const lineItem = (l) => {
+      const held = l.status === "held";
+      const title = splitSlineDesc(l.desc)[1] || l.desc;
+      return `<div class="slot"><span class="time">${slineTime(l) || "—"}</span>
+        <span class="grow"><span class="t">${title}</span>
+          <div class="muted small mt4">${teacher(l.teacherId).name} 선생님 · ${l.member} · 회당 ${won(l.unitPrice)}</div></span>
+        <span class="cs-right"><span class="badge ${held ? "b-warn" : l.auto ? "b-blue" : "b-green"}">${held ? "보류" : l.auto ? "자동확정" : "확정"}</span>
+          <b class="cs-amt${held ? " held" : ""}">${won(l.unitPrice)}</b></span></div>`;
+    };
+    const nsItem = (r) => {
+      const title = splitSlineDesc(r.desc || (r.slotId ? slotDesc(slot(r.slotId)) : ""))[1] || "노쇼 회차";
+      const tm = ((r.desc || "").match(/\d{1,2}:\d{2}/) || [""])[0];
+      return `<div class="slot"><span class="time">${tm || "—"}</span>
+        <span class="grow"><span class="t">${title}</span>
+          <div class="muted small mt4">${(teacher(noshowTeacher(r)) || { name: "선생님" }).name} 선생님 · ${r.member} · 노쇼 보상 (센터 정책)</div></span>
+        <span class="cs-right"><span class="badge b-rose">보상</span><b class="cs-amt">${won(noshowUnit(r))}</b></span></div>`;
+    };
+    const timeOf = (l) => slineTime(l) || "";
+    const dayLines = (byDate[sel] || []).slice().sort((a, b) => timeOf(a).localeCompare(timeOf(b)));
+    const dayNs = nsByDate[sel] || [];
+    const dayN = dayLines.length + dayNs.length;
+    const dayTotal = dayLines.filter((l) => l.status === "eligible").reduce((a, l) => a + l.unitPrice, 0) + dayNs.reduce((a, r) => a + noshowUnit(r), 0);
+    const near = dayN ? null : (() => {
+      const dates = [...new Set([...monthLines.map(slineDate), ...Object.keys(nsByDate)])].sort();
+      return dates.find((d) => d > sel) || dates.slice().reverse().find((d) => d < sel) || null;
+    })();
+    return shell("c", `정산 · ${y}년 ${m}월`, `
       <p class="muted" style="margin-bottom:12px">회원 수강확인이 끝난 회차만 집계돼요. 이의제기 중인 회차는 자동으로 보류되고 전송에서 빠져요.</p>
+      <div class="cb-filters">
+        <div class="cb-frow"><span class="cb-flabel">선생님</span>${fchip("전체", csUI.teacher === "all", "App.csTeacher('all')")}${chipTeachers.map((t) => fchip(`${t.name} 선생님`, csUI.teacher === t.id, `App.csTeacher('${t.id}')`)).join("")}</div>
+      </div>
+      <div class="card mb-cal">
+        <div class="mb-head">
+          <button class="mb-nav" onclick="App.csMonth(-1)" aria-label="이전 달">‹</button>
+          <button class="mb-month" onclick="App.csMonthSheet()">${y}년 ${m}월 <span class="car">▾</span></button>
+          <button class="mb-nav" onclick="App.csMonth(1)" aria-label="다음 달">›</button>
+        </div>
+        <div class="cb-dow">${["월", "화", "수", "목", "금", "토", "일"].map((w) => `<span>${w}</span>`).join("")}</div>
+        <div class="cb-grid cs-grid">${cells.map(cell).join("")}</div>
+        <div class="mb-legend cb-legend"><span><i class="cf"></i>확정</span><span><i class="au"></i>자동확정</span><span><i class="hd"></i>보류 (이의 심사 중)</span></div>
+      </div>
+      <div class="sec-title">${dlabel(sel)} 정산 내역${dayN ? ` · ${dayN}회${dayTotal ? ` · ${won(dayTotal)}` : ""}` : ""}${sel === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}</div>
+      ${dayN ? `<div class="card flat">${dayLines.map(lineItem).join("")}${dayNs.map(nsItem).join("")}</div>`
+        : `<div class="card flat mb-empty"><div class="em">💰</div>
+            <p class="muted mt8">이 날은 정산 내역이 없어요.</p>
+            ${near ? `<button class="btn ghost mt12" onclick="App.csDay('${near}')">정산 내역이 있는 가장 가까운 날 ${dlabel(near)}로 이동</button>` : ""}</div>`}
+      <div class="sec-title">선생님별 정산</div>
       ${per.map((x) => `<div class="card"><div class="row"><span class="grow"><b>${x.t.name} 선생님</b>
           <div class="muted small mt4">확정 ${x.elig.length}회 (자동확정 ${x.auto}회 포함)${x.held.length ? ` · <b style="color:var(--danger)">보류 ${x.held.length}건</b>` : ""}</div></span>
           <span class="big">${won(x.amount)}</span></div>
@@ -1631,7 +1720,8 @@
             return x.pushed.length ? `추가 ${parts.join(" + ")} 보내기` : `샐리로 보내기 (${parts.join(" + ")})`;
           })()}</button>` : x.pushed.length ? "" : `<span class="muted small">보낼 확정 회차가 없어요.</span>`}
         </div></div>`).join("")}
-      ${hiddenN > 0 ? `<div class="card flat"><div class="muted small">이번 달 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
+      ${per.length ? "" : `<div class="card flat"><div class="muted small">이 달에는 표시할 정산 내역이 없어요.</div></div>`}
+      ${csUI.teacher === "all" && per.length && hiddenN > 0 ? `<div class="card flat"><div class="muted small">이번 달 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
       ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건은 수강확인이 안 돼 정산에 포함되지 않았어요. 노쇼 보상은 현재 <b>${rewardLabel}</b>이에요 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정에서 변경 ›</a></div></div>` : ""}
       <div class="card"><div class="row" style="gap:12px"><span class="grow"><b>엑셀로 내려받기</b>
         <div class="muted small mt4">지금 화면의 이번 달 정산 내역을 엑셀 파일로 저장해요. 이의 심사 중인 회차는 제외 표시가 붙고, 마지막 줄에 합계가 들어 있어요.</div></span>
@@ -2541,6 +2631,18 @@
     cbMonthSheet() { monthSheet((cbUI.sel || DB.TODAY).slice(0, 7), "cbGoto"); },
     cbTeacher(id) { cbUI.teacher = id; render(); },
     cbClass(id) { cbUI.cls = id; render(); },
+    // v2.21: 정산 캘린더 — 날짜 선택·월 이동·월 시트·선생님 필터 (센터 예약 캘린더와 같은 문법)
+    csDay(d) { csUI.sel = d; render(); },
+    csMonth(delta) {
+      const [y, m] = (csUI.sel || DB.TODAY).slice(0, 7).split("-").map(Number);
+      const t = m - 1 + delta, ny = y + Math.floor(t / 12), nm = ((t % 12) + 12) % 12 + 1;
+      const ym = `${ny}-${String(nm).padStart(2, "0")}`;
+      csUI.sel = ym === DB.TODAY.slice(0, 7) ? DB.TODAY : `${ym}-01`;
+      render();
+    },
+    csGoto(d) { csUI.sel = d; closeModal(); render(); },
+    csMonthSheet() { monthSheet((csUI.sel || DB.TODAY).slice(0, 7), "csGoto"); },
+    csTeacher(id) { csUI.teacher = id; render(); },
     scopeMember(tid, mid) {
       const S = (DB.policy.teacherScope || {})[tid];
       if (!S) return;
@@ -2624,6 +2726,7 @@
     if (h !== lastHash && h !== "#/m/book") mBookSel = null; // v2.11: 예약 캘린더 이탈 시 날짜 선택 초기화
     // v2.20: 센터 캘린더 — 회차 상세를 다녀와도 날짜·필터 유지, 그 밖으로 나가면 초기화
     if (h !== lastHash && h !== "#/c/bookings" && !h.startsWith("#/c/slot/")) cbUI = { sel: null, teacher: "all", cls: "all" };
+    if (h !== lastHash && h !== "#/c/settlement") csUI = { sel: null, teacher: "all" }; // v2.21: 정산 캘린더 이탈 시 초기화
     if (h !== lastHash && h !== "#/m/pass") mpIdx = 0; // v2.14: 멤버십 캐러셀 이탈 시 활성 카드 초기화
     let body = null;
     for (const [re, fn] of routes) {
@@ -2647,18 +2750,19 @@
   }
   // v2.11: 캘린더 좌우 스와이프 (수평 48px 이상 · 탭과 구분, 이후 클릭 1회 억제)
   // v2.20: 센터 월간 캘린더(.cb-grid)도 지원 — 회원 주간 스트립=주 이동, 센터=월 이동
+  // v2.21: 정산 캘린더(.cs-grid)도 월 이동
   let mbSw = null, mbSwipedAt = 0;
   document.addEventListener("pointerdown", (e) => {
     const cal = e.target.closest(".mb-strip, .cb-grid");
-    mbSw = cal ? { x: e.clientX, y: e.clientY, cb: cal.classList.contains("cb-grid") } : null;
+    mbSw = cal ? { x: e.clientX, y: e.clientY, fn: cal.classList.contains("cs-grid") ? "csMonth" : cal.classList.contains("cb-grid") ? "cbMonth" : "mbWeek" } : null;
   }, { passive: true });
   document.addEventListener("pointerup", (e) => {
     if (!mbSw) return;
-    const dx = e.clientX - mbSw.x, dy = e.clientY - mbSw.y, cb = mbSw.cb;
+    const dx = e.clientX - mbSw.x, dy = e.clientY - mbSw.y, fn = mbSw.fn;
     mbSw = null;
     if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       mbSwipedAt = performance.now();
-      (cb ? App.cbMonth : App.mbWeek)(dx < 0 ? 1 : -1);
+      App[fn](dx < 0 ? 1 : -1);
     }
   }, { passive: true });
   document.addEventListener("click", (e) => {

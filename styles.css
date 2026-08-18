@@ -458,3 +458,10 @@ button.stat:active { transform: scale(.97); }
 .mb-dots .pd, .mb-legend .pd { background: var(--border-strong); }
 .mb-legend .ar { background: var(--warning); }
 .cb-legend { flex-wrap: wrap; gap: 8px 12px; }
+/* v2.21: 정산 캘린더 점 — 확정(브랜드)·자동확정(파랑)·보류(경고) */
+.mb-dots .cf, .mb-legend .cf { background: var(--cta); }
+.mb-dots .au, .mb-legend .au { background: var(--secondary); }
+.mb-dots .hd, .mb-legend .hd { background: var(--warning); }
+.cs-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.cs-amt { font-size: 13.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cs-amt.held { color: var(--text-muted); text-decoration: line-through; font-weight: 600; }
