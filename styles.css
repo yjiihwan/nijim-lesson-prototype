@@ -465,3 +465,9 @@ button.stat:active { transform: scale(.97); }
 .cs-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
 .cs-amt { font-size: 13.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .cs-amt.held { color: var(--text-muted); text-decoration: line-through; font-weight: 600; }
+
+/* v2.22: 선생님발 제안 — 인박스 시간 변경 표시 (기존 → 제안 시간) */
+.pp-shift { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; font-size: 13px; }
+.pp-shift .old { color: var(--text-muted); text-decoration: line-through; }
+.pp-shift .arw { color: var(--text-disabled); }
+.pp-shift .new { font-weight: 700; color: var(--cta); }

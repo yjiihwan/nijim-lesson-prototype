@@ -151,6 +151,10 @@ window.DB = {
       status: "pending", note: "출근 전 이른 시간 희망해요", at: "2026-08-16 20:30" },
   ],
 
+  // v2.22: 선생님발 제안 — ①확정 예약 «일정 변경 제안» ②빈 시간 «새 수업 제안» ③조율 거절 시 «대안 시간 제안».
+  // arranges(회원발)와 대칭 구조. 수락 전엔 회차·예약을 만들지 않는다 (동일 원칙). 시드는 파일 끝 seedProposals().
+  proposals: [],
+
   // 완료 보고·수강확인 (회차×회원 1행) — deducted=차감 성립 여부, lineId=정산 라인
   reports: [
     { id: "rp1", slotId: "s7", bookingId: "bk3", memberId: "m1", member: "김지은", status: "pending", method: null, label: "회원 확인 대기", at: "8/16 12:01 보고", deducted: false, lineId: null },
@@ -413,4 +417,37 @@ window.DB = {
       detail: `${Number(d.slice(0, 2))}/${Number(d.slice(3))} 필라테스 · 앱 확인${i === 9 ? " — 마지막 회차, 횟수 소진" : ""}`,
       at: `2026-${d} 11:00` });
   });
+})();
+
+// ── v2.22 선생님발 제안 시드 (운영자 확정 08-18: 3기능 전부) ──
+// 상태 4종(대기/수락/거절/만료)이 회원·선생님 양쪽 인박스에 모두 보이도록 구성.
+// ⚠️ 기존 시드(회차·예약·정산·원장)는 불변 — 수락 시에만 런타임으로 회차·예약이 생긴다.
+//    pp5(수락됨)는 기존 s9/bkA20(8/17 14:00 즉석 PT)을 결과 회차로 참조해 데이터 정합 유지.
+//    pp6은 제안 일시가 기준 시각(8/17 12:00)보다 과거라 «기한 만료»로 파생 표시된다.
+(function seedProposals() {
+  window.DB.proposals.push(
+    // ① 확정 예약 변경 제안 — bk1(내일 11:00 PT)을 16:00로 (회원 수락 시 예약 이동, 거절 시 기존 유지)
+    { id: "pp1", kind: "change", teacherId: "t1", memberId: "m1", classId: "c2", bookingId: "bk1",
+      origDesc: "8/18 (화) 11:00", date: "2026-08-18", time: "16:00",
+      note: "오전에 센터 행사가 있어 시간을 옮기고 싶어요", status: "pending", at: "2026-08-16 21:10" },
+    // ② 빈 시간 새 수업 제안 — 회원 수락 시 예약 생성
+    { id: "pp2", kind: "slot", teacherId: "t1", memberId: "m1", classId: "c2",
+      date: "2026-08-21", time: "16:00", note: "이 시간이 비어 있어요. 어떠세요?", status: "pending", at: "2026-08-16 21:20" },
+    // ③ 조율 거절 + 대안 역제안 — ar3(8/19 07:00 희망 거절) 건의 대안 13:00
+    { id: "pp3", kind: "alt", teacherId: "t1", memberId: "m1", classId: "c2", arrangeId: "ar3",
+      date: "2026-08-19", time: "13:00", note: "이른 시간은 어렵고, 점심시간은 가능해요", status: "pending", at: "2026-08-14 18:41" },
+    // 거절된 변경 제안 (회원 사유 회신) — 회원·선생님 «처리됨» 표시용
+    { id: "pp4", kind: "change", teacherId: "t2", memberId: "m1", classId: "c1", bookingId: "bk4",
+      origDesc: "8/19 (수) 10:00", date: "2026-08-19", time: "12:00",
+      note: "기구 점검 일정이 잡혀 시간을 옮기려 했어요", status: "declined", declineReason: "그 시간엔 회사에 있어요", at: "2026-08-13 10:00" },
+    // 수락된 새 수업 제안 — 결과 회차=기존 s9(오늘 14:00 PT·박서준)
+    { id: "pp5", kind: "slot", teacherId: "t1", memberId: "m2", classId: "c2", slotId: "s9",
+      date: "2026-08-17", time: "14:00", note: "낮 시간이 비어 있어요. 어떠세요?", status: "accepted", at: "2026-08-15 13:00" },
+    // 응답 없이 제안 시간이 지난 건 — «기한 만료» 파생 상태
+    { id: "pp6", kind: "slot", teacherId: "t1", memberId: "m1", classId: "c2",
+      date: "2026-08-16", time: "18:00", note: "저녁 시간이 비어 있어요.", status: "pending", at: "2026-08-15 20:00" },
+    // 거절된 새 수업 제안 (타 회원) — 선생님 «처리됨» 표시용
+    { id: "pp7", kind: "slot", teacherId: "t1", memberId: "m3", classId: "c2",
+      date: "2026-08-20", time: "15:00", note: "오후 시간이 비어 있어요.", status: "declined", declineReason: "그 주는 휴가예요", at: "2026-08-15 11:00" },
+  );
 })();

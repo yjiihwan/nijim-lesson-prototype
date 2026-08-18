@@ -42,6 +42,11 @@
    디자인 문법(헤더 ‹월› 이동·월 시트·스와이프·점 마커·선택 날짜 리스트). 날짜 셀=수업 수+상태 점
    (예정·정원 마감·지난 수업), 조율 요청 희망일=주황 표식+선택 시 그 날 요청 함께 표시. 선생님·수업
    필터 칩(캘린더·리스트·조율 섹션 공통 적용). 리스트 항목 구성(시간·수업명·정원 바·상태 버튼)은 유지.
+   v2.22 (2026-08-18 형 확정): 선생님발 스케줄 제안 3종 — ① 확정 예약 «일정 변경 제안»(새 시간+사유 →
+   회원 수락 시 예약 이동·거절 시 기존 유지) ② «빈 시간 먼저 제안»(선생님이 빈 시간대+회원 지정 → 수락 시
+   예약 생성, 자격검증 통과분만) ③ 조율 거절 시 «대안 시간 제안»(사유에 대안 일시를 붙여 회신 → 수락 시
+   그 시간으로 예약 확정). 회원 «받은 제안» 인박스(#/m/proposals) 신설 — 선생님 인박스와 같은 구성.
+   상태 4종(답변 대기/수락/거절/기한 만료)을 양쪽 인박스에서 동일 규칙(propState 파생)으로 표시.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -415,6 +420,38 @@
     return s && addDays(s.date, DB.policy.disputeDays) >= DB.TODAY;
   }
 
+  // ── v2.22: 선생님발 제안 (①일정 변경 ②빈 시간 새 수업 ③조율 거절 대안) — arranges(회원발)와 대칭 ──
+  // 상태는 저장값(pending/accepted/declined/canceled) + 파생(만료: pending인데 제안 일시 경과) — 양쪽 인박스 공통.
+  const propAt = (p) => new Date(`${p.date}T${p.time}:00+09:00`);
+  const propState = (p) => (p.status === "pending" && propAt(p) <= NOW ? "expired" : p.status);
+  const PROP_KIND = { change: ["일정 변경 제안", "b-rose"], slot: ["새 수업 제안", "b-blue"], alt: ["대안 시간 제안", "b-warn"] };
+  const PROP_ST = { pending: ["답변 대기", "b-warn"], accepted: ["수락 · 예약 확정", "b-green"], declined: ["거절됨", "b-gray"], canceled: ["철회함", "b-gray"], expired: ["기한 만료", "b-gray"] };
+  const myProps = () => DB.proposals.filter((p) => p.memberId === DB.me.member);
+  const myPendingProps = () => myProps().filter((p) => propState(p) === "pending");
+  const tSentProps = () => DB.proposals.filter((p) => p.teacherId === DB.me.teacher);
+  const pendingChangeFor = (bkId) => DB.proposals.some((p) => p.bookingId === bkId && p.kind === "change" && propState(p) === "pending");
+  // 인박스 공통 아이템 — side: "m"(회원 받은 제안) | "t"(선생님 보낸 제안). 구성·스타일=조율 인박스(tl-item)와 통일.
+  function propItemHtml(p, side) {
+    const c = cls(p.classId);
+    const st = propState(p);
+    const [kl, kb] = PROP_KIND[p.kind];
+    const [sl, sb] = PROP_ST[st];
+    const who = side === "m" ? `${teacher(p.teacherId).name} 선생님` : `${memberName(p.memberId)} 회원`;
+    const arr = p.arrangeId ? DB.arranges.find((a) => a.id === p.arrangeId) : null;
+    return `<div class="tl-item"><span class="grow"><b>${who}</b> · ${c ? c.title : ""} <span class="badge ${kb}">${kl}</span>
+      <div class="pp-shift">${p.kind === "change" ? `<span class="old">${p.origDesc || "기존 일정"}</span><span class="arw">→</span>`
+        : arr ? `<span class="old">희망 ${dlabel(arr.date)} ${arr.time}</span><span class="arw">→</span>` : ""}<span class="new">${dlabel(p.date)} ${p.time}</span></div>
+      ${p.note ? `<div class="muted small mt4">"${p.note}"</div>` : ""}
+      <div class="muted small">${p.at} 제안</div>
+      ${st === "pending" && side === "m" ? `<div class="btn-row">
+        <button class="btn sm primary" onclick="App.propAccept('${p.id}')">수락${p.kind === "change" ? " (예약 변경)" : " (예약 확정)"}</button>
+        <button class="btn sm ghost" onclick="App.propDeclineAsk('${p.id}')">거절${p.kind === "change" ? " (기존 유지)" : ""}</button></div>`
+      : st === "pending" ? `<div class="mt4"><span class="badge ${sb}">회원 ${sl}</span></div>
+        <div class="btn-row"><button class="btn sm ghost" onclick="App.propCancel('${p.id}')">제안 철회</button></div>`
+      : `<div class="mt4"><span class="badge ${sb}">${sl}</span>${st === "declined" && p.declineReason ? ` <span class="muted small">사유: ${p.declineReason}</span>` : ""}${st === "expired" ? ` <span class="muted small">제안한 시간이 지나 자동 만료됐어요</span>` : ""}</div>`}
+    </span></div>`;
+  }
+
   // ── 셸 렌더 ──
   const ROLE_LABEL = { m: "회원", t: "선생님", c: "센터" };
   const TABS = {
@@ -559,6 +596,8 @@
         return `<button class="banner warn" onclick="location.hash='#/m/bookings'">
         <span class="ic">⚠️</span><span>${slotDesc(slot(b.slotId))} 회차가 <b>노쇼</b>로 보고됐어요. ${r ? `<b>${noshowDeadline(r).replaceAll("-", ".")}</b>까지 이의가 없으면 <b>자동 확정·1회 차감</b>돼요.` : ""} 사실과 다르면 이의제기해 주세요.</span></button>`;
       }).join("")}
+      ${myPendingProps().length ? `<button class="banner" onclick="location.hash='#/m/proposals'">
+        <span class="ic">📨</span><span>선생님이 보낸 일정 제안이 <b>${myPendingProps().length}건</b> 기다리고 있어요. <u>확인하기</u></span></button>` : ""}
       <div class="sec-title row">내 멤버십<a href="#/m/pass" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
       ${mpCarousel(myPasses())}
       <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>
@@ -818,10 +857,13 @@
     const arrItem = (a) => {
       const c = cls(a.classId);
       const st = { pending: ["조율 대기", "b-warn"], accepted: ["수락 · 예약 확정", "b-green"], declined: ["거절됨", "b-gray"], canceled: ["요청 취소", "b-gray"] }[a.status];
+      // v2.22: 거절 건에 선생님 대안 제안이 붙어 있으면 받은 제안으로 안내
+      const alt = a.status === "declined" ? DB.proposals.find((p) => p.arrangeId === a.id && propState(p) === "pending") : null;
       return `<div class="slot"><span class="grow"><span class="t">${c.title}</span>
         <div class="muted small">${dlabel(a.date)} ${a.time} 희망${a.status === "declined" && a.reason ? ` · 사유: ${a.reason}` : ""}</div></span>
         <span class="badge ${st[1]}">${st[0]}</span>
-        ${a.status === "pending" ? `<button class="btn sm ghost" onclick="App.arrangeCancel('${a.id}')">취소</button>` : ""}</div>`;
+        ${a.status === "pending" ? `<button class="btn sm ghost" onclick="App.arrangeCancel('${a.id}')">취소</button>` : ""}
+        ${alt ? `<button class="btn sm primary" onclick="location.hash='#/m/proposals'">대안 제안 보기</button>` : ""}</div>`;
     };
     return shell("m", "내 예약", `
       <div class="sec-title">예정 · 대기</div>
@@ -829,6 +871,17 @@
       ${arrs.length ? `<div class="sec-title">조율 요청</div><div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
       ${need.length ? `<div class="sec-title">확인 필요</div><div class="card flat">${need.map((b) => item(b, false)).join("")}</div>` : ""}
       ${past.length ? `<div class="sec-title">지난 예약</div><div class="card flat">${past.map((b) => item(b, false)).join("")}</div>` : ""}`, { back: true });
+  }
+  // v2.22: 회원 «받은 제안» 인박스 — 선생님 조율 인박스와 같은 구성(대기 중/처리됨)
+  function vMProps() {
+    const all = myProps();
+    const pending = all.filter((p) => propState(p) === "pending");
+    const done = all.filter((p) => propState(p) !== "pending");
+    return shell("m", "받은 제안", `
+      <p class="muted" style="margin-bottom:12px">선생님이 먼저 보낸 일정 제안이에요. 수락하면 바로 예약이 확정·변경되고, 거절하면 기존 일정이 그대로 유지돼요.</p>
+      <div class="sec-title">대기 중 (${pending.length})</div>
+      <div class="card flat">${pending.length ? pending.map((p) => propItemHtml(p, "m")).join("") : `<p class="muted">대기 중인 제안이 없어요.</p>`}</div>
+      ${done.length ? `<div class="sec-title">처리됨</div><div class="card flat">${done.map((p) => propItemHtml(p, "m")).join("")}</div>` : ""}`, { back: true });
   }
   function vMConfirm(id) {
     const b = DB.bookings.find((x) => x.id === id);
@@ -938,11 +991,38 @@
         : `<div class="mt4"><span class="badge ${st[1]}">${st[0]}</span>${a.reason ? ` <span class="muted small">사유: ${a.reason}</span>` : ""}</div>`}
       </span></div>`;
     };
-    return shell("t", "조율 요청 인박스", `
+    // v2.22: 보낸 제안(선생님발 3종) — 받은 요청과 같은 인박스에서 상태 확인
+    const sent = tSentProps();
+    const sentPend = sent.filter((p) => propState(p) === "pending");
+    const sentDone = sent.filter((p) => propState(p) !== "pending");
+    return shell("t", "조율 인박스", `
       <p class="muted" style="margin-bottom:12px">수락해야 회차·예약이 만들어져요. 수락 전엔 일정에 잡히지 않아요.</p>
-      <div class="sec-title">대기 중 (${pending.length})</div>
+      <div class="sec-title">받은 조율 요청 · 대기 중 (${pending.length})</div>
       <div class="card flat">${pending.length ? pending.map(item).join("") : `<p class="muted">대기 중인 요청이 없어요.</p>`}</div>
-      ${done.length ? `<div class="sec-title">처리됨</div><div class="card flat">${done.map(item).join("")}</div>` : ""}`);
+      ${done.length ? `<div class="sec-title">받은 조율 요청 · 처리됨</div><div class="card flat">${done.map(item).join("")}</div>` : ""}
+      <a class="btn primary mt8" href="#/t/propose">📨 빈 시간 먼저 제안하기</a>
+      <p class="muted small mt8" style="text-align:center">확정된 예약을 옮기고 싶을 땐 일정 → 수업 상세에서 «변경 제안»을 보내요.</p>
+      <div class="sec-title">보낸 제안 · 답변 대기 (${sentPend.length})</div>
+      <div class="card flat">${sentPend.length ? sentPend.map((p) => propItemHtml(p, "t")).join("") : `<p class="muted">답변을 기다리는 제안이 없어요.</p>`}</div>
+      ${sentDone.length ? `<div class="sec-title">보낸 제안 · 처리됨</div><div class="card flat">${sentDone.map((p) => propItemHtml(p, "t")).join("")}</div>` : ""}`);
+  }
+  // v2.22 ②: 빈 시간 먼저 제안 — 선생님이 빈 시간대+회원을 골라 새 예약을 역제안 (수락 시에만 예약 생성)
+  function vTPropose() {
+    const classes = DB.classes.filter((c) => c.teacherId === DB.me.teacher && c.status !== "closed");
+    const members = quickMembers("t");
+    return shell("t", "빈 시간 먼저 제안", `
+      <p class="muted" style="margin-bottom:12px">내 빈 시간을 골라 회원에게 «이 시간 어때요?» 하고 새 수업을 먼저 제안해요. 회원이 수락해야 예약이 만들어져요.</p>
+      <div class="card">
+        <div class="field"><label>회원</label>
+          ${pickerHtml("pp-member", { pool: members })}
+          <div class="hint">수업권 자격은 제안을 보낼 때와 회원이 수락할 때 다시 확인해요.</div></div>
+        <div class="field"><label>수업</label><select id="pp-class">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
+        <div class="field"><label>날짜</label><input type="date" id="pp-date" value="2026-08-22" min="${DB.TODAY}"></div>
+        <div class="field"><label>시간</label><input type="time" id="pp-time" value="15:00"></div>
+        <div class="field"><label>메모 (선택 · 회원에게 전달)</label><input type="text" id="pp-note" placeholder="예: 이 시간이 비어 있어요. 어떠세요?"></div>
+        <button class="btn primary" onclick="App.proposeSlot()">제안 보내기</button>
+      </div>
+      <div class="banner"><span class="ic">📨</span><span>제안을 보내면 회원에게 바로 알림이 가요. 회원이 <b>수락하기 전엔 일정에 잡히지 않고</b>, 거절하거나 시간이 지나면 제안은 사라져요.</span></div>`, { back: true });
   }
   function vTSlot(id) {
     const s = slot(id);
@@ -960,7 +1040,10 @@
       <div class="sec-title">참석자</div>
       <div class="card flat">${seats.length ? seats.map((b) => {
         const bd = bkBadge(b);
-        return `<div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b></span><span class="badge ${bd.badge}">${bd.label}</span></div>`;
+        // v2.22 ①: 확정(예정) 좌석엔 일정 변경 제안 — 이미 답변 대기 중이면 중복 제안 대신 상태 표시
+        const canPropose = !done && s.status === "scheduled" && !isPast(s) && b.status === "booked";
+        return `<div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b></span><span class="badge ${bd.badge}">${bd.label}</span>
+          ${canPropose ? (pendingChangeFor(b.id) ? `<span class="badge b-warn">변경 제안 답변 대기</span>` : `<button class="btn sm ghost" onclick="App.propChangeAsk('${b.id}')">변경 제안</button>`) : ""}</div>`;
       }).join("") : `<p class="muted">참석자가 없어요.</p>`}</div>
       ${done ? (unreported.length
         ? `<button class="btn primary" onclick="App.reportAsk('${s.id}')">수업 완료 보고 (${unreported.length}명)</button>
@@ -2024,8 +2107,12 @@
       toast(`수락했어요. ${memberName(a.memberId)} 회원에게 확정 알림이 갔어요.`);
     },
     arrangeDeclineAsk(arId) {
+      // v2.22 ③: 거절에 대안 시간을 붙여 역제안 (선택) — 회원이 수락하면 그 시간으로 예약 확정
       modal(`<h3>조율 요청 거절</h3><p>거절 사유를 적어 주세요. 회원에게 그대로 전달돼요.</p>
         <div class="field mt12"><textarea id="ar-reason" rows="2" placeholder="예: 그 시간엔 다른 수업이 있어요. 12시 이후는 어떠세요?" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
+        <div class="field"><label>가능한 대안 시간 (선택)</label>
+          <div class="row" style="gap:8px"><input type="date" id="ar-alt-date" min="${DB.TODAY}" style="flex:1"><input type="time" id="ar-alt-time" style="flex:1"></div>
+          <div class="hint">시간을 넣으면 «이 시간은 어때요?» 대안 제안이 함께 가요 — 회원이 수락하면 그 시간으로 예약이 확정돼요. 비워두면 사유만 전달돼요.</div></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.arrangeDecline('${arId}')">거절 보내기</button></div>`);
     },
@@ -2033,9 +2120,128 @@
       const a = DB.arranges.find((x) => x.id === arId);
       if (!a || a.status !== "pending") return;
       const reason = (document.getElementById("ar-reason") || { value: "" }).value.trim() || "일정이 맞지 않아요";
+      // v2.22 ③: 대안 시간이 있으면 거절과 함께 대안 제안 생성
+      const ad = (document.getElementById("ar-alt-date") || { value: "" }).value;
+      const at = (document.getElementById("ar-alt-time") || { value: "" }).value;
+      if ((ad && !at) || (!ad && at)) { toast("대안 시간을 보내려면 날짜와 시간을 모두 입력해 주세요."); return; }
+      if (ad && at && new Date(`${ad}T${at}:00+09:00`) <= NOW) { toast("지난 일시로는 대안을 제안할 수 없어요."); return; }
       a.status = "declined"; a.reason = reason;
+      if (ad && at) {
+        DB.proposals.push({ id: nid("pp"), kind: "alt", teacherId: cls(a.classId).teacherId, memberId: a.memberId,
+          classId: a.classId, arrangeId: a.id, date: ad, time: at, note: reason, status: "pending", at: nowStamp });
+        closeModal(); render();
+        toast("거절하고 대안 시간을 함께 보냈어요. 회원이 수락하면 그 시간으로 예약이 확정돼요.");
+        return;
+      }
       closeModal(); render();
       toast("거절했어요. 사유가 회원에게 전달됐어요.");
+    },
+    // ── v2.22: 선생님발 제안 액션 ──
+    // ① 확정 예약 «일정 변경 제안» — 새 시간+사유 입력 모달
+    propChangeAsk(bkId) {
+      const b = DB.bookings.find((x) => x.id === bkId);
+      if (!b || b.status !== "booked") { toast("확정 상태의 예약만 변경 제안할 수 있어요."); return; }
+      if (pendingChangeFor(bkId)) { toast("이 예약에는 답변을 기다리는 변경 제안이 이미 있어요."); return; }
+      const s = slot(b.slotId);
+      modal(`<h3>일정 변경 제안</h3><p><b>${memberName(b.memberId)}</b> 회원 · ${slotDesc(s)}</p>
+        <div class="field mt12"><label>새 날짜</label><input type="date" id="pc-date" value="${s.date}" min="${DB.TODAY}"></div>
+        <div class="field"><label>새 시간</label><input type="time" id="pc-time" value="${s.time}"></div>
+        <div class="field"><label>사유 (회원에게 전달)</label><textarea id="pc-reason" rows="2" placeholder="예: 그날 센터 행사가 있어 시간을 옮기고 싶어요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
+        <p class="muted small">회원이 <b>수락하면 예약이 새 일시로 바뀌고</b>, 거절하면 기존 일정이 그대로 유지돼요.</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.propChangeSend('${bkId}')">변경 제안 보내기</button></div>`);
+    },
+    propChangeSend(bkId) {
+      const b = DB.bookings.find((x) => x.id === bkId);
+      if (!b || b.status !== "booked") { closeModal(); toast("확정 상태의 예약만 변경 제안할 수 있어요."); return; }
+      if (pendingChangeFor(bkId)) { closeModal(); toast("이 예약에는 답변을 기다리는 변경 제안이 이미 있어요."); return; }
+      const s = slot(b.slotId); const c = cls(s.classId);
+      const d = (document.getElementById("pc-date") || { value: "" }).value;
+      const t = (document.getElementById("pc-time") || { value: "" }).value;
+      if (!d || !t) { toast("새 날짜와 시간을 입력해 주세요."); return; }
+      if (new Date(`${d}T${t}:00+09:00`) <= NOW) { toast("지난 일시로는 제안할 수 없어요."); return; }
+      if (d === s.date && t === s.time) { toast("지금 일정과 같은 시간이에요 — 다른 시간을 골라 주세요."); return; }
+      const reason = (document.getElementById("pc-reason") || { value: "" }).value.trim() || "일정 조정이 필요해요";
+      DB.proposals.push({ id: nid("pp"), kind: "change", teacherId: c.teacherId, memberId: b.memberId, classId: c.id,
+        bookingId: bkId, origDesc: `${dlabel(s.date)} ${s.time}`, date: d, time: t, note: reason, status: "pending", at: nowStamp });
+      closeModal(); render();
+      toast(`${memberName(b.memberId)} 회원에게 변경 제안을 보냈어요. 수락하면 예약이 바뀌어요.`);
+    },
+    // ② 빈 시간 먼저 제안 — 자격은 보낼 때 + 수락 시 이중 검증 (04 원칙)
+    proposeSlot() {
+      const mid = pkSelected("pp-member")[0];
+      if (!mid) { toast("회원을 검색해 선택해 주세요."); return; }
+      const c = cls((document.getElementById("pp-class") || { value: "" }).value);
+      if (!c) { toast("수업을 선택해 주세요."); return; }
+      if (!inTScope(DB.me.teacher, mid)) { toast("내 «지정 가능 회원 범위» 밖 회원이에요 — 센터에 범위 확대를 요청해 주세요."); return; }
+      const g = bookGuard(c, mid);
+      if (!g.ok) { toast(`${memberName(mid)}: ${g.msg}`); return; }
+      const d = (document.getElementById("pp-date") || { value: "" }).value;
+      const t = (document.getElementById("pp-time") || { value: "" }).value;
+      if (!d || !t) { toast("날짜와 시간을 입력해 주세요."); return; }
+      if (new Date(`${d}T${t}:00+09:00`) <= NOW) { toast("지난 일시로는 제안할 수 없어요."); return; }
+      if (DB.proposals.some((p) => p.memberId === mid && p.classId === c.id && p.date === d && p.time === t && propState(p) === "pending")) { toast("같은 일시로 보낸 제안이 이미 있어요."); return; }
+      const note = (document.getElementById("pp-note") || { value: "" }).value.trim();
+      DB.proposals.push({ id: nid("pp"), kind: "slot", teacherId: DB.me.teacher, memberId: mid, classId: c.id,
+        date: d, time: t, note, status: "pending", at: nowStamp });
+      delete pickers["pp-member"];
+      toast(`${memberName(mid)} 회원에게 제안을 보냈어요. 수락하면 예약이 확정돼요.`);
+      location.hash = "#/t/inbox";
+    },
+    propCancel(ppId) {
+      const p = DB.proposals.find((x) => x.id === ppId);
+      if (!p || propState(p) !== "pending") return;
+      p.status = "canceled";
+      render();
+      toast("제안을 철회했어요. 회원에게 알림이 가요.");
+    },
+    // 회원: 수락 — change=예약 이동, slot·alt=예약 생성 (조율 수락과 동일 검증)
+    propAccept(ppId) {
+      const p = DB.proposals.find((x) => x.id === ppId);
+      if (!p || p.memberId !== DB.me.member || p.status !== "pending") return;
+      if (propState(p) === "expired") { toast("제안한 시간이 이미 지나 만료됐어요."); render(); return; }
+      const c = cls(p.classId);
+      if (!c || c.status === "closed") { p.status = "canceled"; render(); toast("폐강된 수업이라 수락할 수 없어요."); return; }
+      if (p.kind === "change") {
+        const b = DB.bookings.find((x) => x.id === p.bookingId);
+        const s0 = b && slot(b.slotId);
+        if (!b || b.status !== "booked" || !s0 || s0.status !== "scheduled") {
+          p.status = "canceled"; render(); toast("원래 예약이 취소되거나 바뀌어서 이 제안은 처리할 수 없어요."); return;
+        }
+        const ns = { id: nid("s"), classId: c.id, date: p.date, time: p.time, status: "scheduled", adhoc: true };
+        DB.slots.push(ns);
+        b.slotId = ns.id; b.fromProposal = p.id;
+        p.status = "accepted"; p.slotId = ns.id;
+        promoteWaitlist(s0.id); cleanupSlot(s0);
+        render();
+        toast(`예약이 ${dlabel(p.date)} ${p.time}로 변경됐어요. 선생님에게 알림이 갔어요.`);
+        return;
+      }
+      const g = bookGuard(c, DB.me.member);
+      if (!g.ok) { toast(g.msg); return; }
+      if (DB.bookings.some((x) => { const s = slot(x.slotId); return x.memberId === DB.me.member && ACTIVE.includes(x.status) && s && s.status !== "canceled" && s.date === p.date && s.time === p.time; })) { toast("같은 일시에 이미 예약이 있어요."); return; }
+      const ns = { id: nid("s"), classId: c.id, date: p.date, time: p.time, status: "scheduled", adhoc: true };
+      DB.slots.push(ns);
+      DB.bookings.push({ id: nid("bk"), slotId: ns.id, memberId: DB.me.member, passId: g.pass.id, status: "booked", policySnap: snapPolicy(), fromProposal: p.id });
+      p.status = "accepted"; p.slotId = ns.id;
+      render();
+      toast(`수락했어요! ${dlabel(p.date)} ${p.time} 예약이 확정됐어요.`);
+    },
+    propDeclineAsk(ppId) {
+      const p = DB.proposals.find((x) => x.id === ppId);
+      if (!p || propState(p) !== "pending") return;
+      modal(`<h3>제안 거절</h3><p>${p.kind === "change" ? "거절하면 기존 예약이 그대로 유지돼요." : "거절하면 이 제안은 사라져요."} 사유는 선생님에게 그대로 전달돼요.</p>
+        <div class="field mt12"><textarea id="pp-reason" rows="2" placeholder="예: 그 시간엔 다른 일정이 있어요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.propDecline('${ppId}')">거절 보내기</button></div>`);
+    },
+    propDecline(ppId) {
+      const p = DB.proposals.find((x) => x.id === ppId);
+      if (!p || p.status !== "pending") return;
+      p.declineReason = (document.getElementById("pp-reason") || { value: "" }).value.trim() || "일정이 맞지 않아요";
+      p.status = "declined";
+      closeModal(); render();
+      toast(p.kind === "change" ? "거절했어요. 기존 예약은 그대로 유지돼요." : "거절했어요. 사유가 선생님에게 전달됐어요.");
     },
     askCancel(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
@@ -2693,12 +2899,14 @@
     [/^#\/m\/class\/(.+)$/, vMClass],
     [/^#\/m\/slot\/(.+)$/, vMSlot],
     [/^#\/m\/bookings$/, vMBookings],
+    [/^#\/m\/proposals$/, vMProps],
     [/^#\/m\/confirm\/(.+)$/, vMConfirm],
     [/^#\/m\/qr\/(.+)$/, vMQr],
     [/^#\/m\/history$/, vMHistory],
     [/^#\/t\/home$/, vTHome],
     [/^#\/t\/schedule$/, vTSchedule],
     [/^#\/t\/inbox$/, vTInbox],
+    [/^#\/t\/propose$/, vTPropose],
     [/^#\/t\/slot\/(.+)$/, vTSlot],
     [/^#\/t\/quick$/, () => vTQuick("t")],
     [/^#\/t\/classes$/, () => vClasses("t")],
