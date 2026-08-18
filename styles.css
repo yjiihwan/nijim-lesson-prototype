@@ -154,6 +154,9 @@ button.banner:active { transform: scale(.98); }
 .field label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
 .field input[type=text], .field input[type=number], .field input[type=date], .field input[type=time], .field select, .field textarea { width: 100%; border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px; background: var(--surface); font-size: 15px; transition: border-color .15s ease, box-shadow .15s ease; }
 .field :is(input, select, textarea):focus { border-color: var(--cta); box-shadow: 0 0 0 3px rgba(255,0,101,.12); outline: none; }
+/* iOS Safari: date/time 네이티브 인풋이 고유폭으로 width:100%를 넘겨 우측이 잘리는 버그 방지 */
+.field input[type=date], .field input[type=time] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; min-height: 46px; text-align: left; }
+.field input::-webkit-date-and-time-value { text-align: left; }
 .field .hint { font-size: 12px; color: var(--text-muted); margin-top: 5px; }
 .seg { display: flex; background: var(--surface-sunken); border-radius: 12px; padding: 4px; gap: 4px; }
 .seg button { flex: 1; padding: 9px 4px; border-radius: 9px; font-size: 13px; font-weight: 700; color: var(--text-muted); transition: background .18s var(--ease-out), color .18s var(--ease-out), box-shadow .18s var(--ease-out), transform .12s var(--ease-out); }
@@ -177,6 +180,7 @@ button.banner:active { transform: scale(.98); }
 .ledger li { display: flex; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .ledger li:last-child { border-bottom: 0; }
 .ledger .delta { font-weight: 800; width: 34px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ledger li > span:last-child { flex-shrink: 0; white-space: nowrap; } /* 일시가 두 줄로 꺾이지 않게 */
 .ledger .delta.minus { color: var(--danger); }
 .ledger .delta.plus { color: var(--success); }
 .tl-item { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; align-items: flex-start; }
