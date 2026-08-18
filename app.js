@@ -393,7 +393,7 @@
       canceled: [b.cancelBy === "center" ? "센터 취소" : "취소됨", "b-gray"],
       forfeited: ["기한 위반 취소 (-1회)", "b-danger"],
       class_closed: ["폐강으로 취소", "b-gray"],
-      restored: ["이의 인용 · 복원", "b-gray"],
+      restored: ["이의 인정 · 복원", "b-gray"],
       noshow_final: ["노쇼 확정 (-1회)", "b-danger"],
     };
     const [label, badge] = map[b.status] || [b.status, "b-gray"];
@@ -597,17 +597,20 @@
   function vMShopDetail(id) {
     const p = DB.products.find((x) => x.id === id);
     if (!p) return vMShop();
+    // v2.18: 이벤트 할인가 상품 — 카드(§2-3)와 동일하게 상세·결제도 할인가 기준
+    const sale = p.salePrice != null && p.salePrice < p.price;
+    const pay = sale ? p.salePrice : p.price;
     return shell("m", p.name, `
       <div class="card">
-        <span class="badge ${p.kind === "private" ? "b-rose" : "b-blue"}">${p.kind === "private" ? "개인수업 1:1" : "그룹수업"}</span>
-        <div class="big mt8">${won(p.price)}</div>
+        <span class="badge ${p.kind === "private" ? "b-rose" : "b-blue"}">${p.kind === "private" ? "개인수업 1:1" : "그룹수업"}</span>${sale ? ` <span class="badge b-danger">이벤트 할인가</span>` : ""}
+        <div class="big mt8">${sale ? `<s style="font-size:15px;font-weight:600;color:var(--text-muted)">${won(p.price)}</s> ` : ""}${won(pay)}</div>
         <div class="divider"></div>
-        <div class="row" style="justify-content:space-between"><span class="muted">횟수</span><b>${p.sessions}회 (회당 ${won(Math.floor(p.price / p.sessions))})</b></div>
+        <div class="row" style="justify-content:space-between"><span class="muted">횟수</span><b>${p.sessions}회 (회당 ${won(Math.floor(pay / p.sessions))})</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">유효기간</span><b>${p.validityDays ? `구매일부터 ${p.validityDays}일` : "없음 · 횟수 소진 시까지"}</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">취소 규정</span><b>수업 ${DB.policy.cancelHours}시간 전까지 무료</b></div>
       </div>
       <p class="muted small">구매 시점의 가격·조건이 그대로 보존돼요. 이후 상품이 바뀌어도 내 수업권은 영향받지 않아요.</p>
-      <button class="btn primary mt12" onclick="App.buy('${p.id}')">${won(p.price)} 결제하기</button>
+      <button class="btn primary mt12" onclick="App.buy('${p.id}')">${won(pay)} 결제하기</button>
       <p class="muted small mt8" style="text-align:center">프로토타입 — 실제 결제는 일어나지 않아요.</p>`, { back: true });
   }
   // v2.11 (형 지시 08-18): 회원 «수업 예약» — 주간 캘린더 스트립 + 날짜별 회차 리스트 혼합.
@@ -1656,9 +1659,11 @@
       const p = DB.products.find((x) => x.id === pid);
       const id = nid("ps");
       const exp = p.validityDays ? addDays(DB.TODAY, p.validityDays) : null;
-      // 회원 자가 구매 = 정가 결제 — 동일한 구매 시점 스냅샷 로직(실구매가=정가)
-      DB.passes.push({ id, memberId: DB.me.member, productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: Math.floor(p.price / p.sessions), purchasePrice: p.price, listPrice: p.price, expiresAt: exp, remaining: p.sessions });
-      pushLedger(id, p.sessions, "구매", `${p.name} · ${won(p.price)}`);
+      // 회원 자가 구매 = 판매가 결제(이벤트 할인가 있으면 할인가) — 동일한 구매 시점 스냅샷 로직
+      const sale = p.salePrice != null && p.salePrice < p.price;
+      const pay = sale ? p.salePrice : p.price;
+      DB.passes.push({ id, memberId: DB.me.member, productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: Math.floor(pay / p.sessions), purchasePrice: pay, listPrice: p.price, expiresAt: exp, remaining: p.sessions });
+      pushLedger(id, p.sessions, "구매", `${p.name} · ${won(pay)}${sale ? ` (정가 ${won(p.price)} · 이벤트 할인)` : ""}`);
       toast("구매 완료! 수업권이 지갑에 담겼어요 💪 (mock 결제)");
       location.hash = "#/m/home";
     },
@@ -1854,7 +1859,7 @@
     askDispute(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
       const pre = b && ["confirm_wait", "noshow_wait"].includes(b.status);
-      modal(`<h3>어떤 문제가 있었나요?</h3><p class="mt4">${pre ? "이의제기가 접수되면 확인·차감 없이 센터가 심사해요." : "이미 차감된 회차예요. 접수되면 정산이 보류되고, 인용되면 횟수가 복원돼요."}</p>
+      modal(`<h3>어떤 문제가 있었나요?</h3><p class="mt4">${pre ? "이의제기가 접수되면 확인·차감 없이 센터가 심사해요." : "이미 차감된 회차예요. 접수되면 정산이 보류되고, 이의가 인정되면 횟수가 복원돼요."}</p>
         <div class="field mt12"><textarea id="dp-reason" rows="3" placeholder="예: 이 수업을 받은 적이 없어요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.doDispute('${bkId}')">이의제기 접수</button></div>`);
@@ -2146,7 +2151,7 @@
       // 형 확정(08-17): 노쇼 이의만 센터 중재 — 인용=노쇼 취소(차감 없음), 기각=노쇼 확정·차감(정산 라인은 미생성)
       if (r.noshow) {
         if (accept) {
-          r.status = "resolved"; r.label = "이의 인용 · 노쇼 취소";
+          r.status = "resolved"; r.label = "이의 인정 · 노쇼 취소";
           if (b) { b.status = "canceled"; b.cancelBy = "noshow_waived"; }
           render();
           toast("이의를 인정했어요. 노쇼가 취소되고 차감 없이 종결돼요. 회원·선생님에게 알림이 가요.");
@@ -2162,11 +2167,11 @@
       if (accept) {
         if (r.deducted) {
           const p = passForReport(r, b);
-          if (p) { p.remaining += 1; pushLedger(p.id, +1, "이의 인용 복원", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || ""); }
+          if (p) { p.remaining += 1; pushLedger(p.id, +1, "이의 인정 · 복원", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || ""); }
           if (l) l.status = "removed";
           r.deducted = false;
         }
-        r.status = "resolved"; r.label = "인용 · 횟수 복원";
+        r.status = "resolved"; r.label = "이의 인정 · 횟수 복원";
         if (b) b.status = "restored";
         render();
         toast("이의를 인정했어요. 횟수가 복원되고 정산에서 제외됐어요." + (l && l.pushed ? " 이미 전송된 회차는 샐리에서 정정해 주세요." : ""));
