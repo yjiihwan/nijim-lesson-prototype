@@ -451,3 +451,30 @@ window.DB = {
       date: "2026-08-20", time: "15:00", note: "오후 시간이 비어 있어요.", status: "declined", declineReason: "그 주는 휴가예요", at: "2026-08-15 11:00" },
   );
 })();
+
+// ── v2.23 확인 요청 스태킹 검증 프리셋 (형 확정 1안 08-18) ──
+// ?case=confirmstack 으로 열면 m1 확인 대기 3건을 추가 — 기존 bk3 포함 총 4건이 되어
+// 홈 요약 카드 접힘 → 목록 건별 확인 → 잔여 2건 이하 시 개별 카드 복귀 흐름을 화면으로 검증한다.
+// 기본(파라미터 없음)=기존 1건 시드 그대로 — 개별 카드 모드·탭 배지·기존 회귀 기대값 전부 불변.
+// ⚠️ LCG 시드 뒤 append 원칙 동일. 추가 회차는 전부 과거 done — 예약 가능 목록·정산 라인에 안 잡힌다.
+//    수업은 며칠 전, 보고가 어제 저녁~오늘 아침에 몰려 온 상황(자동확정 24시간 창 안이라 아직 대기).
+//    그룹수업 확인 건은 «그룹수업 확인 필수»를 켰던 기간의 보고분 가정 — myConfirmWait 판정과 무관.
+(function seedConfirmStack() {
+  if (new URLSearchParams(location.search).get("case") !== "confirmstack") return;
+  const D = window.DB, SNAP = { cancelHours: 24, cancelMode: "conditional" };
+  D.slots.push(
+    { id: "s20", classId: "c2", date: "2026-08-13", time: "17:00", status: "done", adhoc: true }, // PT
+    { id: "s21", classId: "c1", date: "2026-08-13", time: "10:00", status: "done" },              // 필라테스 보강
+    { id: "s22", classId: "c3", date: "2026-08-11", time: "06:30", status: "done" },              // 크로스핏
+  );
+  D.bookings.push(
+    { id: "bkC1", slotId: "s20", memberId: "m1", passId: "ps1", status: "confirm_wait", policySnap: SNAP },
+    { id: "bkC2", slotId: "s21", memberId: "m1", passId: "ps2", status: "confirm_wait", policySnap: SNAP },
+    { id: "bkC3", slotId: "s22", memberId: "m1", passId: "ps2", status: "confirm_wait", policySnap: SNAP },
+  );
+  D.reports.push(
+    { id: "rpC1", slotId: "s20", bookingId: "bkC1", memberId: "m1", member: "김지은", status: "pending", method: null, label: "회원 확인 대기", at: "8/16 18:40 보고", deducted: false, lineId: null },
+    { id: "rpC2", slotId: "s21", bookingId: "bkC2", memberId: "m1", member: "김지은", status: "pending", method: null, label: "회원 확인 대기", at: "8/16 20:10 보고", deducted: false, lineId: null },
+    { id: "rpC3", slotId: "s22", bookingId: "bkC3", memberId: "m1", member: "김지은", status: "pending", method: null, label: "회원 확인 대기", at: "8/17 08:30 보고", deducted: false, lineId: null },
+  );
+})();

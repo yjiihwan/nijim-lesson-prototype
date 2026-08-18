@@ -47,6 +47,11 @@
    예약 생성, 자격검증 통과분만) ③ 조율 거절 시 «대안 시간 제안»(사유에 대안 일시를 붙여 회신 → 수락 시
    그 시간으로 예약 확정). 회원 «받은 제안» 인박스(#/m/proposals) 신설 — 선생님 인박스와 같은 구성.
    상태 4종(답변 대기/수락/거절/기한 만료)을 양쪽 인박스에서 동일 규칙(propState 파생)으로 표시.
+   v2.23 (2026-08-18 형 확정 1안): 회원 홈 «수업 확인 요청» 카드 스태킹 — 확인 대기 2건까지는 기존
+   개별 카드 그대로, 3건부터 «N건» 요약 카드 1장으로 접고 탭 시 목록(#/m/confirms)으로 이동. 목록은
+   건별 수업명·일시·선생님+«받았어요» 원탭(확인=차감·정산 증빙이라 일괄 확인 버튼은 두지 않는다).
+   확인마다 목록·탭 배지·요약 건수 즉시 갱신, 잔여 2건 이하가 되면 홈은 개별 카드 모드로 자연 복귀.
+   검증 시드는 ?case=confirmstack 프리셋(data.js) — 기본 시드·기존 회귀 기대값 불변.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -580,7 +585,17 @@
     const arrs = DB.arranges.filter((a) => a.memberId === DB.me.member && a.status === "pending");
     const auto = DB.policy.autoConfirmHours;
     return shell("m", "니짐내짐 레슨", `
-      ${confirmWait.map((b) => {
+      ${confirmWait.length >= 3 ? (() => {
+        // v2.23 (형 확정 1안): 3건부터 요약 카드 1장으로 접기 — 홈 점유 방지. 확인은 목록에서 건별로만.
+        const s0 = slot(confirmWait[0].slotId); const c0 = cls(s0.classId);
+        return `<div class="card confirm-req" onclick="location.hash='#/m/confirms'" style="cursor:pointer">
+        <div class="row"><span class="grow"><span class="badge b-rose">수업 확인 요청 ${confirmWait.length}건</span></span><span class="muted small">선생님 완료 보고</span></div>
+        <b class="mt8" style="display:block;font-size:15px">확인을 기다리는 수업이 ${confirmWait.length}건 있어요</b>
+        <div class="muted small mt4">${c0.title} · ${dlabel(s0.date)} ${s0.time} 외 ${confirmWait.length - 1}건</div>
+        <button class="btn primary mt12" onclick="location.hash='#/m/confirms'">한 건씩 확인하기</button>
+        <div class="muted small mt8" style="text-align:center">확인하면 수업권이 차감돼서, 한 건씩만 확인할 수 있어요</div>
+      </div>`;
+      })() : confirmWait.map((b) => {
         const s = slot(b.slotId); const c = cls(s.classId);
         return `<div class="card confirm-req">
         <div class="row"><span class="grow"><span class="badge b-rose">수업 확인 요청</span></span><span class="muted small">선생님 완료 보고</span></div>
@@ -917,6 +932,30 @@
       <div class="banner"><span class="ic">🔒</span><span>확인은 <b>회원 본인 계정</b>에서만 가능해요 — 선생님·센터가 대신 확인할 수 없어요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
       <button class="btn primary" onclick="App.confirmAttend('${b.id}')">받았어요 (수업 확인)</button>
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
+  }
+  // v2.23 (형 확정 1안): 확인 대기 3건+에서 홈 요약 카드가 여는 목록 — 건별 «받았어요»만 제공.
+  // 일괄 확인 버튼 금지: 확인=회차 차감·정산 증빙이라 한 건씩 의식하고 누르게 하는 설계 취지.
+  function vMConfirms() {
+    const list = myConfirmWait();
+    const auto = DB.policy.autoConfirmHours;
+    return shell("m", "수업 확인 요청", `
+      ${list.length ? `<p class="muted" style="margin-bottom:12px">확인을 기다리는 수업이 <b>${list.length}건</b> 있어요. 확인하면 수업권 1회가 차감되니 한 건씩 확인해 주세요.</p>
+      ${list.map((b) => {
+        const s = slot(b.slotId); const c = cls(s.classId);
+        return `<div class="card confirm-req">
+        <div class="row"><span class="grow"><b style="font-size:15px">${c.title}</b></span><span class="badge b-rose">확인 대기</span></div>
+        <div class="muted small mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="row mt12" style="gap:8px">
+          <button class="btn primary grow" onclick="App.confirmAttend('${b.id}')">받았어요 (수업 확인)</button>
+          <button class="btn ghost" style="flex:0 0 auto;width:auto;padding-left:16px;padding-right:16px" onclick="location.hash='#/m/confirm/${b.id}'">자세히</button>
+        </div>
+      </div>`;
+      }).join("")}
+      <div class="muted small mt8" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>`
+      : `<div class="card flat" style="text-align:center;padding:32px 16px">
+        <div style="font-size:40px">✅</div><b style="font-size:17px">모두 확인했어요</b>
+        <p class="muted mt8">확인을 기다리는 수업이 없어요.</p></div>
+      <a class="btn ghost mt8" href="#/m/home">홈으로</a>`}`, { back: true });
   }
   function vMHistory() {
     const mine = DB.passes.filter((p) => p.memberId === DB.me.member);
@@ -2900,6 +2939,7 @@
     [/^#\/m\/slot\/(.+)$/, vMSlot],
     [/^#\/m\/bookings$/, vMBookings],
     [/^#\/m\/proposals$/, vMProps],
+    [/^#\/m\/confirms$/, vMConfirms],
     [/^#\/m\/confirm\/(.+)$/, vMConfirm],
     [/^#\/m\/qr\/(.+)$/, vMQr],
     [/^#\/m\/history$/, vMHistory],
