@@ -1,5 +1,7 @@
 // 더미데이터 — 기준일 고정 2026-08-17(월) 12:00. 전부 메모리, 새로고침 시 초기화.
 // v2: bookings가 좌석의 단일 진실(booked/대기 수는 파생 계산), 정산은 slines(라인) 동적 집계.
+// v2.9 (형 지적 08-18): 할인 등록 사례 시드(ps9·ps13=회당 24,000원) + pass에 purchasePrice·listPrice
+// 스냅샷 + slines 단가를 회원별 pass 스냅샷으로 통일 — 회원별·등록시기별 단가 차이가 화면에서 확인 가능.
 // 회원 원장은 실서비스에선 호스트 앱(니짐내짐 CRM) 참조 — 여기선 더미로 대체(06 문서).
 window.DB = {
   TODAY: "2026-08-17",
@@ -34,22 +36,28 @@ window.DB = {
   ],
 
   // 보유 수업권 (전 회원 — 내역 화면은 m1 것만 표시)
+  // v2.9: unitPrice=floor(실구매가÷총횟수) 구매 시점 스냅샷 (05 문서). purchasePrice=실구매가·listPrice=구매 당시 정가
+  // 스냅샷 — 할인 등록이면 unitPrice가 정가 회당과 달라지고, 이후 상품가 변경에도 소급되지 않는다.
   passes: [
     { id: "ps1", memberId: "m1", productId: "pr1", name: "PT 10회", kind: "private",
-      total: 10, unitPrice: 100000, expiresAt: "2026-08-29", remaining: 6 },
+      total: 10, unitPrice: 100000, purchasePrice: 1000000, listPrice: 1000000, expiresAt: "2026-08-29", remaining: 6 },
     { id: "ps2", memberId: "m1", productId: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group",
-      total: 10, unitPrice: 35000, expiresAt: null, remaining: 8 },
+      total: 10, unitPrice: 35000, purchasePrice: 350000, listPrice: 350000, expiresAt: null, remaining: 8 },
     { id: "ps3", memberId: "m1", productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
-      total: 20, unitPrice: 30000, expiresAt: "2026-08-10", remaining: 2 }, // 기간 만료 데모
-    { id: "ps4", memberId: "m2", productId: "pr2", name: "PT 20회", kind: "private", total: 20, unitPrice: 90000, expiresAt: "2026-10-30", remaining: 11 },
-    { id: "ps5", memberId: "m2", productId: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group", total: 10, unitPrice: 35000, expiresAt: null, remaining: 7 },
-    { id: "ps6", memberId: "m3", productId: "pr1", name: "PT 10회", kind: "private", total: 10, unitPrice: 100000, expiresAt: "2026-08-20", remaining: 2 },
-    { id: "ps7", memberId: "m3", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-09-28", remaining: 9 },
-    { id: "ps8", memberId: "m4", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-09-15", remaining: 5 },
-    { id: "ps9", memberId: "m5", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-10-05", remaining: 14 },
+      total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-08-10", remaining: 2 }, // 기간 만료 데모 · 정가 등록
+    // v2.9 할인 재등록 데모 — 같은 상품(pr3)인데 회당 24,000원 (재등록 할인 480,000원): ps3(30,000원)과 카드에서 단가 대비
+    { id: "ps13", memberId: "m1", productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
+      total: 20, unitPrice: 24000, purchasePrice: 480000, listPrice: 600000, expiresAt: "2026-11-12", remaining: 18 },
+    { id: "ps4", memberId: "m2", productId: "pr2", name: "PT 20회", kind: "private", total: 20, unitPrice: 90000, purchasePrice: 1800000, listPrice: 1800000, expiresAt: "2026-10-30", remaining: 11 },
+    { id: "ps5", memberId: "m2", productId: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group", total: 10, unitPrice: 35000, purchasePrice: 350000, listPrice: 350000, expiresAt: null, remaining: 7 },
+    { id: "ps6", memberId: "m3", productId: "pr1", name: "PT 10회", kind: "private", total: 10, unitPrice: 100000, purchasePrice: 1000000, listPrice: 1000000, expiresAt: "2026-08-20", remaining: 2 },
+    { id: "ps7", memberId: "m3", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-09-28", remaining: 9 },
+    { id: "ps8", memberId: "m4", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-09-15", remaining: 5 },
+    // v2.9 할인 등록 데모 — 오픈 프로모션 480,000원 구매: 같은 pr3 정가 회원(30,000원)과 정산에서 단가가 갈린다
+    { id: "ps9", memberId: "m5", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 24000, purchasePrice: 480000, listPrice: 600000, expiresAt: "2026-10-05", remaining: 14 },
     { id: "ps10", memberId: "m6", productId: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group", total: 10, unitPrice: 35000, expiresAt: null, remaining: 4 },
     { id: "ps11", memberId: "m7", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-11-01", remaining: 17 },
-    { id: "ps12", memberId: "m10", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-12-31", remaining: 20 }, // 이필라: 멤버십 자격으로 수업 개설 (시정①)
+    { id: "ps12", memberId: "m10", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-12-31", remaining: 20 }, // 이필라: 멤버십 자격으로 수업 개설 (시정①)
   ],
 
   // 수업권 원장 (append-only) — m1 것만 시드
@@ -63,6 +71,9 @@ window.DB = {
     { passId: "ps2", delta: -1, reason: "수강 확인", detail: "8/5 (수) 필라테스 · 자동확정", at: "2026-08-06 10:00" },
     { passId: "ps2", delta: -1, reason: "수강 확인", detail: "8/12 (수) 필라테스 · 앱 확인", at: "2026-08-12 11:20" },
     { passId: "ps3", delta: +20, reason: "구매", detail: "필라테스 그룹 20회 · 600,000원", at: "2026-05-12 11:00" },
+    { passId: "ps13", delta: +20, reason: "구매", detail: "필라테스 그룹 20회 · 480,000원 (정가 600,000원 · 재등록 할인)", at: "2026-08-14 10:20" },
+    { passId: "ps13", delta: -1, reason: "수강 확인", detail: "8/14 (금) 필라테스 · 앱 확인", at: "2026-08-14 11:05" },
+    { passId: "ps13", delta: -1, reason: "수강 확인", detail: "8/16 (일) 필라테스 · 앱 확인", at: "2026-08-16 11:02" },
   ],
 
   // 수업 정의 — eligibility: pass(수업권 보유자)/list(지정 회원)/both(혼합)
@@ -186,27 +197,42 @@ window.DB = {
 };
 
 // 8월 기확정분 시드 — 박코치(t1): PT 11회(자동 4) + 크로스핏 1회(이의로 보류), 이필라(t2): 필라테스 18회(자동 1)
+// v2.9: 라인 단가 = 각 회원 수업권(pass)의 구매 시점 스냅샷 — 회원별·등록시기별로 다르다 (일괄 단가 시드 폐기).
+//   t1: PT 10회(100,000원) vs PT 20회(90,000원) 혼재. t2: 정가 30,000·35,000원 vs 할인 24,000원(ps9) 혼재.
 (function seedSlines() {
   const L = window.DB.slines;
+  const passOf = (pid) => window.DB.passes.find((p) => p.id === pid);
+  const mk = (id, tid, mid, name, pid, desc, method, auto, status) => {
+    const p = passOf(pid);
+    L.push({ id, teacherId: tid, memberId: mid, member: name, passId: pid, passName: p.name, desc, unitPrice: p.unitPrice, method, auto, status, pushed: false, pushId: null });
+  };
   const t1pt = [
-    ["m2", "박서준", "8/2 (일) 11:00 PT", "PIN 확인", false],
-    ["m3", "이하늘", "8/3 (월) 18:00 PT", "앱 확인", false],
-    ["m2", "박서준", "8/13 (목) 19:00 PT", "PIN 확인", false], // sl3 = rp2
-    ["m3", "이하늘", "8/12 (수) 18:00 PT", "자동확정", true],  // sl4 = rp3
-    ["m1", "김지은", "8/2 (일) PT", "앱 확인", false],
-    ["m1", "김지은", "8/6 (목) PT", "앱 확인", false],
-    ["m2", "박서준", "8/7 (금) 19:00 PT", "자동확정", true],
-    ["m3", "이하늘", "8/8 (토) 18:00 PT", "앱 확인", false],
-    ["m1", "김지은", "8/13 (목) PT", "PIN 확인", false],
-    ["m2", "박서준", "8/14 (금) 19:00 PT", "자동확정", true],
-    ["m3", "이하늘", "8/15 (토) 18:00 PT", "자동확정", true],
+    ["m2", "박서준", "ps4", "8/2 (일) 11:00 PT", "PIN 확인", false],
+    ["m3", "이하늘", "ps6", "8/3 (월) 18:00 PT", "앱 확인", false],
+    ["m2", "박서준", "ps4", "8/13 (목) 19:00 PT", "PIN 확인", false], // sl3 = rp2
+    ["m3", "이하늘", "ps6", "8/12 (수) 18:00 PT", "자동확정", true],  // sl4 = rp3
+    ["m1", "김지은", "ps1", "8/2 (일) PT", "앱 확인", false],
+    ["m1", "김지은", "ps1", "8/6 (목) PT", "앱 확인", false],
+    ["m2", "박서준", "ps4", "8/7 (금) 19:00 PT", "자동확정", true],
+    ["m3", "이하늘", "ps6", "8/8 (토) 18:00 PT", "앱 확인", false],
+    ["m1", "김지은", "ps1", "8/13 (목) PT", "PIN 확인", false],
+    ["m2", "박서준", "ps4", "8/14 (금) 19:00 PT", "자동확정", true],
+    ["m3", "이하늘", "ps6", "8/15 (토) 18:00 PT", "자동확정", true],
   ];
-  t1pt.forEach(([mid, name, desc, method, auto], i) => {
-    L.push({ id: "sl" + (i + 1), teacherId: "t1", memberId: mid, member: name, desc, unitPrice: 100000, method, auto, status: "eligible", pushed: false, pushId: null });
-  });
-  L.push({ id: "sl12", teacherId: "t1", memberId: "m4", member: "최민아", desc: "8/11 (화) 06:30 크로스핏", unitPrice: 35000, method: "자동확정", auto: false, status: "held", pushed: false, pushId: null });
+  t1pt.forEach(([mid, name, pid, desc, method, auto], i) => mk("sl" + (i + 1), "t1", mid, name, pid, desc, method, auto, "eligible"));
+  mk("sl12", "t1", "m4", "최민아", "ps8", "8/11 (화) 06:30 크로스핏", "자동확정", false, "held");
+  // 필라테스 기구 초급 — 실제 수강 회원 6명 로테이션 ×3주. m5(정우람)=할인 24,000원이 정가 회원들과 같은 명세에 섞인다.
+  const t2roster = [
+    ["m1", "김지은", "ps2"],  // 35,000
+    ["m2", "박서준", "ps5"],  // 35,000
+    ["m3", "이하늘", "ps7"],  // 30,000
+    ["m4", "최민아", "ps8"],  // 30,000
+    ["m5", "정우람", "ps9"],  // 24,000 (할인 등록)
+    ["m6", "한소라", "ps10"], // 35,000
+  ];
   for (let i = 0; i < 18; i++) {
-    L.push({ id: "sl" + (13 + i), teacherId: "t2", memberId: null, member: "필라테스 수강회원", desc: `8/${3 + Math.floor(i / 3)} 필라테스 기구 초급`, unitPrice: 35000, method: i === 5 ? "자동확정" : "앱 확인", auto: i === 5, status: "eligible", pushed: false, pushId: null });
+    const [mid, name, pid] = t2roster[i % 6];
+    mk("sl" + (13 + i), "t2", mid, name, pid, `8/${3 + Math.floor(i / 3)} 필라테스 기구 초급`, i === 5 ? "자동확정" : "앱 확인", i === 5, "eligible");
   }
 })();
 
@@ -236,7 +262,7 @@ window.DB = {
       const expired = rnd(100) < 6; // 일부는 기간 만료 (만료 필터 검증용)
       const expiresAt = pr.validityDays == null ? null : expired ? "2026-08-01" : EXPIRES[rnd(EXPIRES.length)];
       P.push({ id: "gps" + i + "_" + k, memberId: m.id, productId: pr.id, name: pr.name, kind: pr.kind,
-        total: pr.sessions, unitPrice: Math.floor(pr.price / pr.sessions), expiresAt, remaining: 1 + rnd(pr.sessions) });
+        total: pr.sessions, unitPrice: Math.floor(pr.price / pr.sessions), purchasePrice: pr.price, listPrice: pr.price, expiresAt, remaining: 1 + rnd(pr.sessions) });
     }
   }
 })();
@@ -265,7 +291,7 @@ window.DB = {
     T.push({ id: "gt" + i, name, subject: SUBJ[rnd(SUBJ.length)], memberId: mid });
     // 일부는 자격 멤버십(pr3) 보유 — «멤버십 자격» 권한 경로가 규모에서도 동작하는지 검증용
     if (i % 11 === 0) P.push({ id: "gtps" + i, memberId: mid, productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
-      total: 20, unitPrice: 30000, expiresAt: "2026-12-31", remaining: 20 });
+      total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-12-31", remaining: 20 });
   }
   // P2-2b 범위 시드 — 리스트 요약 표기가 다양하게 보이도록 (gt5=멤버십 2개, gt12=개별 회원 5명)
   const TS = window.DB.policy.teacherScope;

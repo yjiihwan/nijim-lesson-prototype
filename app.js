@@ -13,6 +13,10 @@
    선생님·자격 멤버십=요약+편집(검색·체크 리스트), P2-2b=검색 리스트(행=이름·직군·설정 요약)→행 탭 시
    상세 화면(#/c/policy/scope/:tid)에서 편집. 기능(전체/범위 지정·멤버십 단위·개별 회원)은 전부 유지.
    더미 선생님 32명 추가(총 34명, 직군 혼합) — 정산 화면은 내역 있는 선생님만 표시.
+   v2.9 (2026-08-18 형 지적): 회원별·등록시기별 회당 단가 차이 화면 노출 — ① 센터 정산·내 정산에
+   회차별 단가 명세(펼침: 날짜·회원·수업권명·회당 단가·확인 방식, 단가 다르면 그룹 구분) + 샐리 push
+   미리보기 모달(회차별 unitPrice 노출 후 전송). ② 센터 수업권 판매·등록 흐름 신설 — 실구매가 입력
+   (기본=정가), unitPrice=floor(실구매가÷총횟수) 스냅샷 저장(이후 상품가 변경 소급 없음, 05 문서).
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -160,7 +164,7 @@
     const s = slot(b.slotId); const c = cls(s.classId);
     p.remaining -= 1;
     pushLedger(p.id, -1, "수강 확인", `${slotDesc(s)} · ${method}`);
-    const l = { id: nid("sl"), teacherId: c.teacherId, memberId: b.memberId, member: memberName(b.memberId), desc: slotDesc(s), unitPrice: p.unitPrice, method, auto: method === "자동확정", status: "eligible", pushed: false, pushId: null };
+    const l = { id: nid("sl"), teacherId: c.teacherId, memberId: b.memberId, member: memberName(b.memberId), passId: p.id, passName: p.name, desc: slotDesc(s), unitPrice: p.unitPrice, method, auto: method === "자동확정", status: "eligible", pushed: false, pushId: null };
     DB.slines.push(l);
     b.status = "confirmed";
     if (r) { r.status = method === "자동확정" ? "auto" : "confirmed"; r.method = method; r.label = "확인 완료"; r.deducted = true; r.lineId = l.id; }
@@ -310,7 +314,7 @@
   function attachSheetDrag(ctl) {
     let drag = null;
     ctl.sheet.addEventListener("pointerdown", (e) => {
-      if (e.target.closest("input, textarea, select, button, a")) return;
+      if (e.target.closest("input, textarea, select, button, a, .pd-list")) return; // .pd-list=push 미리보기 스크롤 영역 (v2.9)
       if (ctl.anim) { ctl.anim.stop(); ctl.anim = null; }
       drag = { startY: e.clientY, baseY: ctl.y, moved: false, hist: [[performance.now(), ctl.y]] };
       ctl.sheet.setPointerCapture(e.pointerId);
@@ -434,7 +438,10 @@
     return `<div class="pass-card${st !== "active" ? " off" : ""}">
       <div class="row"><span class="name grow">${p.name}</span>${badge}</div>
       <div class="left">${p.remaining}회 <small>/ ${p.total}회 남음</small></div>
-      <div class="meta">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")} 까지 · ` : ""}회당 ${won(p.unitPrice)}${st === "expired" ? " · 예약에 쓸 수 없어요" : ""}</div>
+      <div class="meta">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")} 까지 · ` : ""}회당 ${won(p.unitPrice)}${
+        // v2.9: 구매 시점 스냅샷(listPrice) 기준 할인 표기 — 같은 상품이라도 등록 시기·할인 따라 회당 단가가 다름
+        p.listPrice != null && p.unitPrice < Math.floor(p.listPrice / p.total) ? ` <span class="disc">할인 구매 (정가 회당 ${won(Math.floor(p.listPrice / p.total))})</span>` : ""
+      }${st === "expired" ? " · 예약에 쓸 수 없어요" : ""}</div>
       <div class="pass-bar"><i style="width:${pct}%"></i></div>
     </div>`;
   }
@@ -821,6 +828,30 @@
           ${r.status === "pending" && DB.policy.methodPin ? `<div class="btn-row"><button class="btn sm ghost" onclick="App.pinStart('${r.id}')">현장 PIN 확인 (회원 입력)</button></div>` : ""}
         </span></div>`).join("")}</div>`);
   }
+  // ── v2.9: 회차별 단가 명세 (형 지적 08-18 — 회원별·등록시기별 단가 차이를 화면에서 확인) ──
+  // 단가 = 수업권 구매 시점 스냅샷(unitPrice=floor(실구매가÷총횟수), 05 문서). 단가가 섞이면 그룹으로 구분 표시.
+  function unitGroups(lines) {
+    const g = new Map();
+    lines.forEach((l) => { const a = g.get(l.unitPrice); a ? a.push(l) : g.set(l.unitPrice, [l]); });
+    return [...g.entries()].sort((a, b) => b[0] - a[0]);
+  }
+  // 할인 여부는 라인의 pass 스냅샷(listPrice)로 판정 — 현재 상품가와 무관 (소급 금지 원칙)
+  function lineDisc(l) {
+    const p = l.passId ? pass(l.passId) : null;
+    return p && p.listPrice != null && l.unitPrice < Math.floor(p.listPrice / p.total);
+  }
+  const lineRowHtml = (l) => `<div class="pd-row"><span class="grow"><b>${l.member}</b> <span class="muted small">${l.desc}</span>
+      <div class="muted small">${l.passName || "수업권"}${lineDisc(l) ? ' · <span class="pd-disc">할인 구매</span>' : ""} · ${l.method}${l.status === "held" ? " · 이의 심사 중" : ""}</div></span>
+    <span class="pd-price">${won(l.unitPrice)}</span></div>`;
+  function linesDetailHtml(elig, held) {
+    if (!elig.length && !(held || []).length) return "";
+    const groups = unitGroups(elig);
+    return `<details class="pd"><summary>회차별 단가 명세 · ${elig.length}회${groups.length > 1 ? ` <span class="badge b-rose">단가 ${groups.length}종</span>` : ""}</summary>
+      <div class="pd-note">회당 단가는 각 회원 수업권의 <b>구매 시점 스냅샷</b>(실구매가÷총횟수)이에요 — 같은 상품이라도 등록 시기·할인에 따라 달라요.</div>
+      ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회 = <b>${won(u * ls.length)}</b></div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
+      ${(held || []).length ? `<div class="pd-group"><div class="pd-ghead pd-held">이의 심사 중 ${held.length}건 — 집계·전송 제외</div>${held.map(lineRowHtml).join("")}</div>` : ""}
+    </details>`;
+  }
   function vTEarnings() {
     const lines = DB.slines.filter((l) => l.teacherId === DB.me.teacher);
     const elig = lines.filter((l) => l.status === "eligible");
@@ -838,6 +869,7 @@
         <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${auto}회 ${auto ? '<span class="badge b-warn">검토 대상</span>' : ""}</b></div>
         ${rewardOn() && ns.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">노쇼 보상 (센터 정책)</span><b>${ns.length}건 · ${won(nsAmt)}</b></div>` : ""}
         ${held.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">이의 심사 중 (보류)</span><b>${held.length}회 <span class="badge b-danger">정산 제외 중</span></b></div>` : ""}
+        ${linesDetailHtml(elig, held)}
       </div>
       <div class="banner"><span class="ic">💡</span><span>여기는 <b>정산 대상 금액</b>까지만 보여요. 배분율·공제·실지급액은 급여 시스템(샐리)에서 계산돼요.</span></div>`);
   }
@@ -881,11 +913,31 @@
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/settlement'"><div class="k">월말</div><div class="v" style="font-size:15px">💰 정산·샐리 전송</div></button>
       </div>`);
   }
+  // v2.9: 실구매가 → 회당 단가 스냅샷 미리보기 문구 (판매·등록 폼과 App.sellPreview가 공유)
+  function sellUnitText(p, price) {
+    const unit = Math.floor((price || 0) / p.sessions);
+    const listUnit = Math.floor(p.price / p.sessions);
+    return `회당 단가 스냅샷 = ${won(price || 0)} ÷ ${p.sessions}회 = <b>${won(unit)}</b>${price && price < p.price
+      ? ` <span style="color:var(--link);font-weight:700">· 할인 등록 (정가 회당 ${won(listUnit)})</span>` : " (정가 등록)"}
+      — 이후 상품가를 바꿔도 이 수업권엔 소급되지 않아요.`;
+  }
   function vCProducts() {
+    const p0 = DB.products[0];
     return shell("c", "수업상품 관리", `
       ${DB.products.map((p) => `<div class="card"><div class="row"><span class="grow"><b>${p.name}</b>
         <div class="muted small mt4">${p.kind === "private" ? "개인" : "그룹"} · ${p.sessions}회 · ${p.validityDays ? p.validityDays + "일" : "기간 제한 없음"}</div></span>
         <b>${won(p.price)}</b></div></div>`).join("")}
+      <div class="sec-title">수업권 판매·등록</div>
+      <div class="card">
+        <div class="field"><label>회원</label>${pickerHtml("sell-mem", { multi: false, pool: DB.members.filter((m) => !m.staff) })}</div>
+        <div class="field"><label>상품</label><select id="sell-prod" onchange="App.sellProd(this.value)">
+          ${DB.products.map((p) => `<option value="${p.id}">${p.name} · 정가 ${won(p.price)}</option>`).join("")}</select></div>
+        <div class="field"><label>실구매가 (원)</label><input type="number" id="sell-price" min="0" value="${p0.price}" oninput="App.sellPreview()">
+          <div class="hint" id="sell-unit">${sellUnitText(p0, p0.price)}</div></div>
+        <button class="btn primary" onclick="App.sellPass()">수업권 등록</button>
+        <p class="muted small mt8">기본값은 정가예요. 프로모션·재등록 할인 등으로 실구매가가 다르면 그 금액을 입력해 주세요 —
+          <b>회당 단가 = floor(실구매가 ÷ 총횟수)</b>가 구매 시점 스냅샷으로 저장되고, 정산도 이 단가로 집계돼요.</p>
+      </div>
       <div class="sec-title">새 상품 개설</div>
       <div class="card">
         <div class="field"><label>상품명</label><input type="text" id="np-name" placeholder="예: 필라테스 그룹 30회"></div>
@@ -1214,6 +1266,7 @@
       ${per.map((x) => `<div class="card"><div class="row"><span class="grow"><b>${x.t.name} 선생님</b>
           <div class="muted small mt4">확정 ${x.elig.length}회 (자동확정 ${x.auto}회 포함)${x.held.length ? ` · <b style="color:var(--danger)">보류 ${x.held.length}건</b>` : ""}</div></span>
           <span class="big">${won(x.amount)}</span></div>
+        ${linesDetailHtml(x.elig, x.held)}
         ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0"><span class="ic">⏸️</span><span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 전송된 ${x.pushedHeld.length}건은 샐리 쪽 정정(DELETE externalId)이 필요해요.` : ""}</span></div>` : ""}
         ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0"><span class="ic">🎗️</span><span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리 자동 push(special rewardCodes)${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}</span></div>` : ""}
         <div class="mt12">
@@ -1375,10 +1428,40 @@
       const p = DB.products.find((x) => x.id === pid);
       const id = nid("ps");
       const exp = p.validityDays ? addDays(DB.TODAY, p.validityDays) : null;
-      DB.passes.push({ id, memberId: DB.me.member, productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: Math.floor(p.price / p.sessions), expiresAt: exp, remaining: p.sessions });
+      // 회원 자가 구매 = 정가 결제 — 동일한 구매 시점 스냅샷 로직(실구매가=정가)
+      DB.passes.push({ id, memberId: DB.me.member, productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: Math.floor(p.price / p.sessions), purchasePrice: p.price, listPrice: p.price, expiresAt: exp, remaining: p.sessions });
       pushLedger(id, p.sessions, "구매", `${p.name} · ${won(p.price)}`);
       toast("구매 완료! 수업권이 지갑에 담겼어요 💪 (mock 결제)");
       location.hash = "#/m/home";
+    },
+    // v2.9: 센터 수업권 판매·등록 — 실구매가 입력, unitPrice=floor(실구매가÷총횟수) 스냅샷 (05 문서)
+    sellProd(pid) {
+      const p = DB.products.find((x) => x.id === pid);
+      const priceEl = document.getElementById("sell-price");
+      const unitEl = document.getElementById("sell-unit");
+      if (priceEl) priceEl.value = p.price;
+      if (unitEl) unitEl.innerHTML = sellUnitText(p, p.price);
+    },
+    sellPreview() {
+      const p = DB.products.find((x) => x.id === document.getElementById("sell-prod").value);
+      const price = Math.max(0, parseInt(document.getElementById("sell-price").value, 10) || 0);
+      const unitEl = document.getElementById("sell-unit");
+      if (unitEl) unitEl.innerHTML = sellUnitText(p, price);
+    },
+    sellPass() {
+      const mid = pkSelected("sell-mem")[0];
+      if (!mid) { toast("회원을 먼저 검색해 선택해 주세요."); return; }
+      const p = DB.products.find((x) => x.id === document.getElementById("sell-prod").value);
+      const price = Math.max(0, parseInt(document.getElementById("sell-price").value, 10) || 0);
+      if (!price) { toast("실구매가를 입력해 주세요."); return; }
+      const id = nid("ps");
+      const exp = p.validityDays ? addDays(DB.TODAY, p.validityDays) : null;
+      const unit = Math.floor(price / p.sessions);
+      DB.passes.push({ id, memberId: mid, productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: unit, purchasePrice: price, listPrice: p.price, expiresAt: exp, remaining: p.sessions });
+      pushLedger(id, p.sessions, "구매", `${p.name} · ${won(price)}${price < p.price ? ` (정가 ${won(p.price)} · 할인 등록)` : ""}`);
+      delete pickers["sell-mem"];
+      render();
+      toast(`${memberName(mid)} 회원에게 ${p.name} 등록 완료 — 회당 ${won(unit)} 스냅샷 (mock 결제)`);
     },
     book(slotId) {
       const s = slot(slotId);
@@ -1927,8 +2010,27 @@
         toast("노쇼를 취소 처리했어요. 차감 없이 종결돼요.");
       }
     },
-    // 멱등 push — eligible & 미전송만, held 제외. P9-1 auto 모드면 노쇼 보상(rewardCodes)도 함께 전송
+    // v2.9: push 전 미리보기 모달 — 회차별 unitPrice(구매 시점 스냅샷)를 전송 페이로드 그대로 노출 (05 NormalizedSession)
     sallyPush(tid) {
+      const lines = DB.slines.filter((l) => l.teacherId === tid && l.status === "eligible" && !l.pushed);
+      const held = DB.slines.filter((l) => l.teacherId === tid && l.status === "held").length;
+      const rewards = rewardOn() && DB.policy.noshowRewardPush === "auto" ? noshowFinals(tid).filter((r) => !r.rewardPushed) : [];
+      if (!lines.length && !rewards.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
+      const groups = unitGroups(lines);
+      const total = lines.reduce((a, l) => a + l.unitPrice, 0) + rewards.reduce((a, r) => a + noshowUnit(r), 0);
+      modal(`<h3>샐리 push 미리보기 — ${teacher(tid).name} 선생님</h3>
+        <p>회차마다 <b>unitPrice(회당 단가 · 구매 시점 스냅샷)</b>가 개별 전송돼요. 배분율·공제는 샐리가 계산해요.</p>
+        <div class="pd-list">
+          ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">unitPrice <b>${won(u)}</b> × ${ls.length}회</div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
+          ${rewards.length ? `<div class="pd-group"><div class="pd-ghead">노쇼 보상 (special rewardCodes) ${rewards.length}건</div>${rewards.map((r) => `<div class="pd-row"><span class="grow"><b>${r.member}</b> <span class="muted small">${r.desc}</span><div class="muted small">노쇼 확정 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}</div></span><span class="pd-price">${won(noshowUnit(r))}</span></div>`).join("")}</div>` : ""}
+        </div>
+        <div class="row" style="justify-content:space-between;padding:4px 2px"><span class="muted">합계 ${lines.length}회${rewards.length ? ` + 보상 ${rewards.length}건` : ""}${held ? ` · 보류 ${held}건 제외` : ""}</span><b class="big">${won(total)}</b></div>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
+          <button class="btn primary" onclick="App.sallyPushDo('${tid}')">이대로 보내기</button></div>`);
+    },
+    // 멱등 push — eligible & 미전송만, held 제외. P9-1 auto 모드면 노쇼 보상(rewardCodes)도 함께 전송
+    sallyPushDo(tid) {
+      closeModal(true);
       const lines = DB.slines.filter((l) => l.teacherId === tid && l.status === "eligible" && !l.pushed);
       const held = DB.slines.filter((l) => l.teacherId === tid && l.status === "held").length;
       const rewards = rewardOn() && DB.policy.noshowRewardPush === "auto" ? noshowFinals(tid).filter((r) => !r.rewardPushed) : [];
