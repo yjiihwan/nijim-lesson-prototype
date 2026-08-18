@@ -2337,7 +2337,7 @@
       if (el._raf) return;
       el._raf = requestAnimationFrame(() => {
         el._raf = null;
-        const w = el.firstElementChild ? el.firstElementChild.offsetWidth + 12 : 1;
+        const w = el.firstElementChild ? el.firstElementChild.offsetWidth + (parseFloat(getComputedStyle(el).columnGap) || 0) : 1;
         const i = Math.max(0, Math.min(Math.round(el.scrollLeft / w), el.children.length - 1));
         if (i === mpIdx) return;
         mpIdx = i;
@@ -2356,7 +2356,7 @@
         window.removeEventListener("pointermove", mv);
         window.removeEventListener("pointerup", up);
         el.classList.remove("drag");
-        const w = el.firstElementChild ? el.firstElementChild.offsetWidth + 12 : 1;
+        const w = el.firstElementChild ? el.firstElementChild.offsetWidth + (parseFloat(getComputedStyle(el).columnGap) || 0) : 1;
         el.scrollTo({ left: Math.max(0, Math.round(el.scrollLeft / w)) * w, behavior: "smooth" });
       };
       window.addEventListener("pointermove", mv);

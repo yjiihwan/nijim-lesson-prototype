@@ -342,22 +342,23 @@ button.stat:active { transform: scale(.97); }
    카드=시설명+핑크 원형 화살표 / 프로그램명 / 멤버십 라벨 / 큰 잔여 숫자+작은 단위 / 회색 보조줄.
    여러 장=scroll-snap 페이징 캐러셀(이웃 카드 가장자리 노출). 버튼=«입장하기» 문법(풀폭 연회색+아이콘). */
 .role-m .hd-title.center { text-align: center; }
-.mp-carousel { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 4px -16px 0; padding: 4px 24px 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+/* 실측(기준 스샷 1179px 원본): 카드 폭=화면의 72.0% · 가로:세로=849:539(1.575) · 이웃 노출 5.8% · 카드 간격 8.1% */
+.mp-carousel { display: flex; gap: 32px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 4px -16px 0; padding: 4px 54px 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
 .mp-carousel::-webkit-scrollbar { display: none; }
 .mp-carousel.drag { scroll-snap-type: none; cursor: grabbing; }
-.mp-card { flex: 0 0 calc(100% - 72px); scroll-snap-align: center; background: var(--surface); border-radius: 24px; padding: 22px 20px 24px; box-shadow: var(--shadow); user-select: none; -webkit-user-select: none; }
-.mp-carousel.single .mp-card { flex-basis: calc(100% - 48px); }
-.mp-fac { display: flex; align-items: center; gap: 7px; font-size: 19px; font-weight: 800; letter-spacing: -0.015em; min-width: 0; }
+.mp-card { flex: 0 0 100%; scroll-snap-align: center; min-height: 179px; background: var(--surface); border-radius: 24px; padding: 8px 20px 8px; box-shadow: var(--shadow); user-select: none; -webkit-user-select: none; }
+.mp-carousel.single .mp-card { flex-basis: 100%; }
+.mp-fac { display: flex; align-items: center; gap: 7px; font-size: 19px; font-weight: 800; letter-spacing: -0.015em; min-width: 0; line-height: 1.2; }
 .mp-fac > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mp-arrow { width: 21px; height: 21px; border-radius: 50%; background: var(--cta); color: #fff; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .mp-arrow svg { width: 9px; height: 9px; display: block; }
-.mp-prog { font-size: 15px; font-weight: 700; margin-top: 30px; }
-.mp-plabel { font-size: 19px; font-weight: 800; letter-spacing: -0.015em; margin-top: 3px; font-variant-numeric: tabular-nums; }
-.mp-left { margin-top: 2px; display: flex; align-items: baseline; gap: 1px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
-.mp-left b { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+.mp-prog { font-size: 15px; font-weight: 700; margin-top: 26px; line-height: 1.2; }
+.mp-plabel { font-size: 19px; font-weight: 800; letter-spacing: -0.015em; margin-top: 2px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.mp-left { margin-top: 0; display: flex; align-items: baseline; gap: 1px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.mp-left b { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.0; }
 .mp-left span { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
 .mp-left small { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-left: 6px; }
-.mp-sub { margin-top: 7px; font-size: 13.5px; line-height: 1.55; color: #8e8e96; font-variant-numeric: tabular-nums; }
+.mp-sub { margin-top: 3px; font-size: 13.5px; line-height: 1.2; color: #8e8e96; font-variant-numeric: tabular-nums; }
 .mp-sub .d { color: var(--link); font-weight: 700; }
 .mp-sub .warn { color: var(--danger); font-weight: 800; }
 .mp-card.off { background: var(--surface-sunken); box-shadow: none; }
