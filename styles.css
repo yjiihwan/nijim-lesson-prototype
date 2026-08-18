@@ -115,15 +115,6 @@ a { color: var(--link); text-decoration: none; }
 .btn-row { display: flex; gap: 8px; margin-top: 12px; }
 .btn-row .btn { margin: 0; flex: 1; }
 
-/* 홈 수업권 카드 — Ink Hero 그라디언트(브랜드 승인 조합) */
-.pass-card { background: linear-gradient(180deg, #16161c, #1b1b26); color: #fff; border-radius: var(--r); padding: 18px; margin-bottom: 12px; box-shadow: var(--shadow-2); }
-.pass-card .name { font-size: 15px; font-weight: 700; }
-.pass-card .left { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; margin-top: 8px; font-variant-numeric: tabular-nums; }
-.pass-card .left small { font-size: 14px; font-weight: 600; letter-spacing: 0; color: #b9b9c2; }
-.pass-card .meta { font-size: 12px; color: #b9b9c2; margin-top: 6px; font-variant-numeric: tabular-nums; }
-.pass-bar { height: 6px; background: rgba(255,255,255,.16); border-radius: 999px; margin-top: 12px; overflow: hidden; }
-.pass-bar i { display: block; height: 100%; background: var(--cta); border-radius: 999px; transition: width .5s var(--ease-out); }
-
 /* 알림 배너 */
 .banner { display: flex; align-items: center; gap: 10px; background: var(--surface-rose); border: 1px solid #ffd3e3; border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: #a3003f; text-align: left; width: 100%; transition: transform .12s var(--ease-out); }
 button.banner:active { transform: scale(.98); }
@@ -234,9 +225,6 @@ button.stat:active { transform: scale(.97); }
 .seg.seg-sm { flex-shrink: 0; }
 .seg.seg-sm button { padding: 6px 4px; font-size: 12px; }
 
-/* 만료·소진·정지 수업권 카드 */
-.pass-card.off { opacity: .62; }
-
 /* P2-2b 선생님별 지정 가능 회원 범위 */
 .scope-prod { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-top: 8px; background: var(--surface); }
 .chip.sm { font-size: 12.5px; padding: 6px 10px; }
@@ -281,7 +269,6 @@ button.stat:active { transform: scale(.97); }
 .pd-disc { color: var(--link); font-weight: 700; }
 .pd-list { max-height: 42vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 12px; margin: 10px 0 12px; }
 .pd-list .pd-group:first-child { border-top: 0; }
-.pass-card .disc { color: var(--cta-disabled); font-weight: 700; }
 
 /* ══ v2.10 회원(멤버) 화면 — 실서비스 «내 멤버십» 톤 리스타일 (role-m 스코프만) ══
    포인트 핑크 #F0195F = 실서비스 스크린샷 하단탭 아이콘 스포이드 추출값.
@@ -298,18 +285,6 @@ button.stat:active { transform: scale(.97); }
 .role-m .btn.primary { box-shadow: 0 4px 14px rgba(240,25,95,.22); }
 .role-m .day.on { box-shadow: 0 4px 12px rgba(240,25,95,.26); }
 .role-m .field :is(input, select, textarea):focus { box-shadow: 0 0 0 3px rgba(240,25,95,.12); }
-
-/* 수업권 카드: 다크 → 흰 라운드 카드. 핵심 숫자=굵은 검정 대형, 보조=회색 소형 */
-.role-m .pass-card { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow); }
-.role-m .pass-card .left { font-size: 30px; }
-.role-m .pass-card .left small { color: var(--text-muted); }
-.role-m .pass-card .meta { color: var(--text-muted); }
-.role-m .pass-card .disc { color: var(--link); }
-.role-m .pass-bar { background: #ececf0; }
-.role-m .pass-card.off { opacity: 1; background: var(--surface-sunken); box-shadow: none; }
-.role-m .pass-card.off .name, .role-m .pass-card.off .left, .role-m .pass-card.off .left small { color: var(--text-muted); }
-.role-m .pass-card.off .pass-bar { background: #e2e2e8; }
-.role-m .pass-card.off .pass-bar i { background: var(--cta-disabled); }
 
 /* 하단 탭: 플로팅 알약 → 실서비스형 흰 바 + 핑크 활성 (라인 아이콘) */
 .role-m .tabbar { bottom: 0; margin: 12px 0 0; width: 100%; max-width: none; border-radius: 18px 18px 0 0; border: 0; border-top: 1px solid var(--border); background: rgba(255,255,255,.94); padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 28px rgba(22,22,28,.07); }
@@ -363,6 +338,41 @@ button.stat:active { transform: scale(.97); }
 .qr-svg { width: 168px; height: 168px; max-width: 60vw; border: 1px solid var(--border); border-radius: 14px; padding: 10px; background: #fff; }
 .qr-meta { margin-top: 8px; font-size: 12px; color: var(--text-muted); font-weight: 600; }
 
+/* ══ v2.14 회원 «내 멤버십» — 실서비스 멤버십 카드 문법 재현 (기존 앱 끼워넣기 목적) ══
+   카드=시설명+핑크 원형 화살표 / 프로그램명 / 멤버십 라벨 / 큰 잔여 숫자+작은 단위 / 회색 보조줄.
+   여러 장=scroll-snap 페이징 캐러셀(이웃 카드 가장자리 노출). 버튼=«입장하기» 문법(풀폭 연회색+아이콘). */
+.role-m .hd-title.center { text-align: center; }
+.mp-carousel { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 4px -16px 0; padding: 4px 24px 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.mp-carousel::-webkit-scrollbar { display: none; }
+.mp-carousel.drag { scroll-snap-type: none; cursor: grabbing; }
+.mp-card { flex: 0 0 calc(100% - 72px); scroll-snap-align: center; background: var(--surface); border-radius: 24px; padding: 22px 20px 24px; box-shadow: var(--shadow); user-select: none; -webkit-user-select: none; }
+.mp-carousel.single .mp-card { flex-basis: calc(100% - 48px); }
+.mp-fac { display: flex; align-items: center; gap: 7px; font-size: 19px; font-weight: 800; letter-spacing: -0.015em; min-width: 0; }
+.mp-fac > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-arrow { width: 21px; height: 21px; border-radius: 50%; background: var(--cta); color: #fff; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.mp-arrow svg { width: 9px; height: 9px; display: block; }
+.mp-prog { font-size: 15px; font-weight: 700; margin-top: 30px; }
+.mp-plabel { font-size: 19px; font-weight: 800; letter-spacing: -0.015em; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.mp-left { margin-top: 2px; display: flex; align-items: baseline; gap: 1px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.mp-left b { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+.mp-left span { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+.mp-left small { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-left: 6px; }
+.mp-sub { margin-top: 7px; font-size: 13.5px; line-height: 1.55; color: #8e8e96; font-variant-numeric: tabular-nums; }
+.mp-sub .d { color: var(--link); font-weight: 700; }
+.mp-sub .warn { color: var(--danger); font-weight: 800; }
+.mp-card.off { background: var(--surface-sunken); box-shadow: none; }
+.mp-card.off .mp-fac, .mp-card.off .mp-plabel, .mp-card.off .mp-left b, .mp-card.off .mp-left span { color: var(--text-muted); }
+.mp-card.off .mp-arrow { background: var(--text-disabled); }
+.mp-btn { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; min-height: 56px; margin-top: 14px; border-radius: 18px; background: #ececef; color: #55555c; font-size: 16px; font-weight: 700; letter-spacing: -0.005em; transition: transform .12s var(--ease-out), background .15s ease; }
+.mp-btn:active { transform: scale(.98); background: #e2e2e6; }
+.mp-btn svg { width: 21px; height: 21px; flex-shrink: 0; color: var(--cta); }
+.mp-status { text-align: center; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; margin: 22px 0 4px; }
+.mp-sec { font-size: 18px; font-weight: 800; letter-spacing: -0.015em; margin: 30px 0 12px; }
+.mp-info { background: var(--surface); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); margin-bottom: 12px; }
+.mp-info .h { display: block; font-size: 16px; font-weight: 800; }
+.mp-info .l { font-size: 13px; font-weight: 800; margin-top: 13px; }
+.mp-info .v { font-size: 14px; color: var(--text-muted); margin-top: 2px; }
+
 @media (min-width: 1024px) {
   body { padding: 32px 0; }
   .shell { border-radius: 24px; overflow: hidden; min-height: calc(100vh - 64px); box-shadow: 0 24px 64px rgba(32,32,36,.12), 0 0 0 1px var(--border); }
@@ -379,8 +389,8 @@ button.stat:active { transform: scale(.97); }
   .toast.out { transform: translateX(-50%); }
   .btn:active, .card-tap:active, .role-card:active, .tab:active, .hd-back:active,
   .hd-role:active, button.stat:active, button.banner:active, .seg button:active, .day,
-  .mb-day:active, .mb-nav:active, .mb-month:active { transform: none; }
-  .sw, .sw::after, .pass-bar i, .cap-bar i { transition-duration: .01ms; }
+  .mb-day:active, .mb-nav:active, .mb-month:active, .mp-btn:active { transform: none; }
+  .sw, .sw::after, .cap-bar i { transition-duration: .01ms; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .hd { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }

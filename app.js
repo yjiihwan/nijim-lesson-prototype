@@ -24,6 +24,11 @@
    (홈 «수업 확인 요청» 카드+탭바 배지, 확인 권한은 회원 계정에만 귀속·대리 확인 불가) ② 현장
    즉시확정=일회용 QR(해당 수업 1건 전용 토큰·5분 만료·재사용 불가, 프로토는 «회원 폰에서 열기»
    시뮬레이션) ③ 미확인 방치=기존 자동확정·이의 정책 유지(확인 대기/자동확정 안내 표기 정리).
+   v2.14 (2026-08-18 형 시정): 회원 «멤버십/수업권» UI를 실서비스 «내 멤버십» 화면과 동일 문법으로
+   재작업(끼워넣기 목적) — 카드=시설명+핑크 원형 화살표 배지/프로그램명/멤버십 라벨/큰 잔여 숫자+작은
+   단위/회색 보조줄, 여러 장=좌우 페이징 캐러셀(이웃 카드 가장자리 노출, 터치+마우스 드래그), 액션은
+   전부 «입장하기» 문법(풀폭 연회색 라운드+아이콘). 전용 화면 #/m/pass(내 멤버십 탭) 신설 —
+   카드 캐러셀+수업 예약 버튼+상태 문구+멤버십 상세정보(선택 카드와 동기). 기존 다크 pass-card 폐지.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -400,7 +405,7 @@
   // ── 셸 렌더 ──
   const ROLE_LABEL = { m: "회원", t: "선생님", c: "센터" };
   const TABS = {
-    m: [["#/m/home", "🏠", "홈"], ["#/m/book", "📅", "예약"], ["#/m/shop", "🎟️", "구매"], ["#/m/history", "📜", "내역"]],
+    m: [["#/m/home", "🏠", "홈"], ["#/m/book", "📅", "예약"], ["#/m/pass", "💳", "멤버십"], ["#/m/history", "📜", "내역"]],
     t: [["#/t/home", "🏠", "오늘"], ["#/t/schedule", "🗓️", "일정"], ["#/t/inbox", "📨", "요청"], ["#/t/report", "✅", "보고"], ["#/t/earnings", "💰", "정산"]],
     c: [["#/c/home", "🏠", "홈"], ["#/c/classes", "🧘", "수업"], ["#/c/bookings", "📅", "예약"], ["#/c/settlement", "💰", "정산"], ["#/c/policy", "⚙️", "설정"]],
   };
@@ -408,7 +413,7 @@
   const M_TAB_SVG = {
     "홈": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9.5V20a.8.8 0 0 0 .8.8h11.4a.8.8 0 0 0 .8-.8V9.5"/><path d="M9.8 20.5v-5.6a.8.8 0 0 1 .8-.8h2.8a.8.8 0 0 1 .8.8v5.6"/></svg>`,
     "예약": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 10h17M8 2.8v4M16 2.8v4"/><path d="m9.5 15.5 2 2 3.5-3.8"/></svg>`,
-    "구매": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9V7a1.5 1.5 0 0 1 1.5-1.5h14A1.5 1.5 0 0 1 20.5 7v2a2.5 2.5 0 0 0 0 5v2a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 16v-2a2.5 2.5 0 0 0 0-5Z"/><path d="M14 6v2.4M14 11v2M14 15.6V18" stroke-dasharray="0.1 3.2"/></svg>`,
+    "멤버십": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="5.5" width="18.4" height="13.5" rx="2.5"/><path d="M2.8 9.8h18.4M6.2 15h4.5"/></svg>`,
     "내역": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5h14V20.5l-2.4-1.5-2.4 1.5-2.2-1.5-2.2 1.5-2.4-1.5L5 20.5Z"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.5"/></svg>`,
   };
   // v2.13: 회원 «수업 확인 요청» — pending 보고가 실존하는 내 confirm_wait 예약 (푸시 대신 로그인 배지 시뮬레이션)
@@ -421,7 +426,7 @@
     return `
       <header class="hd"><div class="hd-in">
         ${opts.back ? `<button class="hd-back" onclick="history.back()" aria-label="뒤로">‹</button>` : ""}
-        <div class="hd-title">${title}</div>
+        <div class="hd-title${opts.center ? " center" : ""}">${title}</div>
         <button class="hd-role" onclick="location.hash='#/'">역할: <b>${ROLE_LABEL[role] || "-"}</b></button>
       </div></header>
       <main class="screen${tabs.length ? "" : " no-tab"}">${body}</main>
@@ -445,23 +450,70 @@
   }
 
   // ══ 회원 ══
-  function passCard(p) {
+  // v2.14: 실서비스 «내 멤버십» 카드 문법 — 시설명+핑크 원형 화살표 / 프로그램명 / 멤버십 라벨 /
+  // 큰 잔여 숫자+작은 단위 / 회색 보조줄. 여러 장이면 페이징 캐러셀(이웃 카드 가장자리 노출).
+  const myPasses = () => DB.passes.filter((p) => p.memberId === DB.me.member);
+  let mpIdx = 0; // 캐러셀 활성 카드 — 상세정보 동기용, «내 멤버십» 이탈 시 초기화(render)
+  const mpDisc = (p) => p.listPrice != null && p.unitPrice < Math.floor(p.listPrice / p.total); // v2.9 구매 시점 스냅샷 기준 할인 판정
+  const MP_ARROW = `<span class="mp-arrow" aria-hidden="true"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 1.6 6.8 5 3.2 8.4"/></svg></span>`;
+  const MP_IC = {
+    cal: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 10h17M8 2.8v4M16 2.8v4"/></svg>`,
+    ticket: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9V7a1.5 1.5 0 0 1 1.5-1.5h14A1.5 1.5 0 0 1 20.5 7v2a2.5 2.5 0 0 0 0 5v2a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 16v-2a2.5 2.5 0 0 0 0-5Z"/><path d="M14 6v2.4M14 11v2M14 15.6V18" stroke-dasharray="0.1 3.2"/></svg>`,
+    list: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5h14V20.5l-2.4-1.5-2.4 1.5-2.2-1.5-2.2 1.5-2.4-1.5L5 20.5Z"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.5"/></svg>`,
+  };
+  const mpStateLabel = (st) => ({ expired: "기간 만료", exhausted: "횟수 소진", frozen: "이용 정지" }[st] || null);
+  // 이 수업권으로 들을 수 있는 수업의 담당 선생님 (자격 상품 기준)
+  const mpTeachers = (p) => [...new Set(DB.classes.filter((c) => c.status !== "closed" && (c.eligibleProductIds || []).includes(p.productId)).map((c) => teacher(c.teacherId).name))];
+  function mpCard(p) {
     const st = passState(p);
+    const bad = mpStateLabel(st);
     const dd = dday(p.expiresAt);
-    const pct = Math.round((Math.max(0, p.remaining) / p.total) * 100);
-    const badge = st === "expired" ? `<span class="badge b-danger">기간 만료</span>`
-      : st === "exhausted" ? `<span class="badge b-gray">횟수 소진</span>`
-      : st === "frozen" ? `<span class="badge b-gray">이용 정지</span>`
-      : p.expiresAt ? `<span class="badge ${dd <= 14 ? "b-warn" : "b-blue"}">D-${dd}</span>` : `<span class="badge b-green">기간 제한 없음</span>`;
-    return `<div class="pass-card${st !== "active" ? " off" : ""}">
-      <div class="row"><span class="name grow">${p.name}</span>${badge}</div>
-      <div class="left">${p.remaining}회 <small>/ ${p.total}회 남음</small></div>
-      <div class="meta">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")} 까지 · ` : ""}회당 ${won(p.unitPrice)}${
-        // v2.9: 구매 시점 스냅샷(listPrice) 기준 할인 표기 — 같은 상품이라도 등록 시기·할인 따라 회당 단가가 다름
-        p.listPrice != null && p.unitPrice < Math.floor(p.listPrice / p.total) ? ` <span class="disc">할인 구매 (정가 회당 ${won(Math.floor(p.listPrice / p.total))})</span>` : ""
-      }${st === "expired" ? " · 예약에 쓸 수 없어요" : ""}</div>
-      <div class="pass-bar"><i style="width:${pct}%"></i></div>
+    return `<article class="mp-card${st !== "active" ? " off" : ""}">
+      <div class="mp-fac"><span>${DB.center.name}</span>${MP_ARROW}</div>
+      <div class="mp-prog">${p.name}</div>
+      <div class="mp-plabel">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")}까지 멤버십` : "기간 제한 없는 멤버십"}</div>
+      <div class="mp-left"><b>${p.remaining}</b><span>회 남음</span><small>/ 총 ${p.total}회</small></div>
+      <div class="mp-sub">회당 ${won(p.unitPrice)}${mpDisc(p) ? ` · <span class="d">할인 구매 (정가 회당 ${won(Math.floor(p.listPrice / p.total))})</span>` : ""}<br>${
+        bad ? `<b class="warn">${bad}</b> · 예약에 쓸 수 없어요`
+        : p.expiresAt ? `${p.kind === "private" ? "개인수업 1:1" : "그룹수업"} 이용가능 (D-${dd})` : `${p.kind === "private" ? "개인수업 1:1" : "그룹수업"} · 횟수 소진 시까지 이용가능`}</div>
+    </article>`;
+  }
+  function mpCarousel(ps) {
+    return `<div class="mp-carousel${ps.length === 1 ? " single" : ""}" onscroll="App.mpScroll(this)" onpointerdown="App.mpDrag(this, event)">${ps.map(mpCard).join("")}</div>`;
+  }
+  function mpDetail(p) {
+    if (!p) return "";
+    const bad = mpStateLabel(passState(p));
+    const dd = dday(p.expiresAt);
+    const ts = mpTeachers(p);
+    return `<div class="mp-info">
+      <b class="h">수업권 정보</b>
+      <div class="l">멤버십명</div><div class="v">${p.name}</div>
+      <div class="l">수업 종류</div><div class="v">${p.kind === "private" ? "개인수업 1:1" : "그룹수업"}</div>
+      ${ts.length ? `<div class="l">담당 선생님</div><div class="v">${ts.join(" · ")} 선생님</div>` : ""}
+      <div class="l">잔여 횟수</div><div class="v">${p.remaining}회 / 총 ${p.total}회</div>
+      <div class="l">유효기간</div><div class="v">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")} 까지${dd != null && dd >= 0 ? ` (D-${dd})` : ""}` : "기간 제한 없음 · 횟수 소진 시까지"}</div>
+      <div class="l">회당 단가</div><div class="v">${won(p.unitPrice)}${mpDisc(p) ? ` — 할인 구매 (정가 회당 ${won(Math.floor(p.listPrice / p.total))})` : ""} · 구매 시점 기준</div>
+      ${p.purchasePrice != null ? `<div class="l">구매 금액</div><div class="v">${won(p.purchasePrice)}</div>` : ""}
+      <div class="l">이용 상태</div><div class="v">${bad ? `${bad} · 예약에 쓸 수 없어요` : "이용 가능"}</div>
+    </div>
+    <div class="mp-info">
+      <b class="h">센터정보</b>
+      <div class="l">센터명</div><div class="v">${DB.center.name}</div>
     </div>`;
+  }
+  function vMPass() {
+    const ps = myPasses();
+    const cur = ps[Math.min(mpIdx, Math.max(0, ps.length - 1))];
+    return shell("m", "내 멤버십", `
+      ${ps.length ? `${mpCarousel(ps)}
+      <a class="mp-btn" href="#/m/book">${MP_IC.cal}수업 예약하기</a>
+      <p class="mp-status">정상운영 중입니다.</p>
+      <div class="mp-sec">멤버십 상세정보</div>
+      <div id="mp-detail">${mpDetail(cur)}</div>
+      <a class="mp-btn" href="#/m/history">${MP_IC.list}이용 내역 보기</a>`
+      : `<div class="card flat mb-empty"><div class="em">🎟️</div><p class="muted mt8">보유한 멤버십이 없어요.</p></div>`}
+      <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>`, { center: true });
   }
   function myUpcoming() {
     return myBk().filter((b) => {
@@ -494,9 +546,9 @@
         return `<button class="banner warn" onclick="location.hash='#/m/bookings'">
         <span class="ic">⚠️</span><span>${slotDesc(slot(b.slotId))} 회차가 <b>노쇼</b>로 보고됐어요. ${r ? `<b>${noshowDeadline(r).replaceAll("-", ".")}</b>까지 이의가 없으면 <b>자동 확정·1회 차감</b>돼요.` : ""} 사실과 다르면 이의제기해 주세요.</span></button>`;
       }).join("")}
-      <div class="sec-title">내 수업권</div>
-      ${DB.passes.filter((p) => p.memberId === DB.me.member).map(passCard).join("")}
-      <a class="btn ghost" href="#/m/shop">+ 수업 멤버십 구매</a>
+      <div class="sec-title row">내 멤버십<a href="#/m/pass" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
+      ${mpCarousel(myPasses())}
+      <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>
       <div class="sec-title row">다가오는 예약<a href="#/m/bookings" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
       <div class="card flat">${upcoming.length || arrs.length ? upcoming.map((b) => {
         const s = slot(b.slotId); const c = cls(s.classId); const bd = bkBadge(b);
@@ -2280,6 +2332,36 @@
       S.memberIds = (S.memberIds || []).includes(mid) ? S.memberIds.filter((x) => x !== mid) : [...(S.memberIds || []), mid];
       render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.");
     },
+    // v2.14: 멤버십 캐러셀 — 스크롤 스냅 위치 → 활성 카드 판정, 상세정보 동기 (rAF 스로틀)
+    mpScroll(el) {
+      if (el._raf) return;
+      el._raf = requestAnimationFrame(() => {
+        el._raf = null;
+        const w = el.firstElementChild ? el.firstElementChild.offsetWidth + 12 : 1;
+        const i = Math.max(0, Math.min(Math.round(el.scrollLeft / w), el.children.length - 1));
+        if (i === mpIdx) return;
+        mpIdx = i;
+        const d = document.getElementById("mp-detail");
+        if (d) d.innerHTML = mpDetail(myPasses()[i]);
+      });
+    },
+    // v2.14: PC 마우스 드래그 스와이프 — 터치는 네이티브 스크롤(스냅)에 맡김
+    mpDrag(el, e) {
+      if (e.pointerType !== "mouse" || el.children.length < 2) return;
+      e.preventDefault();
+      const sx = e.clientX, sl = el.scrollLeft;
+      el.classList.add("drag"); // 드래그 중엔 스냅 해제 — 손끝을 그대로 따라오게
+      const mv = (ev) => { el.scrollLeft = sl - (ev.clientX - sx); };
+      const up = () => {
+        window.removeEventListener("pointermove", mv);
+        window.removeEventListener("pointerup", up);
+        el.classList.remove("drag");
+        const w = el.firstElementChild ? el.firstElementChild.offsetWidth + 12 : 1;
+        el.scrollTo({ left: Math.max(0, Math.round(el.scrollLeft / w)) * w, behavior: "smooth" });
+      };
+      window.addEventListener("pointermove", mv);
+      window.addEventListener("pointerup", up);
+    },
   };
   window.App = App;
 
@@ -2287,6 +2369,7 @@
   const routes = [
     [/^#?\/?$/, vLanding],
     [/^#\/m\/home$/, vMHome],
+    [/^#\/m\/pass$/, vMPass],
     [/^#\/m\/shop$/, vMShop],
     [/^#\/m\/shop\/(.+)$/, vMShopDetail],
     [/^#\/m\/book$/, vMBook],
@@ -2324,6 +2407,7 @@
     if (h !== lastHash && !h.startsWith("#/c/policy")) polUI.live = false; // v2.7: 정책 화면군 밖으로 나가면 검색·펼침 초기화
     if (h !== lastHash && h !== "#/t/schedule") tSchedDay = null; // v2.8: 주간 일정 이탈 시 요일 선택 초기화
     if (h !== lastHash && h !== "#/m/book") mBookSel = null; // v2.11: 예약 캘린더 이탈 시 날짜 선택 초기화
+    if (h !== lastHash && h !== "#/m/pass") mpIdx = 0; // v2.14: 멤버십 캐러셀 이탈 시 활성 카드 초기화
     let body = null;
     for (const [re, fn] of routes) {
       const m = h.match(re);
