@@ -38,6 +38,10 @@
    v2.19 (2026-08-18): 센터 정산 화면 «엑셀로 내려받기» — 화면 집계를 그대로 .xlsx로 저장.
    외부 라이브러리 없이 zip(무압축)+시트 XML 직접 생성. 확정·이의 보류(합계 제외)·노쇼 보상 행 +
    마지막 합계 행. 파일명 니짐내짐_정산_<YYYY-MM>.xlsx. 화면 집계 로직(slines 동적 집계)과 동일 계산.
+   v2.20 (2026-08-18): 센터 «예약 현황» 월간 캘린더+리스트 혼합 개편 — 회원 예약 캘린더(v2.11)와 같은
+   디자인 문법(헤더 ‹월› 이동·월 시트·스와이프·점 마커·선택 날짜 리스트). 날짜 셀=수업 수+상태 점
+   (예정·정원 마감·지난 수업), 조율 요청 희망일=주황 표식+선택 시 그 날 요청 함께 표시. 선생님·수업
+   필터 칩(캘린더·리스트·조율 섹션 공통 적용). 리스트 항목 구성(시간·수업명·정원 바·상태 버튼)은 유지.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -640,6 +644,17 @@
   function mbNearest(sel) {
     const dates = [...new Set(DB.slots.filter(mbBookable).map((s) => s.date))].sort();
     return dates.find((d) => d > sel) || dates.slice().reverse().find((d) => d < sel) || null;
+  }
+  // v2.20: 월 이동 시트 — 회원(mbGoto)·센터(cbGoto) 캘린더 공용. 회차가 있는 달+다음 달 노출
+  function monthSheet(cur, gotoFn) {
+    const months = [...new Set([...DB.slots.map((s) => s.date.slice(0, 7)), DB.TODAY.slice(0, 7)])].sort();
+    const [ly, lm] = months[months.length - 1].split("-").map(Number);
+    months.push(`${lm === 12 ? ly + 1 : ly}-${String((lm % 12) + 1).padStart(2, "0")}`);
+    modal(`<h3>월 이동</h3>${months.map((ym) => {
+      const [y, m] = ym.split("-").map(Number);
+      const target = ym === DB.TODAY.slice(0, 7) ? DB.TODAY : `${ym}-01`;
+      return `<button class="btn ${ym === cur ? "primary" : "ghost"} mt8" onclick="App.${gotoFn}('${target}')">${y}년 ${m}월</button>`;
+    }).join("")}`);
   }
   function vMBook() {
     const sel = mBookSel || (mBookSel = DB.TODAY);
@@ -1349,33 +1364,100 @@
         <button class="btn danger-ghost mt8" onclick="App.askCloseClass('${c.id}','${role}')">이 수업 폐강하기</button>
       </div>`, { back: true });
   }
+  // v2.20 (형 지시 08-18): 센터 «예약 현황» — 월간 캘린더+선택 날짜 리스트 혼합(회원 예약 캘린더와 같은 문법).
+  // 날짜 셀=수업 수+상태 점(예정·정원 마감·지난 수업), 조율 요청 희망일=주황 표식. 선생님·수업 필터 공통 적용.
+  let cbUI = { sel: null, teacher: "all", cls: "all" };
+  function cbSlots() {
+    return DB.slots.filter((s) => {
+      if (s.status === "canceled") return false;
+      const c = cls(s.classId);
+      if (!c || c.status === "closed") return false;
+      if (cbUI.teacher !== "all" && c.teacherId !== cbUI.teacher) return false;
+      if (cbUI.cls !== "all" && s.classId !== cbUI.cls) return false;
+      return true;
+    });
+  }
+  function cbArrs() {
+    return DB.arranges.filter((a) => {
+      if (a.status !== "pending") return false;
+      const c = cls(a.classId);
+      if (!c) return false;
+      if (cbUI.teacher !== "all" && c.teacherId !== cbUI.teacher) return false;
+      if (cbUI.cls !== "all" && a.classId !== cbUI.cls) return false;
+      return true;
+    });
+  }
   function vCBookings() {
-    const days = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24"];
-    const arrs = DB.arranges.filter((a) => a.status === "pending");
+    const sel = cbUI.sel || (cbUI.sel = DB.TODAY);
+    const ym = sel.slice(0, 7);
+    const [y, m] = ym.split("-").map(Number);
+    const dim = new Date(y, m, 0).getDate();
+    const lead = (new Date(`${ym}-01T12:00:00+09:00`).getDay() + 6) % 7; // 월요일 시작
+    const cells = [...Array(lead).fill(null), ...Array.from({ length: dim }, (_, i) => `${ym}-${String(i + 1).padStart(2, "0")}`)];
+    while (cells.length % 7) cells.push(null);
+    const all = cbSlots();
+    const byDate = {};
+    all.forEach((s) => (byDate[s.date] = byDate[s.date] || []).push(s));
+    const arrs = cbArrs();
+    const arrDates = new Set(arrs.map((a) => a.date));
+    const cell = (d) => {
+      if (!d) return `<span class="cb-day blank"></span>`;
+      const ss = byDate[d] || [];
+      const st = new Set(ss.map((s) => (s.status === "done" || isPast(s)) ? "pd" : seatCount(s.id) >= cls(s.classId).capacity ? "fl" : "av"));
+      return `<button type="button" class="cb-day${d === sel ? " on" : ""}${d === DB.TODAY ? " today" : ""}${d < DB.TODAY ? " past" : ""}" onclick="App.cbDay('${d}')" aria-label="${dlabel(d)}${ss.length ? ` · 수업 ${ss.length}건` : ""}">
+        ${arrDates.has(d) ? `<i class="arrmark" aria-hidden="true"></i>` : ""}
+        <span class="dn">${Number(d.slice(8))}</span>
+        <span class="mb-dots">${["av", "fl", "pd"].filter((k) => st.has(k)).map((k) => `<i class="${k}"></i>`).join("")}</span>
+        <span class="cnt">${ss.length ? `${ss.length}건` : ""}</span></button>`;
+    };
+    const fchip = (label, on, fn) => `<button type="button" class="cb-chip${on ? " on" : ""}" onclick="${fn}">${label}</button>`;
+    const teachers = DB.teachers.filter((t) => DB.classes.some((c) => c.status !== "closed" && c.teacherId === t.id));
+    const item = (s) => {
+      const c = cls(s.classId); const n = seatCount(s.id); const w = waitBk(s.id).length;
+      const full = n >= c.capacity;
+      return `<div class="slot"><span class="time">${s.time}</span>
+        <span class="grow"><span class="t">${c.title}</span>
+          <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (n / c.capacity) * 100)}%"></i></div>
+          <div class="muted small mt4">${teacher(c.teacherId).name} · ${n}/${c.capacity}명${w ? ` · 대기 ${w}` : ""}</div></span>
+        <button class="btn sm ghost" onclick="location.hash='#/c/slot/${s.id}'">${s.status === "done" ? "종료" : full ? "마감" : "상세"}</button></div>`;
+    };
+    const arrItem = (a) => {
+      const c = cls(a.classId);
+      return `<div class="slot"><span class="time">${a.time}</span>
+        <span class="grow"><span class="t">${memberName(a.memberId)} · ${c.title}</span>
+        <div class="muted small">${dlabel(a.date)} 희망 · ${teacher(c.teacherId).name} 선생님 인박스</div></span>
+        <span class="badge b-warn">대기</span></div>`;
+    };
+    const list = (byDate[sel] || []).slice().sort((a, b) => a.time.localeCompare(b.time));
+    const dayArrs = arrs.filter((a) => a.date === sel).sort((a, b) => a.time.localeCompare(b.time));
+    const near = list.length ? null : (() => {
+      const dates = [...new Set(all.map((s) => s.date))].sort();
+      return dates.find((d) => d > sel) || dates.slice().reverse().find((d) => d < sel) || null;
+    })();
     return shell("c", "예약 현황", `
       <a class="btn ghost" href="#/c/quick" style="margin-bottom:14px">⚡ 즉시 예약확정</a>
-      ${arrs.length ? `<div class="sec-title">조율 요청 (선생님 확인 대기)</div>
-      <div class="card flat">${arrs.map((a) => {
-        const c = cls(a.classId);
-        return `<div class="slot"><span class="time">${a.time}</span>
-          <span class="grow"><span class="t">${memberName(a.memberId)} · ${c.title}</span>
-          <div class="muted small">${dlabel(a.date)} 희망 · ${teacher(c.teacherId).name} 선생님 인박스</div></span>
-          <span class="badge b-warn">대기</span></div>`;
-      }).join("")}</div>` : ""}
-      ${days.map((d) => {
-        const ss = DB.slots.filter((s) => s.date === d && s.status !== "canceled").sort((a, b) => a.time.localeCompare(b.time));
-        if (!ss.length) return "";
-        return `<div class="sec-title">${dlabel(d)}${d === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}</div>
-        <div class="card flat">${ss.map((s) => {
-          const c = cls(s.classId); const n = seatCount(s.id); const w = waitBk(s.id).length;
-          const full = n >= c.capacity;
-          return `<div class="slot"><span class="time">${s.time}</span>
-            <span class="grow"><span class="t">${c.title}</span>
-              <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (n / c.capacity) * 100)}%"></i></div>
-              <div class="muted small mt4">${teacher(c.teacherId).name} · ${n}/${c.capacity}명${w ? ` · 대기 ${w}` : ""}</div></span>
-            <button class="btn sm ghost" onclick="location.hash='#/c/slot/${s.id}'">${s.status === "done" ? "종료" : full ? "마감" : "상세"}</button></div>`;
-        }).join("")}</div>`;
-      }).join("")}`);
+      ${arrs.length ? `<div class="sec-title">조율 요청 (선생님 확인 대기) <span class="badge b-warn">${arrs.length}건</span></div>
+      <div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
+      <div class="cb-filters">
+        <div class="cb-frow"><span class="cb-flabel">선생님</span>${fchip("전체", cbUI.teacher === "all", "App.cbTeacher('all')")}${teachers.map((t) => fchip(`${t.name} 선생님`, cbUI.teacher === t.id, `App.cbTeacher('${t.id}')`)).join("")}</div>
+        <div class="cb-frow"><span class="cb-flabel">수업</span>${fchip("전체", cbUI.cls === "all", "App.cbClass('all')")}${DB.classes.filter((c) => c.status !== "closed").map((c) => fchip(c.title, cbUI.cls === c.id, `App.cbClass('${c.id}')`)).join("")}</div>
+      </div>
+      <div class="card mb-cal">
+        <div class="mb-head">
+          <button class="mb-nav" onclick="App.cbMonth(-1)" aria-label="이전 달">‹</button>
+          <button class="mb-month" onclick="App.cbMonthSheet()">${y}년 ${m}월 <span class="car">▾</span></button>
+          <button class="mb-nav" onclick="App.cbMonth(1)" aria-label="다음 달">›</button>
+        </div>
+        <div class="cb-dow">${["월", "화", "수", "목", "금", "토", "일"].map((w) => `<span>${w}</span>`).join("")}</div>
+        <div class="cb-grid">${cells.map(cell).join("")}</div>
+        <div class="mb-legend cb-legend"><span><i class="av"></i>예정</span><span><i class="fl"></i>정원 마감</span><span><i class="pd"></i>지난 수업</span><span><i class="ar"></i>조율 확인 필요</span></div>
+      </div>
+      <div class="sec-title">${dlabel(sel)} 수업${sel === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}</div>
+      ${list.length ? `<div class="card flat">${list.map(item).join("")}</div>`
+        : `<div class="card flat mb-empty"><div class="em">🗓️</div>
+            <p class="muted mt8">이 날은 수업이 없어요.</p>
+            ${near ? `<button class="btn ghost mt12" onclick="App.cbDay('${near}')">수업이 있는 가장 가까운 날 ${dlabel(near)}로 이동</button>` : ""}</div>`}
+      ${dayArrs.length ? `<div class="sec-title">이 날을 희망한 조율 요청</div><div class="card flat">${dayArrs.map(arrItem).join("")}</div>` : ""}`);
   }
   function vCSlot(id) {
     const s = slot(id);
@@ -2445,17 +2527,20 @@
     mbDay(d) { mBookSel = d; render(); },
     mbWeek(delta) { mBookSel = addDays(mBookSel || DB.TODAY, delta * 7); render(); },
     mbGoto(d) { mBookSel = d; closeModal(); render(); },
-    mbMonthSheet() {
-      const months = [...new Set([...DB.slots.map((s) => s.date.slice(0, 7)), DB.TODAY.slice(0, 7)])].sort();
-      const [ly, lm] = months[months.length - 1].split("-").map(Number);
-      months.push(`${lm === 12 ? ly + 1 : ly}-${String((lm % 12) + 1).padStart(2, "0")}`); // 다음 달까지 노출
-      const cur = (mBookSel || DB.TODAY).slice(0, 7);
-      modal(`<h3>월 이동</h3>${months.map((ym) => {
-        const [y, m] = ym.split("-").map(Number);
-        const target = ym === DB.TODAY.slice(0, 7) ? DB.TODAY : `${ym}-01`;
-        return `<button class="btn ${ym === cur ? "primary" : "ghost"} mt8" onclick="App.mbGoto('${target}')">${y}년 ${m}월</button>`;
-      }).join("")}`);
+    mbMonthSheet() { monthSheet((mBookSel || DB.TODAY).slice(0, 7), "mbGoto"); },
+    // v2.20: 센터 예약 캘린더 — 날짜 선택·월 이동·월 시트·선생님/수업 필터
+    cbDay(d) { cbUI.sel = d; render(); },
+    cbMonth(delta) {
+      const [y, m] = (cbUI.sel || DB.TODAY).slice(0, 7).split("-").map(Number);
+      const t = m - 1 + delta, ny = y + Math.floor(t / 12), nm = ((t % 12) + 12) % 12 + 1;
+      const ym = `${ny}-${String(nm).padStart(2, "0")}`;
+      cbUI.sel = ym === DB.TODAY.slice(0, 7) ? DB.TODAY : `${ym}-01`;
+      render();
     },
+    cbGoto(d) { cbUI.sel = d; closeModal(); render(); },
+    cbMonthSheet() { monthSheet((cbUI.sel || DB.TODAY).slice(0, 7), "cbGoto"); },
+    cbTeacher(id) { cbUI.teacher = id; render(); },
+    cbClass(id) { cbUI.cls = id; render(); },
     scopeMember(tid, mid) {
       const S = (DB.policy.teacherScope || {})[tid];
       if (!S) return;
@@ -2537,6 +2622,8 @@
     if (h !== lastHash && !h.startsWith("#/c/policy")) polUI.live = false; // v2.7: 정책 화면군 밖으로 나가면 검색·펼침 초기화
     if (h !== lastHash && h !== "#/t/schedule") tSchedDay = null; // v2.8: 주간 일정 이탈 시 요일 선택 초기화
     if (h !== lastHash && h !== "#/m/book") mBookSel = null; // v2.11: 예약 캘린더 이탈 시 날짜 선택 초기화
+    // v2.20: 센터 캘린더 — 회차 상세를 다녀와도 날짜·필터 유지, 그 밖으로 나가면 초기화
+    if (h !== lastHash && h !== "#/c/bookings" && !h.startsWith("#/c/slot/")) cbUI = { sel: null, teacher: "all", cls: "all" };
     if (h !== lastHash && h !== "#/m/pass") mpIdx = 0; // v2.14: 멤버십 캐러셀 이탈 시 활성 카드 초기화
     let body = null;
     for (const [re, fn] of routes) {
@@ -2558,17 +2645,24 @@
     }
     lastHash = h;
   }
-  // v2.11: 캘린더 스트립 좌우 스와이프 → 주 이동 (수평 48px 이상 · 탭과 구분, 이후 클릭 1회 억제)
+  // v2.11: 캘린더 좌우 스와이프 (수평 48px 이상 · 탭과 구분, 이후 클릭 1회 억제)
+  // v2.20: 센터 월간 캘린더(.cb-grid)도 지원 — 회원 주간 스트립=주 이동, 센터=월 이동
   let mbSw = null, mbSwipedAt = 0;
-  document.addEventListener("pointerdown", (e) => { mbSw = e.target.closest(".mb-strip") ? { x: e.clientX, y: e.clientY } : null; }, { passive: true });
+  document.addEventListener("pointerdown", (e) => {
+    const cal = e.target.closest(".mb-strip, .cb-grid");
+    mbSw = cal ? { x: e.clientX, y: e.clientY, cb: cal.classList.contains("cb-grid") } : null;
+  }, { passive: true });
   document.addEventListener("pointerup", (e) => {
     if (!mbSw) return;
-    const dx = e.clientX - mbSw.x, dy = e.clientY - mbSw.y;
+    const dx = e.clientX - mbSw.x, dy = e.clientY - mbSw.y, cb = mbSw.cb;
     mbSw = null;
-    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) { mbSwipedAt = performance.now(); App.mbWeek(dx < 0 ? 1 : -1); }
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      mbSwipedAt = performance.now();
+      (cb ? App.cbMonth : App.mbWeek)(dx < 0 ? 1 : -1);
+    }
   }, { passive: true });
   document.addEventListener("click", (e) => {
-    if (performance.now() - mbSwipedAt < 400 && e.target.closest(".mb-strip")) { e.preventDefault(); e.stopPropagation(); }
+    if (performance.now() - mbSwipedAt < 400 && e.target.closest(".mb-strip, .cb-grid")) { e.preventDefault(); e.stopPropagation(); }
   }, true);
 
   // 스크롤 에지: 콘텐츠가 헤더 밑으로 흐를 때만 경계선·그림자 표시
