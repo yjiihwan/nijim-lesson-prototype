@@ -279,6 +279,41 @@ button.stat:active { transform: scale(.97); }
 .pd-list .pd-group:first-child { border-top: 0; }
 .pass-card .disc { color: var(--cta-disabled); font-weight: 700; }
 
+/* ══ v2.10 회원(멤버) 화면 — 실서비스 «내 멤버십» 톤 리스타일 (role-m 스코프만) ══
+   포인트 핑크 #F0195F = 실서비스 스크린샷 하단탭 아이콘 스포이드 추출값.
+   기능·문구·정보 구조 무변경 — 비주얼만. 선생님·센터 화면은 기존 톤 그대로. */
+.role-m {
+  --bg: #f5f5f7;
+  --cta: #f0195f;
+  --cta-hover: #d31150;
+  --cta-disabled: #f9c0d4;
+  --link: #e01458;
+  --surface-rose: #ffe9f1;
+}
+.role-m .hd { background: rgba(245,245,247,.8); }
+.role-m .btn.primary { box-shadow: 0 4px 14px rgba(240,25,95,.22); }
+.role-m .day.on { box-shadow: 0 4px 12px rgba(240,25,95,.26); }
+.role-m .field :is(input, select, textarea):focus { box-shadow: 0 0 0 3px rgba(240,25,95,.12); }
+
+/* 수업권 카드: 다크 → 흰 라운드 카드. 핵심 숫자=굵은 검정 대형, 보조=회색 소형 */
+.role-m .pass-card { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.role-m .pass-card .left { font-size: 30px; }
+.role-m .pass-card .left small { color: var(--text-muted); }
+.role-m .pass-card .meta { color: var(--text-muted); }
+.role-m .pass-card .disc { color: var(--link); }
+.role-m .pass-bar { background: #ececf0; }
+.role-m .pass-card.off { opacity: 1; background: var(--surface-sunken); box-shadow: none; }
+.role-m .pass-card.off .name, .role-m .pass-card.off .left, .role-m .pass-card.off .left small { color: var(--text-muted); }
+.role-m .pass-card.off .pass-bar { background: #e2e2e8; }
+.role-m .pass-card.off .pass-bar i { background: var(--cta-disabled); }
+
+/* 하단 탭: 플로팅 알약 → 실서비스형 흰 바 + 핑크 활성 (라인 아이콘) */
+.role-m .tabbar { bottom: 0; margin: 12px 0 0; width: 100%; max-width: none; border-radius: 18px 18px 0 0; border: 0; border-top: 1px solid var(--border); background: rgba(255,255,255,.94); padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 28px rgba(22,22,28,.07); }
+.role-m .tab { gap: 3px; padding: 7px 0 5px; color: #8e8e96; }
+.role-m .tab .ic { display: flex; align-items: center; justify-content: center; }
+.role-m .tab .ic svg { width: 23px; height: 23px; display: block; }
+.role-m .tab.on { background: none; color: var(--cta); font-weight: 800; }
+
 @media (min-width: 1024px) {
   body { padding: 32px 0; }
   .shell { border-radius: 24px; overflow: hidden; min-height: calc(100vh - 64px); box-shadow: 0 24px 64px rgba(32,32,36,.12), 0 0 0 1px var(--border); }

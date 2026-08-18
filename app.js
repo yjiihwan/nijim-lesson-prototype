@@ -397,6 +397,13 @@
     t: [["#/t/home", "🏠", "오늘"], ["#/t/schedule", "🗓️", "일정"], ["#/t/inbox", "📨", "요청"], ["#/t/report", "✅", "보고"], ["#/t/earnings", "💰", "정산"]],
     c: [["#/c/home", "🏠", "홈"], ["#/c/classes", "🧘", "수업"], ["#/c/bookings", "📅", "예약"], ["#/c/settlement", "💰", "정산"], ["#/c/policy", "⚙️", "설정"]],
   };
+  // v2.10: 회원 탭만 실서비스 톤 라인 아이콘(stroke=currentColor → 활성 시 핑크)
+  const M_TAB_SVG = {
+    "홈": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9.5V20a.8.8 0 0 0 .8.8h11.4a.8.8 0 0 0 .8-.8V9.5"/><path d="M9.8 20.5v-5.6a.8.8 0 0 1 .8-.8h2.8a.8.8 0 0 1 .8.8v5.6"/></svg>`,
+    "예약": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 10h17M8 2.8v4M16 2.8v4"/><path d="m9.5 15.5 2 2 3.5-3.8"/></svg>`,
+    "구매": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9V7a1.5 1.5 0 0 1 1.5-1.5h14A1.5 1.5 0 0 1 20.5 7v2a2.5 2.5 0 0 0 0 5v2a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 16v-2a2.5 2.5 0 0 0 0-5Z"/><path d="M14 6v2.4M14 11v2M14 15.6V18" stroke-dasharray="0.1 3.2"/></svg>`,
+    "내역": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5h14V20.5l-2.4-1.5-2.4 1.5-2.2-1.5-2.2 1.5-2.4-1.5L5 20.5Z"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.5"/></svg>`,
+  };
   function shell(role, title, body, opts = {}) {
     const tabs = TABS[role] || [];
     const cur = location.hash.split("/").slice(0, 3).join("/");
@@ -408,7 +415,7 @@
       </div></header>
       <main class="screen${tabs.length ? "" : " no-tab"}">${body}</main>
       ${tabs.length ? `<nav class="tabbar">${tabs.map(([h, ic, l]) =>
-        `<a class="tab${h.startsWith(cur) && cur !== "#" ? " on" : ""}" href="${h}"><span class="ic">${ic}</span>${l}</a>`).join("")}</nav>` : ""}`;
+        `<a class="tab${h.startsWith(cur) && cur !== "#" ? " on" : ""}" href="${h}"><span class="ic">${role === "m" && M_TAB_SVG[l] ? M_TAB_SVG[l] : ic}</span>${l}</a>`).join("")}</nav>` : ""}`;
   }
 
   // ══ 랜딩 ══
@@ -2162,6 +2169,8 @@
     }
     const keepToasts = [...$app.querySelectorAll(".toast")]; // 화면 이동해도 토스트 유지
     const prevY = window.scrollY;
+    // v2.10: 회원 화면만 실서비스 앱 톤(role-m 스코프) — 선생님·센터는 기존 톤 유지
+    $app.classList.toggle("role-m", h.split("/")[1] === "m");
     $app.innerHTML = body != null ? body : vLanding();
     keepToasts.forEach((el) => $app.appendChild(el));
     // 같은 화면 내 상태 갱신(토글·커밋)은 스크롤 유지 — 화면 이동 시에만 최상단으로
