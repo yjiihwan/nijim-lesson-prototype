@@ -1872,7 +1872,7 @@
           <span class="big">${won(x.amount)}</span></div>
         ${linesDetailHtml(x.elig, x.held)}
         ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0"><span class="ic">⏸️</span><span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 전송된 ${x.pushedHeld.length}건은 샐리에서 직접 취소해 주세요.` : ""}</span></div>` : ""}
-        ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0"><span class="ic">🎗️</span><span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리로 자동 전송${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}</span></div>` : ""}
+        ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0"><span class="ic">🎗️</span><span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${x.ns.every((r) => r.rewardPushed) ? "보낸 금액 기준" : DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리로 자동 전송${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}</span></div>` : ""}
         <div class="mt12">
           ${x.pushed.length ? `<span class="badge b-green">샐리 전송 완료 ${x.pushed.length}회 · ${x.pushed[x.pushed.length - 1].pushId}</span> ` : ""}
           ${x.unpushed.length || x.nsUnpushed.length ? `<button class="btn sm primary" onclick="App.sallyPush('${x.t.id}')">${(() => {
