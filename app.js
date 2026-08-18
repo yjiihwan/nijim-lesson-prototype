@@ -29,6 +29,12 @@
    단위/회색 보조줄, 여러 장=좌우 페이징 캐러셀(이웃 카드 가장자리 노출, 터치+마우스 드래그), 액션은
    전부 «입장하기» 문법(풀폭 연회색 라운드+아이콘). 전용 화면 #/m/pass(내 멤버십 탭) 신설 —
    카드 캐러셀+수업 예약 버튼+상태 문구+멤버십 상세정보(선택 카드와 동기). 기존 다크 pass-card 폐지.
+   v2.17 (2026-08-18 형 시정): 사용자 노출 문구 전수 정비 — ① 내부 스펙 코드(P*-*)·확정일(08-17)·기획서 투
+   안내문 UI 전면 제거(주석으로만 유지) ② 개발·법률·한자 개조식 용어 교체(externalId·멱등→«한 번만 반영»,
+   미생성·미성립→«수강확인이 안 돼 정산에 포함되지 않아요», 무이의→«이의가 없으면», 소급→«적용되지 않아요»,
+   스냅샷→«구매/예약 시점 기준», 인용→«이의 인정») ③ 회원 홈 확인 카드 보조 버튼 «자세히 · 문제가 있어요»→
+   «자세히 보기»(이의제기는 상세 화면에서) ④ 데모 전용 장치(회원 폰 열기·이의기간 경과)는 점선 demo-box+
+   «프로토타입 데모» 캡션으로 실서비스 UI와 시각 구분. 정책 의미·동작은 무변경(문구만).
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -218,9 +224,9 @@
     const p = passForReport(r, b);
     if (!p || p.remaining <= 0) return { ok: false, msg: "잔여 0회라 차감할 수 없어요 — 센터 예외처리로 넘어가요." };
     p.remaining -= 1;
-    pushLedger(p.id, -1, mode === "auto" ? "노쇼 차감 (무이의 자동확정)" : "노쇼 차감 (이의 기각)", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || "");
+    pushLedger(p.id, -1, mode === "auto" ? "노쇼 차감 (이의 없이 자동확정)" : "노쇼 차감 (이의 기각)", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || "");
     r.status = "noshow_final"; r.deducted = true;
-    if (mode === "auto") { r.autoFinal = true; r.method = "자동확정"; r.label = "노쇼 확정 · 무이의 자동확정"; }
+    if (mode === "auto") { r.autoFinal = true; r.method = "자동확정"; r.label = "노쇼 확정 · 이의 없이 자동확정"; }
     else { r.autoFinal = false; r.method = "센터 기각 확정"; r.label = "노쇼 확정 · 이의 기각"; }
     if (b) b.status = "noshow_final";
     return { ok: true };
@@ -537,7 +543,7 @@
         <b class="mt8" style="display:block;font-size:15px">${c.title}</b>
         <div class="muted small mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <button class="btn primary mt12" onclick="App.confirmAttend('${b.id}')">받았어요 (수업 확인)</button>
-        <button class="btn ghost mt8" onclick="location.hash='#/m/confirm/${b.id}'">자세히 · 문제가 있어요</button>
+        <button class="btn ghost mt8" onclick="location.hash='#/m/confirm/${b.id}'">자세히 보기</button>
         <div class="muted small mt8" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>
       </div>`;
       }).join("")}
@@ -977,7 +983,7 @@
         <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span>${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
           ${pickerHtml("qk-member", { multi: true, pool: members, limit: qkLimit })}
           <div class="hint" id="qk-cap-hint">${qkHintHtml(qkLimitOf(firstClass, "new"))}</div>
-          <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미. 표시 범위는 센터 설정에서 바꿔요.${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요 (P2-2b).` : ""}</div></div>
+          <div class="hint">회원 목록은 니짐내짐(호스트 앱)의 회원 명단을 가져와요 — 프로토타입은 더미 데이터예요. 표시 범위는 센터 설정에서 바꿔요.${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요.` : ""}</div></div>
         <div class="field"><label>수업</label><select id="qk-class" onchange="App.quickClassChange('${r}')">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
         <div class="field"><label>회차</label><select id="qk-slot" onchange="App.quickSlotChange()">
           <option value="new">새 일시로 만들기</option>
@@ -1020,9 +1026,9 @@
     if (!elig.length && !(held || []).length) return "";
     const groups = unitGroups(elig);
     return `<details class="pd"><summary>회차별 단가 명세 · ${elig.length}회${groups.length > 1 ? ` <span class="badge b-rose">단가 ${groups.length}종</span>` : ""}</summary>
-      <div class="pd-note">회당 단가는 각 회원 수업권의 <b>구매 시점 스냅샷</b>(실구매가÷총횟수)이에요 — 같은 상품이라도 등록 시기·할인에 따라 달라요.</div>
+      <div class="pd-note">회당 단가는 각 회원이 <b>구매한 시점의 가격</b>(실구매가÷총횟수) 기준이에요 — 같은 상품이라도 등록 시기·할인에 따라 달라요.</div>
       ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회 = <b>${won(u * ls.length)}</b></div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
-      ${(held || []).length ? `<div class="pd-group"><div class="pd-ghead pd-held">이의 심사 중 ${held.length}건 — 집계·전송 제외</div>${held.map(lineRowHtml).join("")}</div>` : ""}
+      ${(held || []).length ? `<div class="pd-group"><div class="pd-ghead pd-held">이의 심사 중 ${held.length}건 — 집계·전송에서 빠져요</div>${held.map(lineRowHtml).join("")}</div>` : ""}
     </details>`;
   }
   function vTEarnings() {
@@ -1034,7 +1040,7 @@
     const ns = noshowFinals(DB.me.teacher);
     const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowUnit(r), 0) : 0;
     return shell("t", "내 정산", `
-      <div class="card"><div class="muted small">2026년 8월 · 수강확인 성립분</div>
+      <div class="card"><div class="muted small">2026년 8월 · 수강확인 완료분</div>
         <div class="big mt4">${won(amount + nsAmt)}</div>
         <div class="muted small mt4">확정 ${elig.length}회 × 회당 단가 (수업권 구매가 기준)${nsAmt ? ` + 노쇼 보상` : ""}</div>
         <div class="divider"></div>
@@ -1090,9 +1096,9 @@
   function sellUnitText(p, price) {
     const unit = Math.floor((price || 0) / p.sessions);
     const listUnit = Math.floor(p.price / p.sessions);
-    return `회당 단가 스냅샷 = ${won(price || 0)} ÷ ${p.sessions}회 = <b>${won(unit)}</b>${price && price < p.price
+    return `회당 단가 = ${won(price || 0)} ÷ ${p.sessions}회 = <b>${won(unit)}</b>${price && price < p.price
       ? ` <span style="color:var(--link);font-weight:700">· 할인 등록 (정가 회당 ${won(listUnit)})</span>` : " (정가 등록)"}
-      — 이후 상품가를 바꿔도 이 수업권엔 소급되지 않아요.`;
+      — 이후 상품 가격을 바꿔도 이 수업권의 단가는 그대로 유지돼요.`;
   }
   function vCProducts() {
     const p0 = DB.products[0];
@@ -1109,7 +1115,7 @@
           <div class="hint" id="sell-unit">${sellUnitText(p0, p0.price)}</div></div>
         <button class="btn primary" onclick="App.sellPass()">수업권 등록</button>
         <p class="muted small mt8">기본값은 정가예요. 프로모션·재등록 할인 등으로 실구매가가 다르면 그 금액을 입력해 주세요 —
-          <b>회당 단가 = floor(실구매가 ÷ 총횟수)</b>가 구매 시점 스냅샷으로 저장되고, 정산도 이 단가로 집계돼요.</p>
+          <b>회당 단가는 실구매가 ÷ 총횟수</b>(원 단위 버림)로 계산돼 구매 시점 기준으로 저장되고, 정산도 이 단가로 집계돼요.</p>
       </div>
       <div class="sec-title">새 상품 개설</div>
       <div class="card">
@@ -1124,7 +1130,7 @@
           <div class="hint">기간 없이 횟수만으로 운영하는 센터 방식도 지원해요.</div></div>
         <button class="btn primary" onclick="App.createProduct()">상품 개설</button>
       </div>
-      <p class="muted small">이미 판매된 수업권은 구매 시점 조건이 스냅샷으로 보존돼요. 환불·이용정지 처리는 호스트 앱(CRM) 결제·회원 관리와 연동돼요.</p>`, { back: true });
+      <p class="muted small">이미 판매된 수업권은 구매한 시점의 조건 그대로 보존돼요. 환불·이용정지 처리는 호스트 앱(CRM) 결제·회원 관리와 연동돼요.</p>`, { back: true });
   }
   // ── v2.4: 대규모 회원 «검색 기반 선택» 공통 컴포넌트 (형 지적 08-17: 수천 명 센터 — 칩 전체 나열 금지) ──
   // 사용처: 수업 개설·수정 «지정 회원»(nc-mems/ec-mems), 즉시확정 회원(qk-member, 단일), P2-2b 개별 회원(scope-*).
@@ -1261,7 +1267,7 @@
         <div class="hint">고른 수업권을 보유한 회원만 예약할 수 있어요.</div></div>
       <div class="field" id="${prefix}-mem-wrap"${mode === "pass" ? ' style="display:none"' : ""}><label>지정 회원${scoped ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
         ${pickerHtml(prefix + "-mems", { multi: true, initial: selM, pool })}
-        <div class="hint">${scoped ? `센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)}) 안의 회원만 보여요. 기존 지정 회원은 범위 밖이어도 유지돼요.` : "회원 목록은 니짐내짐(호스트 앱) 회원 원장을 참조해요 — 프로토타입은 더미."}</div></div>`;
+        <div class="hint">${scoped ? `센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)}) 안의 회원만 보여요. 기존 지정 회원은 범위 밖이어도 유지돼요.` : "회원 목록은 니짐내짐(호스트 앱)의 회원 명단을 가져와요 — 프로토타입은 더미 데이터예요."}</div></div>`;
   }
   // 시정①: 센터·선생님 공용 수업 관리 — 선생님은 본인 수업 + classAuth(P2-2) 권한 필요
   function vClasses(role) {
@@ -1315,7 +1321,7 @@
     if (c.status === "closed") {
       return shell(role, c.title, `
         <div class="banner warn"><span class="ic">🚫</span><span><b>폐강된 수업</b> · ${c.closedAt || ""}<br>사유: ${c.closedReason}</span></div>
-        <div class="card"><div class="muted small">폐강 시점에 예정 회차의 예약은 자동취소·알림 처리됐고, 이미 진행된 회차의 정산 귀속은 그대로 유지돼요.</div></div>`, { back: true });
+        <div class="card"><div class="muted small">폐강하면서 예정 회차의 예약은 자동으로 취소되고 회원에게 알림이 갔어요. 이미 진행된 회차의 정산은 그대로 유지돼요.</div></div>`, { back: true });
     }
     return shell(role, c.title, `
       <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · ${c.kind === "private" ? "개인 1:1" : `그룹 정원 ${c.capacity}명`} · 예정 회차 ${future.length}개 · 예약 ${affected}건</div></div>
@@ -1385,7 +1391,7 @@
       }).join("") : `<p class="muted">예약자가 없어요.</p>`}</div>
       ${w.length ? `<div class="sec-title">대기열</div><div class="card flat">${w.map((b) => `
         <div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b></span><span class="badge b-warn">대기 ${b.pos}번</span></div>`).join("")}</div>
-        <p class="muted small">자리가 나면 ${DB.policy.waitlistPromote === "auto" ? "순번대로 자동 확정돼요" : "센터가 수동으로 승격해요"} (P4-4).</p>` : ""}`, { back: true });
+        <p class="muted small">자리가 나면 ${DB.policy.waitlistPromote === "auto" ? "순번대로 자동 확정돼요" : "센터가 수동으로 승격해요"}.</p>` : ""}`, { back: true });
   }
   function vCConfirms() {
     const warns = DB.policy.autoConfirmHours > 0
@@ -1397,21 +1403,21 @@
         <div class="tl-item"><span class="grow"><b>${r.member}</b> <span class="badge ${RP_BADGE[r.status] || "b-gray"}">${r.label}</span>${r.autoFinal ? ` <span class="badge b-warn">무응답 자동확정</span>` : ""}
           <div class="muted small mt4">${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</div>
           <div class="muted small">${r.at}${r.method ? ` · 수단: ${r.method}` : ""}${r.disputeReason ? ` · 이의 사유: ${r.disputeReason}` : ""}</div>
-          ${r.status === "pending" ? `<div class="muted small mt4">회원 폰 확인 대기 · ${DB.policy.autoConfirmHours ? `무응답 시 보고 ${DB.policy.autoConfirmHours}시간 뒤 자동확정 예정` : "자동확정 없음 — 센터 수동 처리"} · 이의는 ${DB.policy.disputeDays}일 내</div>` : ""}
+          ${r.status === "pending" ? `<div class="muted small mt4">회원 폰 확인 대기 · ${DB.policy.autoConfirmHours ? `무응답 시 보고 ${DB.policy.autoConfirmHours}시간 뒤 자동확정 예정` : "자동확정 없음 — 센터 수동 처리"} · 이의제기는 ${DB.policy.disputeDays}일 안에 가능해요</div>` : ""}
           ${r.status === "disputed" ? (r.noshow ? `<div class="btn-row">
-            <button class="btn sm primary" onclick="App.resolveDispute('${r.id}', true)">인용 (노쇼 취소 · 차감 없음)</button>
-            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">기각 (노쇼 확정·차감)</button></div>` : `<div class="btn-row">
-            <button class="btn sm primary" onclick="App.resolveDispute('${r.id}', true)">인용 (횟수 복원)</button>
-            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">기각 (확정·차감)</button></div>`) : ""}
-          ${r.status === "auto" ? `<div class="btn-row"><button class="btn sm ghost" onclick="App.overrideAuto('${r.id}')">자동확정 무효화</button></div>` : ""}
+            <button class="btn sm primary" onclick="App.resolveDispute('${r.id}', true)">이의 인정 (노쇼 취소 · 차감 없음)</button>
+            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">이의 기각 (노쇼 확정·차감)</button></div>` : `<div class="btn-row">
+            <button class="btn sm primary" onclick="App.resolveDispute('${r.id}', true)">이의 인정 (횟수 복원)</button>
+            <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">이의 기각 (확정·차감)</button></div>`) : ""}
+          ${r.status === "auto" ? `<div class="btn-row"><button class="btn sm ghost" onclick="App.overrideAuto('${r.id}')">자동확정 취소</button></div>` : ""}
           ${r.status === "noshow_wait" ? (DB.policy.noshowActor === "center_only" ? `<div class="btn-row">
             <button class="btn sm primary" onclick="App.resolveNoshow('${r.id}', true)">노쇼 확정 (차감)</button>
             <button class="btn sm ghost" onclick="App.resolveNoshow('${r.id}', false)">노쇼 취소 (차감 없음)</button></div>
             <div class="muted small mt4">센터만 판정 정책 — 센터가 직접 확정·취소를 결정해요.</div>` : `
-            <div class="muted small mt4">회원 통지됨 · 이의기간 <b>~${noshowDeadline(r).replaceAll("-", ".")}</b> — 무이의 시 <b>자동 확정·차감</b>, 이의 건만 센터 중재 (형 확정 08-17)</div>
-            <div class="btn-row"><button class="btn sm ghost" onclick="App.noshowExpire('${r.id}')">⏩ 이의기간 경과 (데모)</button></div>`) : ""}
+            <div class="muted small mt4">회원에게 알림이 갔어요 · <b>${noshowDeadline(r).replaceAll("-", ".")}</b>까지 이의가 없으면 <b>자동 확정되고 횟수가 차감</b>돼요. 이의가 들어오면 센터가 판단해요.</div>
+            <div class="demo-box"><span class="demo-cap">프로토타입 데모</span><button class="btn sm demo" onclick="App.noshowExpire('${r.id}')">⏩ 이의기간 경과</button></div>`) : ""}
         </span></div>`).join("")}</div>
-      <p class="muted small">모든 확인에는 시각·기기 기록이 남고, 기록은 사후 수정이 불가능해요(원장·해시체인).</p>`, { back: true });
+      <p class="muted small">모든 확인에는 시각·기기 기록이 남고, 한 번 남은 기록은 바꾸거나 지울 수 없어요.</p>`, { back: true });
   }
   // S-5: 정산 = 라인 동적 집계. held 제외·멱등 전송·전송 후 이의 경고
   function vCSettlement() {
@@ -1434,15 +1440,15 @@
     const hiddenN = DB.teachers.length - per.length;
     const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status)).length;
     const rewardLabel = !rewardOn() ? "보상 없음 (기본)"
-      : `보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"} · ${DB.policy.noshowRewardPush === "auto" ? "샐리 자동 push (rewardCodes)" : "샐리 수동 체크"}`;
+      : `보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"} · ${DB.policy.noshowRewardPush === "auto" ? "샐리 자동 전송" : "샐리에서 수동 체크"}`;
     return shell("c", "정산 · 2026년 8월", `
-      <p class="muted" style="margin-bottom:12px">수강확인이 성립한 회차만 집계돼요. 이의제기 중인 회차는 자동 보류되고 전송에서 빠져요.</p>
+      <p class="muted" style="margin-bottom:12px">회원 수강확인이 끝난 회차만 집계돼요. 이의제기 중인 회차는 자동으로 보류되고 전송에서 빠져요.</p>
       ${per.map((x) => `<div class="card"><div class="row"><span class="grow"><b>${x.t.name} 선생님</b>
           <div class="muted small mt4">확정 ${x.elig.length}회 (자동확정 ${x.auto}회 포함)${x.held.length ? ` · <b style="color:var(--danger)">보류 ${x.held.length}건</b>` : ""}</div></span>
           <span class="big">${won(x.amount)}</span></div>
         ${linesDetailHtml(x.elig, x.held)}
-        ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0"><span class="ic">⏸️</span><span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 전송된 ${x.pushedHeld.length}건은 샐리 쪽 정정(DELETE externalId)이 필요해요.` : ""}</span></div>` : ""}
-        ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0"><span class="ic">🎗️</span><span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리 자동 push(special rewardCodes)${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}</span></div>` : ""}
+        ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0"><span class="ic">⏸️</span><span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 전송된 ${x.pushedHeld.length}건은 샐리에서 직접 취소해 주세요.` : ""}</span></div>` : ""}
+        ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0"><span class="ic">🎗️</span><span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리로 자동 전송${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}</span></div>` : ""}
         <div class="mt12">
           ${x.pushed.length ? `<span class="badge b-green">샐리 전송 완료 ${x.pushed.length}회 · ${x.pushed[x.pushed.length - 1].pushId}</span> ` : ""}
           ${x.unpushed.length || x.nsUnpushed.length ? `<button class="btn sm primary" onclick="App.sallyPush('${x.t.id}')">${(() => {
@@ -1453,8 +1459,8 @@
           })()}</button>` : x.pushed.length ? "" : `<span class="muted small">보낼 확정 회차가 없어요.</span>`}
         </div></div>`).join("")}
       ${hiddenN > 0 ? `<div class="card flat"><div class="muted small">이번 달 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
-      ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건 — 정산 라인 미생성(수강확인 미성립). 선생님 보상: <b>${rewardLabel}</b> · P9-1 형 확정(08-17) 센터별 설정 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정 ›</a></div></div>` : ""}
-      <div class="banner"><span class="ic">🔗</span><span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 사실(확정 회차)만 넘겨요. externalId 멱등이라 같은 회차는 두 번 전송되지 않아요.</span></div>`);
+      ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건은 수강확인이 안 돼 정산에 포함되지 않았어요. 노쇼 보상은 현재 <b>${rewardLabel}</b>이에요 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정에서 변경 ›</a></div></div>` : ""}
+      <div class="banner"><span class="ic">🔗</span><span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 확정된 회차만 넘겨요. 같은 회차는 여러 번 보내도 한 번만 반영되니 안심하고 누르세요.</span></div>`);
   }
   function vCPolicy() {
     const P = DB.policy;
@@ -1464,8 +1470,8 @@
       <div class="sec-title">예약 · 대기</div>
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">정원 마감 시 예약대기</div><div class="td">자리가 나면 순번대로 확정</div></span>${sw("waitlist", P.waitlist)}</div>
-        <div class="toggle-row"><span><div class="tl">대기 자동 승격</div><div class="td">끄면 센터가 수동으로 승격 (P4-4)</div></span>${sw("waitlistAuto", P.waitlistPromote === "auto")}</div>
-        <div class="toggle-row"><span><div class="tl">즉시확정 회원 표시 범위</div><div class="td">즉시 예약확정 화면의 회원 목록 (P6-4)</div></span>
+        <div class="toggle-row"><span><div class="tl">대기 자동 승격</div><div class="td">끄면 자리가 나도 센터가 직접 올려줘야 해요</div></span>${sw("waitlistAuto", P.waitlistPromote === "auto")}</div>
+        <div class="toggle-row"><span><div class="tl">즉시확정 회원 표시 범위</div><div class="td">즉시 예약확정 화면에 보여줄 회원 목록이에요</div></span>
           ${sel("App.setQuickScope(this.value)", [["valid", "유효 수업권 보유자만"], ["all", "전체 회원"], ["mine", "담당 회원만"]], P.quickScope)}</div>
       </div>
       <div class="sec-title">예약 취소 · 노쇼</div>
@@ -1473,22 +1479,22 @@
         <div class="toggle-row"><span><div class="tl">조건부 취소 허용</div><div class="td">끄면 모든 취소 불가</div></span>${sw("cancelCond", P.cancelMode === "conditional")}</div>
         <div class="toggle-row"><span><div class="tl">취소 기한</div><div class="td">기한 지나 취소하면 횟수 차감</div></span>
           ${sel("App.setCancelHours(this.value)", [[6, "6시간 전"], [12, "12시간 전"], [24, "1일 전"], [48, "2일 전"], [72, "3일 전"]], P.cancelHours)}</div>
-        <div class="toggle-row"><span><div class="tl">노쇼 시 횟수 차감</div><div class="td">P5-4 · 끄면 차감 없이 종결</div></span>${sw("noshowDeduct", P.noshowDeduct)}</div>
-        <div class="toggle-row"><span><div class="tl">노쇼 판정</div><div class="td">P5-4b 형 확정(08-17): 보고→통지→무이의 시 자동 확정·차감, 이의 건만 센터 중재. 이의기간=아래 이의제기 기간</div></span>
-          ${sel("App.setNoshowActor(this.value)", [["teacher_report", "선생님 보고 → 무이의 자동확정"], ["center_only", "센터만 판정"]], P.noshowActor)}</div>
+        <div class="toggle-row"><span><div class="tl">노쇼 시 횟수 차감</div><div class="td">끄면 노쇼여도 횟수를 차감하지 않아요</div></span>${sw("noshowDeduct", P.noshowDeduct)}</div>
+        <div class="toggle-row"><span><div class="tl">노쇼 판정</div><div class="td">선생님이 노쇼를 보고하면 회원에게 알림이 가요. 아래 이의제기 기간 안에 이의가 없으면 자동 확정되고 횟수가 차감돼요. 이의가 들어온 건만 센터가 판단해요.</div></span>
+          ${sel("App.setNoshowActor(this.value)", [["teacher_report", "선생님 보고 → 자동확정"], ["center_only", "센터만 판정"]], P.noshowActor)}</div>
       </div>
       <div class="sec-title">수강확인 (서명)</div>
       <div class="card flat">
-        <div class="toggle-row"><span><div class="tl">개인수업 확인 필수</div><div class="td">회원 확인 없이는 차감·정산 안 됨</div></span>${sw("signPrivate", P.signPrivate)}</div>
-        <div class="toggle-row"><span><div class="tl">그룹수업 확인 필수</div><div class="td">끄면 그룹은 출석 체크만으로 차감 (이의기간은 유지)</div></span>${sw("signGroup", P.signGroup)}</div>
+        <div class="toggle-row"><span><div class="tl">개인수업 확인 필수</div><div class="td">회원이 확인해야 횟수가 차감되고 정산돼요</div></span>${sw("signPrivate", P.signPrivate)}</div>
+        <div class="toggle-row"><span><div class="tl">그룹수업 확인 필수</div><div class="td">끄면 그룹수업은 출석 체크만으로 차감돼요 · 이의제기 기간은 그대로 유지돼요</div></span>${sw("signGroup", P.signGroup)}</div>
         <div class="toggle-row"><span><div class="tl">회원 앱 확인</div><div class="td">회원 본인 폰에서 원탭 확인 (기본 경로)</div></span>${sw("methodApp", P.methodApp)}</div>
-        <div class="toggle-row"><span><div class="tl">현장 QR 확인</div><div class="td">선생님이 띄운 일회용 QR을 회원이 본인 폰으로 스캔 — 그 수업 1건 전용·수 분 만료</div></span>${sw("methodQr", P.methodQr)}</div>
-        <div class="toggle-row"><span><div class="tl">무응답 자동확정</div><div class="td">리마인드 2회 후 자동확정 · 별도 표시</div></span>
+        <div class="toggle-row"><span><div class="tl">현장 QR 확인</div><div class="td">선생님이 띄운 일회용 QR을 회원이 본인 폰으로 스캔해요 · 그 수업 1건에만 쓸 수 있고 몇 분 뒤 만료돼요</div></span>${sw("methodQr", P.methodQr)}</div>
+        <div class="toggle-row"><span><div class="tl">무응답 자동확정</div><div class="td">알림을 2번 보낸 뒤에도 응답이 없으면 자동확정돼요 · 자동확정 표시가 남아요</div></span>
           ${sel("App.setAutoConfirm(this.value)", [[12, "12시간 후"], [24, "24시간 후"], [48, "48시간 후"], [0, "사용 안 함"]], P.autoConfirmHours)}</div>
-        <div class="toggle-row"><span><div class="tl">이의제기 기간</div><div class="td">기간 내 접수 시 정산 보류</div></span>
+        <div class="toggle-row"><span><div class="tl">이의제기 기간</div><div class="td">기간 안에 이의가 접수되면 그 회차 정산이 보류돼요</div></span>
           ${sel("App.setDispute(this.value)", [[3, "3일"], [7, "7일"], [14, "14일"]], P.disputeDays)}</div>
       </div>
-      <div class="sec-title">수업 개설 권한 (선생님) · P2-2</div>
+      <div class="sec-title">수업 개설 권한 (선생님)</div>
       <div class="card">
         <div class="field"><label>센터 지정 선생님</label>
           ${polEditBlock("auth",
@@ -1506,18 +1512,18 @@
           return `현재 개설 권한 보유: <b>${authed.length.toLocaleString("ko-KR")}명</b> / 선생님 ${DB.teachers.length.toLocaleString("ko-KR")}명 (센터 지정 ${byCenter}명 · 멤버십 자격 ${authed.length - byCenter}명)`;
         })()}<br>둘 다 비우면 수업 개설·관리는 센터만 가능해요. 선생님 계정은 호스트 앱(니짐내짐) 회원 계정과 연결돼요.</div>
       </div>
-      <div class="sec-title">선생님별 지정 가능 회원 범위 · P2-2b</div>
+      <div class="sec-title">선생님별 지정 가능 회원 범위</div>
       <div class="card">
         <div class="pk">
           <div class="pk-tools"><input type="search" placeholder="선생님 이름·직군 검색" value="${(polState().q.scope || "").replaceAll('"', "&quot;")}" oninput="App.polQuery('scope', this.value)" autocomplete="off" aria-label="선생님 검색"></div>
           <div class="pk-total">선생님 총 ${DB.teachers.length.toLocaleString("ko-KR")}명 — 행을 누르면 범위를 설정해요</div>
           <div class="pk-results tall"><div id="pol-scope-list">${polScopeRows()}</div></div>
         </div>
-        <div class="muted small mt8">범위 미설정(기본)=<b>전체 회원</b>. 이 범위는 선생님의 <b>수업 개설 시 «지정 회원» 선택 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 단계는 ① 전체 회원 → ② 멤버십 단위(유효 수업권 보유 회원 전체) → ③ 멤버십 하위 개별 회원 선택. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.</div>
+        <div class="muted small mt8">범위를 설정하지 않으면 <b>전체 회원</b>이 기본이에요. 이 범위는 선생님이 수업을 만들 때 고르는 <b>«지정 회원» 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 전체 회원으로 두거나, 멤버십 단위로 좁히거나, 멤버십 안에서 회원을 개별로 고를 수 있어요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.</div>
       </div>
       <div class="sec-title">정산 · 샐리 연동</div>
       <div class="card flat">
-        <div class="toggle-row"><span><div class="tl">노쇼 회차 선생님 보상</div><div class="td">P9-1 형 확정(08-17): 센터마다 방침이 달라 센터별 설정 — 정산 미리보기에 즉시 반영</div></span>
+        <div class="toggle-row"><span><div class="tl">노쇼 회차 선생님 보상</div><div class="td">센터마다 방침이 달라 센터별로 설정해요 · 바꾸면 정산 미리보기에 바로 반영돼요</div></span>
           ${sel("App.setNoshowReward(this.value)", [["none", "보상 없음 (기본)"], ["support", "보상 지원"]], P.noshowReward)}</div>
         ${P.noshowReward === "support" ? `
         <div class="toggle-row"><span><div class="tl">보상 단가</div><div class="td">정상 단가=해당 수업권 회당 단가 그대로</div></span>
@@ -1528,10 +1534,10 @@
           <span style="display:inline-flex;align-items:center;gap:6px"><input type="number" min="0" max="100" value="${P.noshowRewardPercent}" oninput="App.previewNoshowPct(this.value)" onchange="App.setNoshowRewardPercent(this.value)" style="width:80px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"><b>%</b></span></div>
         <div class="muted small" id="nsPctPreview" style="padding:0 4px 10px">${pctPreviewText(P.noshowRewardPercent)}</div>` : `<div class="toggle-row"><span><div class="tl">별도 단가 (원)</div><div class="td">노쇼 1건당 보상액</div></span>
           <input type="number" value="${P.noshowRewardCustom}" onchange="App.setNoshowRewardCustom(this.value)" style="width:110px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"></div>`}` : ""}
-        <div class="toggle-row"><span><div class="tl">샐리 전달 방식</div><div class="td">자동=special 보상(rewardCodes) push (05 문서) / 수동=샐리에서 직접 체크</div></span>
+        <div class="toggle-row"><span><div class="tl">샐리 전달 방식</div><div class="td">자동이면 샐리로 바로 보내요 · 수동이면 샐리에서 직접 체크해 지급해요</div></span>
           ${sel("App.setNoshowRewardPush(this.value)", [["auto", "자동 push"], ["manual", "샐리 수동 체크"]], P.noshowRewardPush)}</div>` : ""}
       </div>
-      <p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 수업권에는 소급되지 않아요 — 취소규정은 예약 시점에 스냅샷으로 보존돼요.</p>`);
+      <p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 수업권에는 적용되지 않아요 — 취소 조건은 예약할 때 기준으로 보존돼요.</p>`);
   }
   // v2.7: P2-2b 범위 편집 상세 화면 — 리스트 행 탭으로 진입 (인라인 전체 펼침 제거, 기능은 v2.3 그대로)
   function vCPolicyScope(tid) {
@@ -1555,7 +1561,7 @@
           </div>` : ""}
           <div class="muted small mt4">현재 범위: <b>${tScopeLabel(tid)}</b></div>
         </div>
-        <div class="muted small">범위 미설정(기본)=<b>전체 회원</b>. 이 범위는 선생님의 <b>수업 개설 시 «지정 회원» 선택 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.</div>
+        <div class="muted small">범위를 설정하지 않으면 <b>전체 회원</b>이 기본이에요. 이 범위는 선생님이 수업을 만들 때 고르는 <b>«지정 회원» 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.</div>
       </div>
       <button class="btn ghost" onclick="location.hash='#/c/policy'">‹ 정책 설정으로 돌아가기</button>`, { back: true });
   }
@@ -1590,7 +1596,7 @@
       <a class="btn ghost" href="${backTo || "#/m/home"}">돌아가기</a>`, { back: true });
     const t = qrTokens[token];
     if (!t) return errCard("⌛", "유효하지 않은 QR이에요", "만료됐거나 잘못된 코드예요.<br>선생님 화면에서 QR을 새로 띄워 주세요.");
-    if (t.used) return errCard("🔒", "이미 사용된 QR이에요", "QR은 일회용이라 확인이 끝나면 즉시 무효화돼요.<br>다시 쓸 수 없어요.");
+    if (t.used) return errCard("🔒", "이미 사용된 QR이에요", "QR은 일회용이라 확인이 끝나면 바로 만료돼요.<br>다시 쓸 수 없어요.");
     const r = DB.reports.find((x) => x.id === t.rpId);
     const b = r && r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
     if (!r || !b || r.status !== "pending" || b.status !== "confirm_wait")
@@ -1604,7 +1610,7 @@
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
         <p style="font-size:15px">현장에서 QR로 확인 중이에요.<br><span class="muted small">확인하면 수업권 1회가 차감되고, 이 기록으로 선생님 수업료가 정산돼요.</span></p></div>
-      <div class="banner"><span class="ic">🔐</span><span>이 QR은 <b>이 수업 1건 전용</b>이에요 · 발급 후 <b>5분 만료</b> · 확인 즉시 무효화(재사용 불가). 확인은 <b>회원 본인 계정</b>에서만 성립해요.</span></div>
+      <div class="banner"><span class="ic">🔐</span><span>이 QR은 <b>이 수업 1건 전용</b>이에요 · 발급 후 <b>5분 만료</b> · 확인이 끝나면 바로 만료돼 다시 쓸 수 없어요. 확인은 <b>회원 본인 계정</b>에서만 할 수 있어요.</span></div>
       <button class="btn primary" onclick="App.qrConfirm('${token}')">받았어요 (수업 확인)</button>
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
   }
@@ -1683,7 +1689,7 @@
       pushLedger(id, p.sessions, "구매", `${p.name} · ${won(price)}${price < p.price ? ` (정가 ${won(p.price)} · 할인 등록)` : ""}`);
       delete pickers["sell-mem"];
       render();
-      toast(`${memberName(mid)} 회원에게 ${p.name} 등록 완료 — 회당 ${won(unit)} 스냅샷 (mock 결제)`);
+      toast(`${memberName(mid)} 회원에게 ${p.name} 등록 완료 — 회당 ${won(unit)} 기준으로 저장했어요. (프로토타입 모의 결제)`);
     },
     book(slotId) {
       const s = slot(slotId);
@@ -1867,7 +1873,7 @@
       }
       closeModal();
       location.hash = "#/m/bookings";
-      toast(pre ? "접수됐어요. 확인·차감 없이 센터가 심사해요." : "접수됐어요. 차감은 유지된 채 정산이 보류돼요 — 인용되면 복원돼요.");
+      toast(pre ? "접수됐어요. 확인·차감 없이 센터가 심사해요." : "접수됐어요. 차감은 유지된 채 정산이 보류돼요 — 이의가 인정되면 복원돼요.");
     },
     // 선생님 완료 보고 — 회원별 참석/노쇼 (M-11), 서명 정책 분기 (M-6)
     reportAsk(slotId) {
@@ -1884,7 +1890,7 @@
         <p class="muted small mt8">${needConfirm
           ? "보고하면 각 회원에게 수강 확인 요청이 가요. 회원이 확인해야 차감·정산돼요."
           : `이 수업은 확인 생략(출석 체크) 정책이라 보고 즉시 차감돼요. 회원에게 즉시 알림이 가고 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.`}
-          ${DB.policy.noshowDeduct ? ` 노쇼는 회원에게 즉시 통지되고, 이의기간(${DB.policy.disputeDays}일) 내 이의가 없으면 자동 확정·차감돼요.` : " 노쇼는 차감 없이 종결돼요."}</p>
+          ${DB.policy.noshowDeduct ? ` 노쇼로 보고하면 회원에게 바로 알림이 가고, ${DB.policy.disputeDays}일 안에 이의가 없으면 자동 확정되고 횟수가 차감돼요.` : " 노쇼는 차감 없이 종결돼요."}</p>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">취소</button>
         <button class="btn primary" onclick="App.submitReport('${slotId}')">보고하기</button></div>`);
     },
@@ -1923,7 +1929,7 @@
       const parts = [];
       if (asked) parts.push(`확인 요청 ${asked}명`);
       if (deducted) parts.push(`출석 체크 차감 ${deducted}명`);
-      if (noshow) parts.push(DB.policy.noshowDeduct ? `노쇼 ${noshow}명 (회원 즉시 통지 · 무이의 시 자동확정)` : `노쇼 ${noshow}명 (차감 없이 종결)`);
+      if (noshow) parts.push(DB.policy.noshowDeduct ? `노쇼 ${noshow}명 (회원에게 알림 · 이의 없으면 자동확정)` : `노쇼 ${noshow}명 (차감 없이 종결)`);
       toast(`완료 보고했어요 — ${parts.join(" · ")}.`);
     },
     // v2.13: 현장 일회용 QR (04 수단 B — PIN 폐지 대체). 선생님은 QR을 띄울 뿐, 확인 성립은 회원 계정에서만.
@@ -1937,9 +1943,9 @@
         <p><b>${r.member}</b> 회원 · ${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</p>
         <div class="qr-wrap">${qrSvg(token)}
           <div class="qr-meta">코드 <b>${token.toUpperCase()}</b> · 발급 후 <b>5분 만료</b></div></div>
-        <p class="muted small">이 QR은 <b>이 수업 1건 전용</b>이에요 — 다른 수업·다른 회원에게 쓸 수 없고, 확인되면 <b>즉시 무효화(재사용 불가)</b>돼요. 회원이 <b>본인 폰 카메라</b>로 스캔하면 회원 화면에서 확인이 진행돼요 — 이 기기에서 대신 확인할 수 없어요.</p>
-        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
-        <button class="btn primary" onclick="App.qrOpen('${token}')">📱 회원 폰에서 열기 (데모)</button></div>`);
+        <p class="muted small">이 QR은 <b>이 수업 1건 전용</b>이에요 — 다른 수업이나 다른 회원에게는 쓸 수 없어요. 확인이 끝나면 <b>바로 만료돼 다시 쓸 수 없어요</b>. 회원이 <b>본인 폰 카메라</b>로 스캔하면 회원 화면에서 확인이 진행돼요 — 이 기기에서는 대신 확인할 수 없어요.</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button></div>
+        <div class="demo-box"><span class="demo-cap">프로토타입 데모 — 실서비스에선 회원이 폰 카메라로 스캔해요</span><button class="btn sm demo" onclick="App.qrOpen('${token}')">📱 회원 폰 화면 열기</button></div>`);
     },
     // 프로토타입 시뮬레이션 — 실서비스에선 회원 폰 카메라 스캔이 이 링크를 연다
     qrOpen(token) { closeModal(true); location.hash = "#/m/qr/" + token; },
@@ -1954,7 +1960,7 @@
       if (!res.ok) { modal(`<h3>처리할 수 없어요</h3><p>${res.msg}</p><div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`); return; }
       t.used = true; // 확인 성립 즉시 무효화 — 재스캔 시 «이미 사용된 QR»
       location.hash = "#/m/confirm/" + b.id;
-      toast("QR 확인 완료! 수업권 1회가 차감됐고 QR은 무효화됐어요.");
+      toast("QR 확인 완료! 수업권 1회가 차감됐고 QR은 만료됐어요.");
     },
     // S-2: 과거 일시 즉시확정 차단 + 자격검증 + 기존 회차 합류
     quickClassChange(role) {
@@ -2107,7 +2113,7 @@
       const c = cls(id);
       const future = DB.slots.filter((s) => s.classId === id && s.status === "scheduled" && !isPast(s));
       const affected = future.reduce((a, s) => a + DB.bookings.filter((b) => b.slotId === s.id && ["booked", "waitlisted"].includes(b.status)).length, 0);
-      modal(`<h3>«${c.title}» 폐강</h3><p>예정 회차 ${future.length}개 · 예약 ${affected}건이 자동취소되고 회원 ${affected}명에게 알림이 가요. 이미 진행된 회차의 정산 귀속은 유지돼요.</p>
+      modal(`<h3>«${c.title}» 폐강</h3><p>예정 회차 ${future.length}개 · 예약 ${affected}건이 자동으로 취소되고 회원 ${affected}명에게 알림이 가요. 이미 진행된 회차의 정산은 그대로 유지돼요.</p>
         <div class="field mt12"><label>폐강 사유 (필수 · 회원에게 전달)</label>
         <textarea id="cc-reason" rows="2" placeholder="예: 강사 사정으로 9월부터 운영이 어려워요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
@@ -2143,12 +2149,12 @@
           r.status = "resolved"; r.label = "이의 인용 · 노쇼 취소";
           if (b) { b.status = "canceled"; b.cancelBy = "noshow_waived"; }
           render();
-          toast("이의를 인용했어요. 노쇼가 취소되고 차감 없이 종결돼요. 회원·선생님에게 통지돼요.");
+          toast("이의를 인정했어요. 노쇼가 취소되고 차감 없이 종결돼요. 회원·선생님에게 알림이 가요.");
         } else {
           const res = finalizeNoshow(r, "reject");
           if (!res.ok) { toast("기각 처리 불가 — " + res.msg); return; }
           render();
-          toast("이의를 기각했어요. 노쇼 확정 — 1회 차감돼요. 회원에게 통지돼요." + (rewardOn() ? " (센터 정책에 따라 보상 정산에 포함)" : ""));
+          toast("이의를 기각했어요. 노쇼 확정 — 1회 차감돼요. 회원에게 알림이 가요." + (rewardOn() ? " (센터 정책에 따라 보상 정산에 포함)" : ""));
         }
         return;
       }
@@ -2163,20 +2169,20 @@
         r.status = "resolved"; r.label = "인용 · 횟수 복원";
         if (b) b.status = "restored";
         render();
-        toast("이의를 인용했어요. 횟수가 복원되고 정산에서 제외됐어요." + (l && l.pushed ? " (전송분은 샐리 정정 필요)" : ""));
+        toast("이의를 인정했어요. 횟수가 복원되고 정산에서 제외됐어요." + (l && l.pushed ? " 이미 전송된 회차는 샐리에서 정정해 주세요." : ""));
       } else {
         if (r.deducted) {
           if (l && l.status === "held") l.status = "eligible";
           r.status = r.method === "자동확정" ? "auto" : "confirmed"; r.label = "기각 · 확정 유지";
           if (b) b.status = "confirmed";
           render();
-          toast("이의를 기각했어요. 확정·차감이 유지되고 사유가 회원에게 통지돼요.");
+          toast("이의를 기각했어요. 확정·차감이 유지되고 사유가 회원에게 안내돼요.");
         } else if (b) {
           const res = confirmTx(b, r, "센터 기각 확정");
           if (!res.ok) { toast("기각 처리 불가 — " + res.msg); return; }
           r.label = "기각 · 확정 (1회 차감)";
           render();
-          toast("이의를 기각했어요. 확인이 성립해 1회 차감·정산 편입됐어요. 회원에게 통지돼요.");
+          toast("이의를 기각했어요. 수강확인이 완료 처리돼 1회 차감되고 정산에 포함돼요. 회원에게 알림이 가요.");
         } else {
           r.status = "confirmed"; r.label = "기각 · 확정 유지";
           render();
@@ -2192,13 +2198,13 @@
       if (l) l.status = "removed";
       if (r.deducted) {
         const p = passForReport(r, b);
-        if (p) { p.remaining += 1; pushLedger(p.id, +1, "자동확정 무효화 복원", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || ""); }
+        if (p) { p.remaining += 1; pushLedger(p.id, +1, "자동확정 취소 · 횟수 복원", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || ""); }
         r.deducted = false;
       }
-      r.status = "resolved"; r.label = "자동확정 무효화 · 복원";
+      r.status = "resolved"; r.label = "자동확정 취소 · 복원";
       if (b) b.status = "restored";
       render();
-      toast("자동확정을 무효화했어요. 횟수가 복원되고 정산에서 제외돼요." + (l && l.pushed ? " (전송분은 샐리 정정 필요)" : ""));
+      toast("자동확정을 취소했어요. 횟수가 복원되고 정산에서 제외돼요." + (l && l.pushed ? " 이미 전송된 회차는 샐리에서 정정해 주세요." : ""));
     },
     // 형 확정(08-17): 이의기간 무이의 → 자동 확정·차감. 프로토타입은 기간 경과를 데모 버튼으로 시뮬레이션.
     noshowExpire(rpId) {
@@ -2207,7 +2213,7 @@
       const res = finalizeNoshow(r, "auto");
       if (!res.ok) { toast(res.msg); return; }
       render();
-      toast("이의기간 경과 — 무이의 자동확정으로 1회 차감됐어요. «무응답 자동확정» 계열로 표시되고 비율 경고에 포함돼요." + (rewardOn() ? " 센터 보상 정책에 따라 정산 미리보기에 반영돼요." : ""));
+      toast("이의제기 기간이 지나 노쇼가 자동 확정되고 1회 차감됐어요. 확인 목록에는 «무응답 자동확정»으로 표시돼요." + (rewardOn() ? " 센터 보상 정책에 따라 정산 미리보기에 반영돼요." : ""));
     },
     // 센터만 판정(P5-4b 대안 옵션) 전용 — 기본 정책(무이의 자동확정)에선 노출되지 않음
     resolveNoshow(rpId, deduct) {
@@ -2222,7 +2228,7 @@
         r.status = "noshow_final"; r.label = "노쇼 확정 · 차감"; r.deducted = true;
         if (b) b.status = "noshow_final";
         render();
-        toast("노쇼 확정 — 1회 차감됐어요. 정산 라인은 만들지 않아요(수강확인 미성립). 회원에게 통지돼요.");
+        toast("노쇼 확정 — 1회 차감됐어요. 수강확인이 안 된 회차라 정산에는 포함되지 않아요. 회원에게 알림이 가요.");
       } else {
         r.status = "resolved"; r.label = "노쇼 취소 · 차감 없음";
         if (b) { b.status = "canceled"; b.cancelBy = "noshow_waived"; }
@@ -2239,10 +2245,10 @@
       const groups = unitGroups(lines);
       const total = lines.reduce((a, l) => a + l.unitPrice, 0) + rewards.reduce((a, r) => a + noshowUnit(r), 0);
       modal(`<h3>샐리 push 미리보기 — ${teacher(tid).name} 선생님</h3>
-        <p>회차마다 <b>unitPrice(회당 단가 · 구매 시점 스냅샷)</b>가 개별 전송돼요. 배분율·공제는 샐리가 계산해요.</p>
+        <p>회차마다 <b>구매 시점의 회당 단가</b>가 그대로 전송돼요. 배분율·공제는 샐리가 계산해요.</p>
         <div class="pd-list">
-          ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">unitPrice <b>${won(u)}</b> × ${ls.length}회</div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
-          ${rewards.length ? `<div class="pd-group"><div class="pd-ghead">노쇼 보상 (special rewardCodes) ${rewards.length}건</div>${rewards.map((r) => `<div class="pd-row"><span class="grow"><b>${r.member}</b> <span class="muted small">${r.desc}</span><div class="muted small">노쇼 확정 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}</div></span><span class="pd-price">${won(noshowUnit(r))}</span></div>`).join("")}</div>` : ""}
+          ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회</div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
+          ${rewards.length ? `<div class="pd-group"><div class="pd-ghead">노쇼 보상 ${rewards.length}건</div>${rewards.map((r) => `<div class="pd-row"><span class="grow"><b>${r.member}</b> <span class="muted small">${r.desc}</span><div class="muted small">노쇼 확정 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}</div></span><span class="pd-price">${won(noshowUnit(r))}</span></div>`).join("")}</div>` : ""}
         </div>
         <div class="row" style="justify-content:space-between;padding:4px 2px"><span class="muted">합계 ${lines.length}회${rewards.length ? ` + 보상 ${rewards.length}건` : ""}${held ? ` · 보류 ${held}건 제외` : ""}</span><b class="big">${won(total)}</b></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
@@ -2263,8 +2269,8 @@
       const t = teacher(tid);
       const parts = [];
       if (lines.length) parts.push(`${lines.length}회`);
-      if (rewards.length) parts.push(`노쇼 보상 ${rewards.length}건 · ${won(rewards.reduce((a, r) => a + r.rewardAmount, 0))} (special rewardCodes)`);
-      toast(`${t.name} 선생님 ${parts.join(" + ")}를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. (externalId 멱등 · mock)`);
+      if (rewards.length) parts.push(`노쇼 보상 ${rewards.length}건 · ${won(rewards.reduce((a, r) => a + r.rewardAmount, 0))}`);
+      toast(`${t.name} 선생님 ${parts.join(" + ")}를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. 같은 회차는 다시 보내도 중복 반영되지 않아요. (프로토타입 모의 전송)`);
     },
     toggle(key) {
       const P = DB.policy;
@@ -2275,17 +2281,17 @@
       const sw = typeof event !== "undefined" && event && event.target ? event.target.closest(".sw") : null;
       if (sw && !REDUCE.matches) {
         sw.classList.toggle("on");
-        setTimeout(() => { render(); toast("저장됐어요. 기존 예약·수업권에는 소급되지 않아요."); }, 200);
+        setTimeout(() => { render(); toast("저장됐어요. 기존 예약·수업권에는 적용되지 않아요."); }, 200);
       } else {
         render();
-        toast("저장됐어요. 기존 예약·수업권에는 소급되지 않아요.");
+        toast("저장됐어요. 기존 예약·수업권에는 적용되지 않아요.");
       }
     },
-    setCancelHours(v) { DB.policy.cancelHours = parseInt(v, 10); toast("취소 기한이 변경됐어요. (신규 예약부터 적용 — 기존 예약은 스냅샷 유지)"); },
+    setCancelHours(v) { DB.policy.cancelHours = parseInt(v, 10); toast("취소 기한이 변경됐어요. 신규 예약부터 적용되고, 기존 예약은 예약 당시 조건이 유지돼요."); },
     setAutoConfirm(v) { DB.policy.autoConfirmHours = parseInt(v, 10); render(); toast("자동확정 설정이 변경됐어요."); },
     setDispute(v) { DB.policy.disputeDays = parseInt(v, 10); toast("이의제기 기간이 변경됐어요."); },
     setQuickScope(v) { DB.policy.quickScope = v; toast("즉시확정 회원 표시 범위가 변경됐어요."); },
-    setNoshowActor(v) { DB.policy.noshowActor = v; render(); toast(v === "center_only" ? "센터만 판정으로 변경했어요 — 노쇼 확정·취소를 센터가 직접 결정해요." : "선생님 보고 → 무이의 자동확정 방식이에요 (형 확정 08-17 기본값)."); },
+    setNoshowActor(v) { DB.policy.noshowActor = v; render(); toast(v === "center_only" ? "센터만 판정으로 변경했어요 — 노쇼 확정·취소를 센터가 직접 결정해요." : "선생님 보고 후 이의가 없으면 자동확정되는 방식이에요 (기본값)."); },
     // P9-1 (형 확정 08-17): 노쇼 보상 센터별 설정 — 변경 즉시 정산 미리보기 재계산
     setNoshowReward(v) { DB.policy.noshowReward = v; render(); toast(v === "support" ? "노쇼 보상을 지원해요 — 정산·샐리 전송 미리보기에 반영됐어요." : "노쇼 보상 없음(기본)으로 설정했어요."); },
     setNoshowRewardPrice(v) { DB.policy.noshowRewardPrice = v; render(); toast(v === "custom" ? "별도 단가로 보상해요 — 아래에서 금액을 지정해 주세요." : "정상 단가(수업권 회당 단가)로 보상해요."); },
@@ -2294,7 +2300,7 @@
     setNoshowRewardPercent(v) { DB.policy.noshowRewardPercent = Math.min(100, Math.max(0, parseInt(v, 10) || 0)); render(); toast(`수업료의 ${DB.policy.noshowRewardPercent}%로 저장했어요 — 정산 미리보기에 반영됐어요.`); },
     // oninput 실시간 예시 — 저장 전에도 미리보기 갱신 (포커스 유지 위해 부분 갱신)
     previewNoshowPct(v) { const el = document.getElementById("nsPctPreview"); if (el) el.innerHTML = pctPreviewText(v); },
-    setNoshowRewardPush(v) { DB.policy.noshowRewardPush = v; render(); toast(v === "auto" ? "샐리 자동 push(special rewardCodes)로 전달해요." : "샐리에서 수동 체크로 지급해요 — push에 포함되지 않아요."); },
+    setNoshowRewardPush(v) { DB.policy.noshowRewardPush = v; render(); toast(v === "auto" ? "노쇼 보상을 샐리로 자동 전송해요." : "샐리에서 수동 체크로 지급해요 — 자동 전송에 포함되지 않아요."); },
     // v2.7: 정책 화면 요약+편집·검색 (검색은 리스트 서브트리만 갱신 — 입력 포커스 유지)
     polOpen(k) { const U = polState(); U.open[k] = !U.open[k]; render(); },
     polQuery(k, v) {
@@ -2323,7 +2329,7 @@
       const S = (DB.policy.teacherScope || {})[tid];
       if (!S) return;
       S.productIds = (S.productIds || []).includes(pid) ? S.productIds.filter((x) => x !== pid) : [...(S.productIds || []), pid];
-      render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.");
+      render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.");
     },
     // 주간 일정 요일 탭 선택
     schedDay(d) { tSchedDay = d; render(); },
@@ -2346,7 +2352,7 @@
       const S = (DB.policy.teacherScope || {})[tid];
       if (!S) return;
       S.memberIds = (S.memberIds || []).includes(mid) ? S.memberIds.filter((x) => x !== mid) : [...(S.memberIds || []), mid];
-      render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.");
+      render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.");
     },
     // v2.14: 멤버십 캐러셀 — 스크롤 스냅 위치 → 활성 카드 판정, 상세정보 동기 (rAF 스로틀)
     mpScroll(el) {

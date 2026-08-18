@@ -155,7 +155,7 @@ window.DB = {
     { id: "rp3", slotId: null, bookingId: null, memberId: "m3", member: "이하늘", desc: "8/12 (수) 18:00 PT", status: "auto", method: "자동확정", label: "자동확정", at: "8/13 18:00", deducted: true, lineId: "sl4" },
     { id: "rp4", slotId: null, bookingId: null, memberId: "m4", member: "최민아", desc: "8/11 (화) 06:30 크로스핏", status: "disputed", method: null, label: "이의제기", at: "8/12 09:30 접수", deducted: true, lineId: "sl12" },
     // 노쇼 데모 시드 (형 확정 08-17) — noshow=이의 시 센터 중재 분기, teacherId·date·unitPrice=보상 정산·기한 계산용
-    { id: "rp6", slotId: null, bookingId: null, memberId: "m6", member: "한소라", desc: "8/5 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-05", unitPrice: 35000, noshow: true, status: "noshow_final", method: "자동확정", autoFinal: true, label: "노쇼 확정 · 무이의 자동확정", at: "8/5 11:05 보고 · 8/12 무이의 자동확정", deducted: true, lineId: null },
+    { id: "rp6", slotId: null, bookingId: null, memberId: "m6", member: "한소라", desc: "8/5 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-05", unitPrice: 35000, noshow: true, status: "noshow_final", method: "자동확정", autoFinal: true, label: "노쇼 확정 · 이의 없이 자동확정", at: "8/5 11:05 보고 · 8/12 이의 없이 자동확정", deducted: true, lineId: null },
     { id: "rp7", slotId: null, bookingId: null, memberId: "m7", member: "오세훈", desc: "8/12 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-12", unitPrice: 30000, noshow: true, status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: "8/12 11:10 보고", deducted: false, lineId: null },
   ],
 
