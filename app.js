@@ -20,6 +20,10 @@
    v2.11 (2026-08-18 형 지시): 회원 «수업 예약» 캘린더+리스트 혼합 개편 — 주간 스트립(주 이동 버튼·
    스와이프, 월 표시·월 시트 이동, 날짜별 예약가능·내예약 점 마커) + 선택 날짜 회차 리스트(시간순,
    잔여 정원·자격 배지·내 예약 상태·바로 예약), 조율 수업 상시 섹션, 빈 날짜 안내(가까운 수업일 이동).
+   v2.13 (2026-08-18 형 확정): 수업완료 확인 PIN 전면 폐지 — ① 기본 경로=회원 본인 폰 원탭 확인
+   (홈 «수업 확인 요청» 카드+탭바 배지, 확인 권한은 회원 계정에만 귀속·대리 확인 불가) ② 현장
+   즉시확정=일회용 QR(해당 수업 1건 전용 토큰·5분 만료·재사용 불가, 프로토는 «회원 폰에서 열기»
+   시뮬레이션) ③ 미확인 방치=기존 자동확정·이의 정책 유지(확인 대기/자동확정 안내 표기 정리).
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -407,9 +411,13 @@
     "구매": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9V7a1.5 1.5 0 0 1 1.5-1.5h14A1.5 1.5 0 0 1 20.5 7v2a2.5 2.5 0 0 0 0 5v2a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 16v-2a2.5 2.5 0 0 0 0-5Z"/><path d="M14 6v2.4M14 11v2M14 15.6V18" stroke-dasharray="0.1 3.2"/></svg>`,
     "내역": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5h14V20.5l-2.4-1.5-2.4 1.5-2.2-1.5-2.2 1.5-2.4-1.5L5 20.5Z"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.5"/></svg>`,
   };
+  // v2.13: 회원 «수업 확인 요청» — pending 보고가 실존하는 내 confirm_wait 예약 (푸시 대신 로그인 배지 시뮬레이션)
+  const myConfirmWait = () => myBk().filter((b) => b.status === "confirm_wait" && DB.reports.some((r) => r.bookingId === b.id && r.status === "pending"));
   function shell(role, title, body, opts = {}) {
     const tabs = TABS[role] || [];
     const cur = location.hash.split("/").slice(0, 3).join("/");
+    // v2.13: 회원 홈 탭 알림 배지 — 확인 요청·노쇼 통지 건수
+    const mAlerts = role === "m" ? myConfirmWait().length + myBk().filter((b) => b.status === "noshow_wait").length : 0;
     return `
       <header class="hd"><div class="hd-in">
         ${opts.back ? `<button class="hd-back" onclick="history.back()" aria-label="뒤로">‹</button>` : ""}
@@ -418,7 +426,7 @@
       </div></header>
       <main class="screen${tabs.length ? "" : " no-tab"}">${body}</main>
       ${tabs.length ? `<nav class="tabbar">${tabs.map(([h, ic, l]) =>
-        `<a class="tab${h.startsWith(cur) && cur !== "#" ? " on" : ""}" href="${h}"><span class="ic">${role === "m" && M_TAB_SVG[l] ? M_TAB_SVG[l] : ic}</span>${l}</a>`).join("")}</nav>` : ""}`;
+        `<a class="tab${h.startsWith(cur) && cur !== "#" ? " on" : ""}" href="${h}"><span class="ic">${role === "m" && M_TAB_SVG[l] ? M_TAB_SVG[l] : ic}${l === "홈" && mAlerts ? `<i class="tab-dot" aria-label="알림 ${mAlerts}건">${mAlerts}</i>` : ""}</span>${l}</a>`).join("")}</nav>` : ""}`;
   }
 
   // ══ 랜딩 ══
@@ -463,14 +471,24 @@
     });
   }
   function vMHome() {
-    // S-1: 확인 배너는 pending 보고가 실존하는 confirm_wait 예약에만
-    const confirmWait = myBk().filter((b) => b.status === "confirm_wait" && DB.reports.some((r) => r.bookingId === b.id && r.status === "pending"));
+    // S-1: 확인 카드는 pending 보고가 실존하는 confirm_wait 예약에만 (v2.13: 원탭 확인 카드)
+    const confirmWait = myConfirmWait();
     const noshow = myBk().filter((b) => b.status === "noshow_wait");
     const upcoming = myUpcoming();
     const arrs = DB.arranges.filter((a) => a.memberId === DB.me.member && a.status === "pending");
+    const auto = DB.policy.autoConfirmHours;
     return shell("m", "니짐내짐 레슨", `
-      ${confirmWait.map((b) => `<button class="banner" onclick="location.hash='#/m/confirm/${b.id}'">
-        <span class="ic">✍️</span><span>${slotDesc(slot(b.slotId))} 수업, 잘 받으셨나요? <u>수강 확인하기</u></span></button>`).join("")}
+      ${confirmWait.map((b) => {
+        const s = slot(b.slotId); const c = cls(s.classId);
+        return `<div class="card confirm-req">
+        <div class="row"><span class="grow"><span class="badge b-rose">수업 확인 요청</span></span><span class="muted small">선생님 완료 보고</span></div>
+        <b class="mt8" style="display:block;font-size:15px">${c.title}</b>
+        <div class="muted small mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <button class="btn primary mt12" onclick="App.confirmAttend('${b.id}')">받았어요 (수업 확인)</button>
+        <button class="btn ghost mt8" onclick="location.hash='#/m/confirm/${b.id}'">자세히 · 문제가 있어요</button>
+        <div class="muted small mt8" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>
+      </div>`;
+      }).join("")}
       ${noshow.map((b) => {
         const r = DB.reports.find((x) => x.bookingId === b.id && x.status === "noshow_wait");
         return `<button class="banner warn" onclick="location.hash='#/m/bookings'">
@@ -739,8 +757,8 @@
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
         <p style="font-size:15px">수업을 이상 없이 받으셨나요?<br><span class="muted small">확인하면 수업권 1회가 차감되고, 이 기록으로 선생님 수업료가 정산돼요.</span></p></div>
-      <div class="banner"><span class="ic">🔒</span><span>확인은 <b>회원 본인 계정</b>에서만 가능해요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
-      <button class="btn primary" onclick="App.confirmAttend('${b.id}')">네, 이상 없이 수강했어요</button>
+      <div class="banner"><span class="ic">🔒</span><span>확인은 <b>회원 본인 계정</b>에서만 가능해요 — 선생님·센터가 대신 확인할 수 없어요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
+      <button class="btn primary" onclick="App.confirmAttend('${b.id}')">받았어요 (수업 확인)</button>
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
   }
   function vMHistory() {
@@ -904,13 +922,15 @@
       <div class="banner"><span class="ic">🔔</span><span>확정 즉시 회원에게 알림이 가요. 회원 몰래 만드는 예약은 불가능해요. 수업권 자격도 함께 검증해요.</span></div>`, { back: true });
   }
   function vTReport() {
+    const auto = DB.policy.autoConfirmHours;
     return shell("t", "완료 보고 현황", `
-      <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. 자동확정 건은 별도 표시돼요.</p>
+      <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. 확인은 회원 본인 폰에서만 가능하고, 현장에선 일회용 QR로 바로 확인받을 수 있어요.</p>
       <div class="card flat">${DB.reports.map((r) => `
         <div class="tl-item"><span class="grow"><b>${r.member}</b> <span class="badge ${RP_BADGE[r.status] || "b-gray"}">${r.label}</span>
           <div class="muted small mt4">${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</div>
           <div class="muted small">${r.at}${r.method ? ` · ${r.method}` : ""}</div>
-          ${r.status === "pending" && DB.policy.methodPin ? `<div class="btn-row"><button class="btn sm ghost" onclick="App.pinStart('${r.id}')">현장 PIN 확인 (회원 입력)</button></div>` : ""}
+          ${r.status === "pending" ? `<div class="muted small">회원 폰으로 확인 요청이 갔어요 · ${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정 예정` : "자동확정 없음 — 센터 수동 처리"}</div>` : ""}
+          ${r.status === "pending" && DB.policy.methodQr ? `<div class="btn-row"><button class="btn sm ghost" onclick="App.qrStart('${r.id}')">현장 QR 확인 (회원 폰 스캔)</button></div>` : ""}
         </span></div>`).join("")}</div>`);
   }
   // ── v2.9: 회차별 단가 명세 (형 지적 08-18 — 회원별·등록시기별 단가 차이를 화면에서 확인) ──
@@ -950,7 +970,7 @@
         <div class="big mt4">${won(amount + nsAmt)}</div>
         <div class="muted small mt4">확정 ${elig.length}회 × 회당 단가 (수업권 구매가 기준)${nsAmt ? ` + 노쇼 보상` : ""}</div>
         <div class="divider"></div>
-        <div class="row" style="justify-content:space-between"><span class="muted">앱·PIN 확인</span><b>${elig.length - auto}회</b></div>
+        <div class="row" style="justify-content:space-between"><span class="muted">앱·QR 확인</span><b>${elig.length - auto}회</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${auto}회 ${auto ? '<span class="badge b-warn">검토 대상</span>' : ""}</b></div>
         ${rewardOn() && ns.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">노쇼 보상 (센터 정책)</span><b>${ns.length}건 · ${won(nsAmt)}</b></div>` : ""}
         ${held.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">이의 심사 중 (보류)</span><b>${held.length}회 <span class="badge b-danger">정산 제외 중</span></b></div>` : ""}
@@ -1309,6 +1329,7 @@
         <div class="tl-item"><span class="grow"><b>${r.member}</b> <span class="badge ${RP_BADGE[r.status] || "b-gray"}">${r.label}</span>${r.autoFinal ? ` <span class="badge b-warn">무응답 자동확정</span>` : ""}
           <div class="muted small mt4">${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</div>
           <div class="muted small">${r.at}${r.method ? ` · 수단: ${r.method}` : ""}${r.disputeReason ? ` · 이의 사유: ${r.disputeReason}` : ""}</div>
+          ${r.status === "pending" ? `<div class="muted small mt4">회원 폰 확인 대기 · ${DB.policy.autoConfirmHours ? `무응답 시 보고 ${DB.policy.autoConfirmHours}시간 뒤 자동확정 예정` : "자동확정 없음 — 센터 수동 처리"} · 이의는 ${DB.policy.disputeDays}일 내</div>` : ""}
           ${r.status === "disputed" ? (r.noshow ? `<div class="btn-row">
             <button class="btn sm primary" onclick="App.resolveDispute('${r.id}', true)">인용 (노쇼 취소 · 차감 없음)</button>
             <button class="btn sm ghost" onclick="App.resolveDispute('${r.id}', false)">기각 (노쇼 확정·차감)</button></div>` : `<div class="btn-row">
@@ -1392,8 +1413,8 @@
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">개인수업 확인 필수</div><div class="td">회원 확인 없이는 차감·정산 안 됨</div></span>${sw("signPrivate", P.signPrivate)}</div>
         <div class="toggle-row"><span><div class="tl">그룹수업 확인 필수</div><div class="td">끄면 그룹은 출석 체크만으로 차감 (이의기간은 유지)</div></span>${sw("signGroup", P.signGroup)}</div>
-        <div class="toggle-row"><span><div class="tl">회원 앱 확인</div><div class="td">본인 계정·기기에서 탭 확인</div></span>${sw("methodApp", P.methodApp)}</div>
-        <div class="toggle-row"><span><div class="tl">회원 PIN 확인</div><div class="td">현장에서 회원이 직접 PIN 입력</div></span>${sw("methodPin", P.methodPin)}</div>
+        <div class="toggle-row"><span><div class="tl">회원 앱 확인</div><div class="td">회원 본인 폰에서 원탭 확인 (기본 경로)</div></span>${sw("methodApp", P.methodApp)}</div>
+        <div class="toggle-row"><span><div class="tl">현장 QR 확인</div><div class="td">선생님이 띄운 일회용 QR을 회원이 본인 폰으로 스캔 — 그 수업 1건 전용·수 분 만료</div></span>${sw("methodQr", P.methodQr)}</div>
         <div class="toggle-row"><span><div class="tl">무응답 자동확정</div><div class="td">리마인드 2회 후 자동확정 · 별도 표시</div></span>
           ${sel("App.setAutoConfirm(this.value)", [[12, "12시간 후"], [24, "24시간 후"], [48, "48시간 후"], [0, "사용 안 함"]], P.autoConfirmHours)}</div>
         <div class="toggle-row"><span><div class="tl">이의제기 기간</div><div class="td">기간 내 접수 시 정산 보류</div></span>
@@ -1471,8 +1492,56 @@
       <button class="btn ghost" onclick="location.hash='#/c/policy'">‹ 정책 설정으로 돌아가기</button>`, { back: true });
   }
 
+  // ── v2.13: 현장 일회용 QR (04 수단 B — PIN 폐지 대체) ──
+  // 토큰=완료 보고(rpId) 1건 전용·발급 후 5분 만료 표기·확인 성립 즉시 무효화(used). 회원 본인 계정만 확인 가능.
+  const qrTokens = {};
+  function qrSvg(token) {
+    // 결정적 의사 QR — 토큰 문자열 해시로 데이터 셀 생성 (프로토타입 시각화용, 실서비스=실제 QR 라이브러리)
+    const N = 21, cell = 8;
+    let h = 5381;
+    for (const ch of token) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0;
+    const bit = (x, y) => { const v = (h ^ (x * 73856093) ^ (y * 19349663)) >>> 0; return ((v * 2654435761) >>> 0) % 100 < 46; };
+    const inFinder = (x, y) => (x < 7 && y < 7) || (x >= N - 7 && y < 7) || (x < 7 && y >= N - 7);
+    const rects = [];
+    const finder = (fx, fy) => {
+      rects.push(`<rect x="${fx * cell}" y="${fy * cell}" width="${7 * cell}" height="${7 * cell}" fill="#16161c"/>`);
+      rects.push(`<rect x="${(fx + 1) * cell}" y="${(fy + 1) * cell}" width="${5 * cell}" height="${5 * cell}" fill="#fff"/>`);
+      rects.push(`<rect x="${(fx + 2) * cell}" y="${(fy + 2) * cell}" width="${3 * cell}" height="${3 * cell}" fill="#16161c"/>`);
+    };
+    finder(0, 0); finder(N - 7, 0); finder(0, N - 7);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++)
+      if (!inFinder(x, y) && bit(x, y)) rects.push(`<rect x="${x * cell}" y="${y * cell}" width="${cell}" height="${cell}" fill="#16161c"/>`);
+    return `<svg class="qr-svg" viewBox="0 0 ${N * cell} ${N * cell}" role="img" aria-label="수강확인 QR 코드">${rects.join("")}</svg>`;
+  }
+  // 회원 측 QR 랜딩 (#/m/qr/:token) — 시뮬레이션: 실서비스에선 회원 폰 카메라 스캔이 이 화면을 연다
+  function vMQr(token) {
+    const errCard = (em, title, desc, backTo) => shell("m", "QR 수강 확인", `
+      <div class="card" style="text-align:center;padding:32px 16px">
+        <div style="font-size:40px">${em}</div><b style="font-size:17px">${title}</b>
+        <p class="muted mt8">${desc}</p></div>
+      <a class="btn ghost" href="${backTo || "#/m/home"}">돌아가기</a>`, { back: true });
+    const t = qrTokens[token];
+    if (!t) return errCard("⌛", "유효하지 않은 QR이에요", "만료됐거나 잘못된 코드예요.<br>선생님 화면에서 QR을 새로 띄워 주세요.");
+    if (t.used) return errCard("🔒", "이미 사용된 QR이에요", "QR은 일회용이라 확인이 끝나면 즉시 무효화돼요.<br>다시 쓸 수 없어요.");
+    const r = DB.reports.find((x) => x.id === t.rpId);
+    const b = r && r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
+    if (!r || !b || r.status !== "pending" || b.status !== "confirm_wait")
+      return errCard("✅", "이미 처리된 수업이에요", "이 수업 건은 확인·처리가 끝났어요.<br>내 예약에서 상태를 확인해 주세요.", "#/m/bookings");
+    // 확인 권한=회원 본인 계정 귀속 — 타 회원·타 수업 유용 불가
+    if (b.memberId !== DB.me.member)
+      return errCard("🚫", "내 수업의 QR이 아니에요", `이 QR은 <b>${r.member}</b> 회원의 해당 수업 1건 전용이에요.<br>다른 회원·다른 수업에는 쓸 수 없어요.`);
+    const s = slot(b.slotId); const c = cls(s.classId);
+    return shell("m", "QR 수강 확인", `
+      <div class="card"><b>${c.title}</b>
+        <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="divider"></div>
+        <p style="font-size:15px">현장에서 QR로 확인 중이에요.<br><span class="muted small">확인하면 수업권 1회가 차감되고, 이 기록으로 선생님 수업료가 정산돼요.</span></p></div>
+      <div class="banner"><span class="ic">🔐</span><span>이 QR은 <b>이 수업 1건 전용</b>이에요 · 발급 후 <b>5분 만료</b> · 확인 즉시 무효화(재사용 불가). 확인은 <b>회원 본인 계정</b>에서만 성립해요.</span></div>
+      <button class="btn primary" onclick="App.qrConfirm('${token}')">받았어요 (수업 확인)</button>
+      <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
+  }
+
   // ── 액션 ──
-  const pinTries = {}, pinLocked = {};
   const App = {
     closeModal,
     // v2.4: 검색 picker — 검색·필터·점진 로딩은 picker 서브트리만 갱신 (입력 포커스 유지, 전체 재렌더 금지)
@@ -1697,9 +1766,10 @@
       closeModal(); render();
       toast(`${memberName(b.memberId)} 회원 예약을 취소했어요. 알림을 보냈어요.`);
     },
-    // S-1: 상태·보고 검증 후에만 확인 성립
+    // S-1: 상태·보고 검증 후에만 확인 성립. v2.13: 확인 권한=회원 본인 계정 귀속 (대리 확인 불가)
     confirmAttend(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
+      if (b && b.memberId !== DB.me.member) { toast("확인은 해당 수업 회원 본인 계정에서만 가능해요."); return; }
       const r = b && DB.reports.find((x) => x.bookingId === b.id && x.status === "pending");
       if (!b || b.status !== "confirm_wait" || !r) { toast("아직 확인할 단계가 아니에요 — 완료 보고 후에 확인할 수 있어요."); return; }
       const res = confirmTx(b, r, "앱 확인");
@@ -1788,38 +1858,35 @@
       if (noshow) parts.push(DB.policy.noshowDeduct ? `노쇼 ${noshow}명 (회원 즉시 통지 · 무이의 시 자동확정)` : `노쇼 ${noshow}명 (차감 없이 종결)`);
       toast(`완료 보고했어요 — ${parts.join(" · ")}.`);
     },
-    // 하-1: 회원 PIN 확인 목업 (04 수단 B)
-    pinStart(rpId) {
-      if (pinLocked[rpId]) { toast("PIN 확인이 잠겨 있어요. 회원·센터에 알림이 갔어요."); return; }
-      modal(`<h3>회원 PIN 확인</h3><p>기기를 회원에게 건네주세요. <b>회원 본인이 직접</b> PIN을 입력해요 — 선생님 화면에 PIN이 보이지 않아요.</p>
-        <div class="field mt12"><input type="password" id="pin-input" inputmode="numeric" maxlength="4" placeholder="PIN 4자리" autocomplete="off" style="text-align:center;letter-spacing:10px;font-size:22px;font-weight:800"></div>
-        <p class="muted small">5회 실패 시 잠기고 회원·센터에 알림이 가요. (데모 PIN — 김지은: 0417)</p>
-        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">취소</button>
-        <button class="btn primary" onclick="App.pinSubmit('${rpId}')">확인</button></div>`);
-    },
-    pinSubmit(rpId) {
+    // v2.13: 현장 일회용 QR (04 수단 B — PIN 폐지 대체). 선생님은 QR을 띄울 뿐, 확인 성립은 회원 계정에서만.
+    qrStart(rpId) {
       const r = DB.reports.find((x) => x.id === rpId);
-      const m = member(r.memberId);
-      const v = (document.getElementById("pin-input") || { value: "" }).value;
-      if (!m || pinLocked[rpId]) { closeModal(); return; }
-      if (v !== m.pin) {
-        pinTries[rpId] = (pinTries[rpId] || 0) + 1;
-        if (pinTries[rpId] >= 5) {
-          pinLocked[rpId] = true;
-          closeModal(); render();
-          toast("5회 실패 — PIN 확인이 잠겼어요. 회원·센터에 알림을 보냈어요.");
-          return;
-        }
-        toast(`PIN이 달라요 (${pinTries[rpId]}/5)`);
-        return;
-      }
-      const b = r.bookingId && DB.bookings.find((x) => x.id === r.bookingId);
-      if (!b || b.status !== "confirm_wait" || r.status !== "pending") { closeModal(); toast("확인할 수 없는 상태예요."); return; }
-      const res = confirmTx(b, r, "PIN 확인");
-      closeModal();
-      if (!res.ok) { toast(res.msg); return; }
-      render();
-      toast(`${m.name} 회원 PIN 확인 완료! 1회 차감됐어요.`);
+      const b = r && r.bookingId && DB.bookings.find((x) => x.id === r.bookingId);
+      if (!r || !b || r.status !== "pending" || b.status !== "confirm_wait") { toast("QR을 띄울 수 없는 상태예요 — 이미 처리됐어요."); return; }
+      const token = "qt" + seq++;
+      qrTokens[token] = { rpId, used: false };
+      modal(`<h3>현장 QR 확인</h3>
+        <p><b>${r.member}</b> 회원 · ${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</p>
+        <div class="qr-wrap">${qrSvg(token)}
+          <div class="qr-meta">코드 <b>${token.toUpperCase()}</b> · 발급 후 <b>5분 만료</b></div></div>
+        <p class="muted small">이 QR은 <b>이 수업 1건 전용</b>이에요 — 다른 수업·다른 회원에게 쓸 수 없고, 확인되면 <b>즉시 무효화(재사용 불가)</b>돼요. 회원이 <b>본인 폰 카메라</b>로 스캔하면 회원 화면에서 확인이 진행돼요 — 이 기기에서 대신 확인할 수 없어요.</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
+        <button class="btn primary" onclick="App.qrOpen('${token}')">📱 회원 폰에서 열기 (데모)</button></div>`);
+    },
+    // 프로토타입 시뮬레이션 — 실서비스에선 회원 폰 카메라 스캔이 이 링크를 연다
+    qrOpen(token) { closeModal(true); location.hash = "#/m/qr/" + token; },
+    qrConfirm(token) {
+      const t = qrTokens[token];
+      if (!t || t.used) { toast("이미 사용됐거나 만료된 QR이에요."); render(); return; }
+      const r = DB.reports.find((x) => x.id === t.rpId);
+      const b = r && r.bookingId && DB.bookings.find((x) => x.id === r.bookingId);
+      if (!r || !b || r.status !== "pending" || b.status !== "confirm_wait") { toast("이미 처리된 수업이에요."); render(); return; }
+      if (b.memberId !== DB.me.member) { toast("확인은 해당 수업 회원 본인 계정에서만 가능해요."); return; }
+      const res = confirmTx(b, r, "QR 확인");
+      if (!res.ok) { modal(`<h3>처리할 수 없어요</h3><p>${res.msg}</p><div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`); return; }
+      t.used = true; // 확인 성립 즉시 무효화 — 재스캔 시 «이미 사용된 QR»
+      location.hash = "#/m/confirm/" + b.id;
+      toast("QR 확인 완료! 수업권 1회가 차감됐고 QR은 무효화됐어요.");
     },
     // S-2: 과거 일시 즉시확정 차단 + 자격검증 + 기존 회차 합류
     quickClassChange(role) {
@@ -2227,6 +2294,7 @@
     [/^#\/m\/slot\/(.+)$/, vMSlot],
     [/^#\/m\/bookings$/, vMBookings],
     [/^#\/m\/confirm\/(.+)$/, vMConfirm],
+    [/^#\/m\/qr\/(.+)$/, vMQr],
     [/^#\/m\/history$/, vMHistory],
     [/^#\/t\/home$/, vTHome],
     [/^#\/t\/schedule$/, vTSchedule],

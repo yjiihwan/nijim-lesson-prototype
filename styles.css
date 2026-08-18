@@ -355,6 +355,14 @@ button.stat:active { transform: scale(.97); }
 .mb-empty .em { font-size: 30px; }
 .mb-empty .btn { width: auto; display: inline-flex; min-height: 44px; padding: 10px 16px; font-size: 14px; }
 
+/* ══ v2.13 수업완료 확인 — 회원 원탭 확인 카드·탭 배지 + 현장 일회용 QR (PIN 폐지) ══ */
+.confirm-req { border: 1.5px solid #ffd3e3; box-shadow: 0 6px 20px rgba(240,25,95,.08); }
+.tab .ic { position: relative; }
+.tab-dot { position: absolute; top: -3px; right: -8px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 999px; background: var(--danger, #e5484d); color: #fff; font-size: 9.5px; font-weight: 800; font-style: normal; line-height: 15px; text-align: center; box-shadow: 0 0 0 2px var(--surface, #fff); }
+.qr-wrap { text-align: center; padding: 14px 0 6px; }
+.qr-svg { width: 168px; height: 168px; max-width: 60vw; border: 1px solid var(--border); border-radius: 14px; padding: 10px; background: #fff; }
+.qr-meta { margin-top: 8px; font-size: 12px; color: var(--text-muted); font-weight: 600; }
+
 @media (min-width: 1024px) {
   body { padding: 32px 0; }
   .shell { border-radius: 24px; overflow: hidden; min-height: calc(100vh - 64px); box-shadow: 0 24px 64px rgba(32,32,36,.12), 0 0 0 1px var(--border); }

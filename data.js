@@ -2,6 +2,7 @@
 // v2: bookings가 좌석의 단일 진실(booked/대기 수는 파생 계산), 정산은 slines(라인) 동적 집계.
 // v2.9 (형 지적 08-18): 할인 등록 사례 시드(ps9·ps13=회당 24,000원) + pass에 purchasePrice·listPrice
 // 스냅샷 + slines 단가를 회원별 pass 스냅샷으로 통일 — 회원별·등록시기별 단가 차이가 화면에서 확인 가능.
+// v2.13 (형 확정 08-18): PIN 전면 폐지 — 회원 pin 필드 제거, 확인 수단=앱 확인(원탭)/QR 확인(현장 일회용)/자동확정.
 // 회원 원장은 실서비스에선 호스트 앱(니짐내짐 CRM) 참조 — 여기선 더미로 대체(06 문서).
 window.DB = {
   TODAY: "2026-08-17",
@@ -9,17 +10,17 @@ window.DB = {
   me: { member: "m1", teacher: "t1" },
 
   members: [
-    { id: "m1", name: "김지은", phone: "010-1234-5678", pin: "0417" },
-    { id: "m2", name: "박서준", phone: "010-2345-6789", pin: "1121" },
-    { id: "m3", name: "이하늘", phone: "010-3456-7890", pin: "0731" },
-    { id: "m4", name: "최민아", phone: "010-4567-8901", pin: "0555" },
-    { id: "m5", name: "정우람", phone: "010-5678-9012", pin: "0808" },
-    { id: "m6", name: "한소라", phone: "010-6789-0123", pin: "0909" },
-    { id: "m7", name: "오세훈", phone: "010-7890-1234", pin: "1010" },
-    { id: "m8", name: "유나래", phone: "010-8901-2345", pin: "1111" }, // 수업권 없음 (필터 데모)
+    { id: "m1", name: "김지은", phone: "010-1234-5678" },
+    { id: "m2", name: "박서준", phone: "010-2345-6789" },
+    { id: "m3", name: "이하늘", phone: "010-3456-7890" },
+    { id: "m4", name: "최민아", phone: "010-4567-8901" },
+    { id: "m5", name: "정우람", phone: "010-5678-9012" },
+    { id: "m6", name: "한소라", phone: "010-6789-0123" },
+    { id: "m7", name: "오세훈", phone: "010-7890-1234" },
+    { id: "m8", name: "유나래", phone: "010-8901-2345" }, // 수업권 없음 (필터 데모)
     // 선생님의 호스트 앱 회원 계정 (staff=수강 회원 picker·즉시확정 목록에서 제외)
-    { id: "m9", name: "박코치", phone: "010-9012-3456", pin: "2222", staff: true },
-    { id: "m10", name: "이필라", phone: "010-0123-4567", pin: "3333", staff: true },
+    { id: "m9", name: "박코치", phone: "010-9012-3456", staff: true },
+    { id: "m10", name: "이필라", phone: "010-0123-4567", staff: true },
   ],
   // 시정①: 선생님 계정 = 호스트 앱 회원 계정(memberId) — 수업 개설 권한 판정에 사용 (02 P2-2)
   teachers: [
@@ -66,7 +67,7 @@ window.DB = {
     { passId: "ps1", delta: -1, reason: "수강 확인", detail: "8/2 (일) PT · 앱 확인", at: "2026-08-02 12:10" },
     { passId: "ps1", delta: -1, reason: "수강 확인", detail: "8/6 (목) PT · 앱 확인", at: "2026-08-06 12:05" },
     { passId: "ps1", delta: -1, reason: "기한 위반 취소", detail: "8/9 (일) PT · 21시간 전 취소", at: "2026-08-08 14:00" },
-    { passId: "ps1", delta: -1, reason: "수강 확인", detail: "8/13 (목) PT · PIN 확인", at: "2026-08-13 12:03" },
+    { passId: "ps1", delta: -1, reason: "수강 확인", detail: "8/13 (목) PT · QR 확인", at: "2026-08-13 12:03" },
     { passId: "ps2", delta: +10, reason: "구매", detail: "필라테스 그룹 10회 · 350,000원", at: "2026-08-01 10:11" },
     { passId: "ps2", delta: -1, reason: "수강 확인", detail: "8/5 (수) 필라테스 · 자동확정", at: "2026-08-06 10:00" },
     { passId: "ps2", delta: -1, reason: "수강 확인", detail: "8/12 (수) 필라테스 · 앱 확인", at: "2026-08-12 11:20" },
@@ -150,7 +151,7 @@ window.DB = {
   reports: [
     { id: "rp1", slotId: "s7", bookingId: "bk3", memberId: "m1", member: "김지은", status: "pending", method: null, label: "회원 확인 대기", at: "8/16 12:01 보고", deducted: false, lineId: null },
     { id: "rp5", slotId: "s10", bookingId: "bkA21", memberId: "m3", member: "이하늘", status: "pending", method: null, label: "회원 확인 대기", at: "8/17 10:05 보고", deducted: false, lineId: null },
-    { id: "rp2", slotId: null, bookingId: null, memberId: "m2", member: "박서준", desc: "8/13 (목) 19:00 PT", status: "confirmed", method: "PIN", label: "확인 완료", at: "8/13 20:12 확인", deducted: true, lineId: "sl3" },
+    { id: "rp2", slotId: null, bookingId: null, memberId: "m2", member: "박서준", desc: "8/13 (목) 19:00 PT", status: "confirmed", method: "QR 확인", label: "확인 완료", at: "8/13 20:12 확인", deducted: true, lineId: "sl3" },
     { id: "rp3", slotId: null, bookingId: null, memberId: "m3", member: "이하늘", desc: "8/12 (수) 18:00 PT", status: "auto", method: "자동확정", label: "자동확정", at: "8/13 18:00", deducted: true, lineId: "sl4" },
     { id: "rp4", slotId: null, bookingId: null, memberId: "m4", member: "최민아", desc: "8/11 (화) 06:30 크로스핏", status: "disputed", method: null, label: "이의제기", at: "8/12 09:30 접수", deducted: true, lineId: "sl12" },
     // 노쇼 데모 시드 (형 확정 08-17) — noshow=이의 시 센터 중재 분기, teacherId·date·unitPrice=보상 정산·기한 계산용
@@ -171,7 +172,7 @@ window.DB = {
     quickScope: "valid",        // P6-4 즉시확정 회원 표시: valid(유효 수업권 보유자만)/all/mine(담당만)
     signPrivate: true,          // P7-1 개인수업 수강확인 필수
     signGroup: false,           // P7-1 그룹수업
-    methodApp: true, methodPin: true, // P7-2
+    methodApp: true, methodQr: true, // P7-2 (v2.13: PIN 전면 폐지 → 현장 일회용 QR)
     autoConfirmHours: 24,       // P7-3 (0=사용 안 함)
     autoWarnRate: 30,           // P7-5 자동확정 비율 경고 임계 %
     disputeDays: 7,             // P7-4
@@ -207,15 +208,15 @@ window.DB = {
     L.push({ id, teacherId: tid, memberId: mid, member: name, passId: pid, passName: p.name, desc, unitPrice: p.unitPrice, method, auto, status, pushed: false, pushId: null });
   };
   const t1pt = [
-    ["m2", "박서준", "ps4", "8/2 (일) 11:00 PT", "PIN 확인", false],
+    ["m2", "박서준", "ps4", "8/2 (일) 11:00 PT", "QR 확인", false],
     ["m3", "이하늘", "ps6", "8/3 (월) 18:00 PT", "앱 확인", false],
-    ["m2", "박서준", "ps4", "8/13 (목) 19:00 PT", "PIN 확인", false], // sl3 = rp2
+    ["m2", "박서준", "ps4", "8/13 (목) 19:00 PT", "QR 확인", false], // sl3 = rp2
     ["m3", "이하늘", "ps6", "8/12 (수) 18:00 PT", "자동확정", true],  // sl4 = rp3
     ["m1", "김지은", "ps1", "8/2 (일) PT", "앱 확인", false],
     ["m1", "김지은", "ps1", "8/6 (목) PT", "앱 확인", false],
     ["m2", "박서준", "ps4", "8/7 (금) 19:00 PT", "자동확정", true],
     ["m3", "이하늘", "ps6", "8/8 (토) 18:00 PT", "앱 확인", false],
-    ["m1", "김지은", "ps1", "8/13 (목) PT", "PIN 확인", false],
+    ["m1", "김지은", "ps1", "8/13 (목) PT", "QR 확인", false],
     ["m2", "박서준", "ps4", "8/14 (금) 19:00 PT", "자동확정", true],
     ["m3", "이하늘", "ps6", "8/15 (토) 18:00 PT", "자동확정", true],
   ];
@@ -252,7 +253,7 @@ window.DB = {
     let name = SUR[rnd(SUR.length)] + GA[rnd(GA.length)] + GB[rnd(GB.length)];
     while (demoNames.has(name)) name = SUR[rnd(SUR.length)] + GA[rnd(GA.length)] + GB[rnd(GB.length)];
     const s7 = String(i).padStart(7, "0");
-    const m = { id: "gm" + i, name, phone: "010-9" + s7.slice(0, 3) + "-" + s7.slice(3), pin: "0000" };
+    const m = { id: "gm" + i, name, phone: "010-9" + s7.slice(0, 3) + "-" + s7.slice(3) };
     M.push(m);
     const roll = rnd(100);
     if (roll < 28) continue; // 28%는 수업권 미보유 (유효 수업권 필터 검증용)
@@ -287,7 +288,7 @@ window.DB = {
     used.add(name);
     const s4 = String(i).padStart(4, "0");
     const mid = "gtm" + i;
-    M.push({ id: mid, name, phone: "010-8000-" + s4, pin: "0000", staff: true });
+    M.push({ id: mid, name, phone: "010-8000-" + s4, staff: true });
     T.push({ id: "gt" + i, name, subject: SUBJ[rnd(SUBJ.length)], memberId: mid });
     // 일부는 자격 멤버십(pr3) 보유 — «멤버십 자격» 권한 경로가 규모에서도 동작하는지 검증용
     if (i % 11 === 0) P.push({ id: "gtps" + i, memberId: mid, productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
