@@ -142,7 +142,8 @@ button.banner:active { transform: scale(.98); }
 
 /* 요일 스트립 */
 .daystrip { display: flex; gap: 6px; margin-bottom: 14px; }
-.day { flex: 1; text-align: center; padding: 8px 0 9px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); transition: transform .12s var(--ease-out); }
+.day { flex: 1; text-align: center; padding: 8px 0 9px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); transition: transform .12s var(--ease-out); font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.day:active { transform: scale(.94); }
 .day .dw { font-size: 11px; color: var(--text-muted); font-weight: 600; }
 .day .dn { font-size: 15px; font-weight: 800; margin-top: 1px; font-variant-numeric: tabular-nums; }
 .day.on { background: var(--cta); border-color: var(--cta); color: #fff; box-shadow: 0 4px 12px rgba(255,0,101,.28); }

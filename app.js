@@ -689,20 +689,22 @@
       <a class="btn ghost mt8" href="#/t/classes">🧘 내 수업 관리 (개설·수정·폐강)</a>
       <p class="muted small mt8" style="text-align:center">즉시확정 시 회원에게 바로 알림이 가요.</p>`);
   }
+  let tSchedDay = null; // 주간 일정 선택 요일 — 화면 이탈 시 초기화(render)
   function vTSchedule() {
     const days = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"];
-    const all = tSlots().filter((s) => days.includes(s.date)).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    const sel = days.includes(tSchedDay) ? tSchedDay : (days.includes(DB.TODAY) ? DB.TODAY : days[0]);
+    const list = tSlots().filter((s) => s.date === sel).sort((a, b) => a.time.localeCompare(b.time));
     return shell("t", "주간 일정", `
       <div class="daystrip">${days.map((d) => {
         const dt = new Date(d + "T00:00:00+09:00");
-        return `<div class="day${d === DB.TODAY ? " on" : ""}"><div class="dw">${DOW[dt.getDay()]}</div><div class="dn">${dt.getDate()}</div></div>`;
+        return `<button type="button" class="day${d === sel ? " on" : ""}" onclick="App.schedDay('${d}')"><div class="dw">${DOW[dt.getDay()]}</div><div class="dn">${dt.getDate()}</div></button>`;
       }).join("")}</div>
-      <div class="card flat">${all.length ? all.map((s) => {
+      <div class="card flat">${list.length ? list.map((s) => {
         const c = cls(s.classId);
         return `<div class="slot"><span class="time">${s.time}</span>
           <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(s.date)} · ${c.schedule === "fixed" ? "고정" : "조율"} · ${seatCount(s.id)}명</div></span>
           <button class="btn sm ghost" onclick="location.hash='#/t/slot/${s.id}'">상세</button></div>`;
-      }).join("") : `<p class="muted">이번 주 수업이 없어요.</p>`}</div>`);
+      }).join("") : `<p class="muted">${dlabel(sel)}에는 수업이 없어요.</p>`}</div>`);
   }
   // B4: 조율 요청 인박스
   function vTInbox() {
@@ -2001,6 +2003,8 @@
       S.productIds = (S.productIds || []).includes(pid) ? S.productIds.filter((x) => x !== pid) : [...(S.productIds || []), pid];
       render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 개설된 수업의 지정 회원에는 소급되지 않아요.");
     },
+    // 주간 일정 요일 탭 선택
+    schedDay(d) { tSchedDay = d; render(); },
     scopeMember(tid, mid) {
       const S = (DB.policy.teacherScope || {})[tid];
       if (!S) return;
@@ -2048,6 +2052,7 @@
     const h = location.hash || "#/";
     if (h !== lastHash) Object.keys(pickers).forEach((k) => { if (pickers[k].hash !== h) delete pickers[k]; }); // 화면 이동 시 picker 상태 초기화
     if (h !== lastHash && !h.startsWith("#/c/policy")) polUI.live = false; // v2.7: 정책 화면군 밖으로 나가면 검색·펼침 초기화
+    if (h !== lastHash && h !== "#/t/schedule") tSchedDay = null; // v2.8: 주간 일정 이탈 시 요일 선택 초기화
     let body = null;
     for (const [re, fn] of routes) {
       const m = h.match(re);
