@@ -17,6 +17,9 @@
    회차별 단가 명세(펼침: 날짜·회원·수업권명·회당 단가·확인 방식, 단가 다르면 그룹 구분) + 샐리 push
    미리보기 모달(회차별 unitPrice 노출 후 전송). ② 센터 수업권 판매·등록 흐름 신설 — 실구매가 입력
    (기본=정가), unitPrice=floor(실구매가÷총횟수) 스냅샷 저장(이후 상품가 변경 소급 없음, 05 문서).
+   v2.11 (2026-08-18 형 지시): 회원 «수업 예약» 캘린더+리스트 혼합 개편 — 주간 스트립(주 이동 버튼·
+   스와이프, 월 표시·월 시트 이동, 날짜별 예약가능·내예약 점 마커) + 선택 날짜 회차 리스트(시간순,
+   잔여 정원·자격 배지·내 예약 상태·바로 예약), 조율 수업 상시 섹션, 빈 날짜 안내(가까운 수업일 이동).
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -515,15 +518,90 @@
       <button class="btn primary mt12" onclick="App.buy('${p.id}')">${won(p.price)} 결제하기</button>
       <p class="muted small mt8" style="text-align:center">프로토타입 — 실제 결제는 일어나지 않아요.</p>`, { back: true });
   }
+  // v2.11 (형 지시 08-18): 회원 «수업 예약» — 주간 캘린더 스트립 + 날짜별 회차 리스트 혼합.
+  // 조율(arranged) 수업은 날짜 필터에 묻히지 않게 캘린더 아래 상시 섹션.
+  let mBookSel = null; // 선택 날짜 — 화면 이탈 시 초기화(render)
+  const MB_MINE = ["booked", "waitlisted", "confirm_wait"]; // 캘린더 «내 예약» 점 판정
+  function mbWeekStart(d) { const dt = new Date(d + "T12:00:00+09:00"); return addDays(d, -((dt.getDay() + 6) % 7)); }
+  // 그날 회원에게 보이는 회차 — 고정 스케줄은 전부, 조율(adhoc) 회차는 내 예약분만 (남의 1:1 일정 비공개)
+  function mbSlotsOn(date) {
+    return DB.slots.filter((s) => {
+      if (s.date !== date || s.status === "canceled") return false;
+      const c = cls(s.classId);
+      if (!c || c.status === "closed") return false;
+      if (c.schedule === "fixed") return true;
+      return DB.bookings.some((b) => b.slotId === s.id && b.memberId === DB.me.member && [...SEAT, "waitlisted"].includes(b.status));
+    }).sort((a, b) => a.time.localeCompare(b.time));
+  }
+  const mbBookable = (s) => { const c = cls(s.classId); return !!c && c.status !== "closed" && c.schedule === "fixed" && s.status === "scheduled" && !isPast(s); };
+  const mbMineOn = (date) => DB.bookings.some((b) => {
+    if (b.memberId !== DB.me.member || !MB_MINE.includes(b.status)) return false;
+    const s = slot(b.slotId);
+    return s && s.status !== "canceled" && s.date === date;
+  });
+  function mbNearest(sel) {
+    const dates = [...new Set(DB.slots.filter(mbBookable).map((s) => s.date))].sort();
+    return dates.find((d) => d > sel) || dates.slice().reverse().find((d) => d < sel) || null;
+  }
   function vMBook() {
-    const list = DB.classes.filter((c) => c.status !== "closed");
+    const sel = mBookSel || (mBookSel = DB.TODAY);
+    const days = Array.from({ length: 7 }, (_, i) => addDays(mbWeekStart(sel), i));
+    const selDt = new Date(sel + "T12:00:00+09:00");
+    const list = mbSlotsOn(sel);
+    const arranged = DB.classes.filter((c) => c.status !== "closed" && c.schedule === "arranged");
+    const near = list.length ? null : mbNearest(sel);
+    const item = (s) => {
+      const c = cls(s.classId);
+      const n = seatCount(s.id), w = waitBk(s.id).length, full = n >= c.capacity;
+      const mine = DB.bookings.find((b) => b.slotId === s.id && b.memberId === DB.me.member && [...SEAT, "waitlisted"].includes(b.status));
+      const past = isPast(s) || s.status !== "scheduled";
+      let right;
+      if (past) right = `<span class="badge b-gray">종료</span>`;
+      else if (mine) right = "";
+      else if (full) right = c.kind === "private" || !DB.policy.waitlist
+        ? `<span class="badge b-danger">마감</span>`
+        : `<button class="btn sm ghost" onclick="location.hash='#/m/slot/${s.id}'">대기</button>`;
+      else right = `<button class="btn sm primary" onclick="location.hash='#/m/slot/${s.id}'">예약</button>`;
+      return `<div class="slot mb-item">
+        <button class="mb-main" onclick="location.hash='#/m/slot/${s.id}'">
+          <span class="time">${s.time}</span>
+          <span class="grow"><span class="t">${c.title}</span>
+            <div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.duration}분 · ${past ? "지난 회차" : full ? `정원 마감${w ? ` · 대기 ${w}명` : ""}` : `잔여 ${c.capacity - n}자리`}</div>
+            <div class="mt4 mb-badges"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span><span class="badge b-gray">${eligLabel(c)}</span>${mine ? `<span class="badge ${bkBadge(mine).badge}">${bkBadge(mine).label}</span>` : ""}</div></span>
+        </button>
+        ${right ? `<span class="mb-right">${right}</span>` : ""}</div>`;
+    };
     return shell("m", "수업 예약", `
-      ${list.map((c) => `<button class="card card-tap" onclick="location.hash='#/m/class/${c.id}'">
+      <div class="card mb-cal">
+        <div class="mb-head">
+          <button class="mb-nav" onclick="App.mbWeek(-1)" aria-label="이전 주">‹</button>
+          <button class="mb-month" onclick="App.mbMonthSheet()">${selDt.getFullYear()}년 ${selDt.getMonth() + 1}월 <span class="car">▾</span></button>
+          <button class="mb-nav" onclick="App.mbWeek(1)" aria-label="다음 주">›</button>
+        </div>
+        <div class="mb-strip">${days.map((d) => {
+          const dt = new Date(d + "T12:00:00+09:00");
+          const avail = DB.slots.some((s) => s.date === d && mbBookable(s));
+          return `<button type="button" class="mb-day${d === sel ? " on" : ""}${d === DB.TODAY ? " today" : ""}${d < DB.TODAY ? " past" : ""}" onclick="App.mbDay('${d}')">
+            <span class="dw">${DOW[dt.getDay()]}</span><span class="dn">${dt.getDate()}</span>
+            <span class="mb-dots">${mbMineOn(d) ? `<i class="mine"></i>` : ""}${avail ? `<i class="av"></i>` : ""}</span></button>`;
+        }).join("")}</div>
+        <div class="mb-legend"><span><i class="av"></i>예약 가능한 수업</span><span><i class="mine"></i>내 예약</span></div>
+      </div>
+      <div class="sec-title">${dlabel(sel)} 수업</div>
+      ${list.length ? `<div class="card flat">${list.map(item).join("")}</div>`
+        : `<div class="card flat mb-empty"><div class="em">🗓️</div>
+            <p class="muted mt8">이 날은 예약할 수 있는 수업이 없어요.</p>
+            ${near ? `<button class="btn ghost mt12" onclick="App.mbDay('${near}')">가장 가까운 수업일 ${dlabel(near)}로 이동</button>` : ""}</div>`}
+      <div class="sec-title">수시 조율 수업 <span class="muted small" style="font-weight:600">— 날짜와 무관하게 신청해요</span></div>
+      ${arranged.length ? arranged.map((c) => {
+        const pend = DB.arranges.filter((a) => a.memberId === DB.me.member && a.classId === c.id && a.status === "pending").length;
+        return `<button class="card card-tap" onclick="location.hash='#/m/class/${c.id}'">
         <div class="row"><span class="grow"><b>${c.title}</b>
           <div class="muted small mt4">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · ${c.duration}분</div>
           <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span>
-          <span class="badge b-gray">${eligLabel(c)}</span></div></span>
-        <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`).join("")}`);
+          <span class="badge b-gray">${eligLabel(c)}</span>${pend ? `<span class="badge b-warn">조율 대기 ${pend}건</span>` : ""}</div></span>
+        <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`;
+      }).join("") : `<div class="card flat"><p class="muted">수시 조율로 진행하는 수업이 없어요.</p></div>`}`);
   }
   function vMClass(id) {
     const c = cls(id);
@@ -2114,6 +2192,21 @@
     },
     // 주간 일정 요일 탭 선택
     schedDay(d) { tSchedDay = d; render(); },
+    // v2.11: 회원 예약 캘린더 — 날짜 선택·주 이동·월 이동
+    mbDay(d) { mBookSel = d; render(); },
+    mbWeek(delta) { mBookSel = addDays(mBookSel || DB.TODAY, delta * 7); render(); },
+    mbGoto(d) { mBookSel = d; closeModal(); render(); },
+    mbMonthSheet() {
+      const months = [...new Set([...DB.slots.map((s) => s.date.slice(0, 7)), DB.TODAY.slice(0, 7)])].sort();
+      const [ly, lm] = months[months.length - 1].split("-").map(Number);
+      months.push(`${lm === 12 ? ly + 1 : ly}-${String((lm % 12) + 1).padStart(2, "0")}`); // 다음 달까지 노출
+      const cur = (mBookSel || DB.TODAY).slice(0, 7);
+      modal(`<h3>월 이동</h3>${months.map((ym) => {
+        const [y, m] = ym.split("-").map(Number);
+        const target = ym === DB.TODAY.slice(0, 7) ? DB.TODAY : `${ym}-01`;
+        return `<button class="btn ${ym === cur ? "primary" : "ghost"} mt8" onclick="App.mbGoto('${target}')">${y}년 ${m}월</button>`;
+      }).join("")}`);
+    },
     scopeMember(tid, mid) {
       const S = (DB.policy.teacherScope || {})[tid];
       if (!S) return;
@@ -2162,6 +2255,7 @@
     if (h !== lastHash) Object.keys(pickers).forEach((k) => { if (pickers[k].hash !== h) delete pickers[k]; }); // 화면 이동 시 picker 상태 초기화
     if (h !== lastHash && !h.startsWith("#/c/policy")) polUI.live = false; // v2.7: 정책 화면군 밖으로 나가면 검색·펼침 초기화
     if (h !== lastHash && h !== "#/t/schedule") tSchedDay = null; // v2.8: 주간 일정 이탈 시 요일 선택 초기화
+    if (h !== lastHash && h !== "#/m/book") mBookSel = null; // v2.11: 예약 캘린더 이탈 시 날짜 선택 초기화
     let body = null;
     for (const [re, fn] of routes) {
       const m = h.match(re);
@@ -2182,6 +2276,19 @@
     }
     lastHash = h;
   }
+  // v2.11: 캘린더 스트립 좌우 스와이프 → 주 이동 (수평 48px 이상 · 탭과 구분, 이후 클릭 1회 억제)
+  let mbSw = null, mbSwipedAt = 0;
+  document.addEventListener("pointerdown", (e) => { mbSw = e.target.closest(".mb-strip") ? { x: e.clientX, y: e.clientY } : null; }, { passive: true });
+  document.addEventListener("pointerup", (e) => {
+    if (!mbSw) return;
+    const dx = e.clientX - mbSw.x, dy = e.clientY - mbSw.y;
+    mbSw = null;
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) { mbSwipedAt = performance.now(); App.mbWeek(dx < 0 ? 1 : -1); }
+  }, { passive: true });
+  document.addEventListener("click", (e) => {
+    if (performance.now() - mbSwipedAt < 400 && e.target.closest(".mb-strip")) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+
   // 스크롤 에지: 콘텐츠가 헤더 밑으로 흐를 때만 경계선·그림자 표시
   window.addEventListener("scroll", () => {
     const hd = document.querySelector(".hd");
