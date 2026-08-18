@@ -563,14 +563,30 @@
       }).join("") : `<p class="muted">예약이 없어요.</p>`}</div>
       <a class="btn primary mt8" href="#/m/book">수업 예약하기</a>`);
   }
+  // v2.16: 실서비스 «멤버십 구매» 카드 문법 전면 교체 (purchase_ui_spec.md v1 — 실측 레드 사용, 브랜드 팔레트 치환 금지)
+  function shopCard(p) {
+    const sale = p.salePrice != null && p.salePrice < p.price; // §2-3 조건부 이벤트 문법 (데이터에 salePrice 있을 때만)
+    const per = Math.floor((sale ? p.salePrice : p.price) / p.sessions);
+    return `<button class="shop-card${sale ? " ev" : ""}" onclick="location.hash='#/m/shop/${p.id}'" aria-label="${p.name}">
+      ${sale ? `<span class="sc-badge">이벤트<br>할인가</span>` : ""}
+      <span class="sc-cap">${p.sessions}회</span>
+      <span class="sc-band">${p.validityDays ? `${p.validityDays}일` : "기간 제한 없음"}</span>
+      <span class="sc-price">${sale
+        ? `<s class="sc-list">${won(p.price)}</s><b class="sc-sale">${won(p.salePrice)}</b><b class="sc-per-ev">회당 ${won(per)}</b>`
+        : `<b class="sc-won">${won(p.price)}</b><span class="sc-per">회당 ${won(per)}</span>`}</span>
+    </button>`;
+  }
   function vMShop() {
-    return shell("m", "수업 멤버십 구매", `
-      <p class="muted" style="margin-bottom:12px">횟수제 수업권이에요. 유효기간이 지나거나 횟수를 다 쓰면 만료돼요.</p>
-      ${DB.products.map((p) => `<button class="card card-tap" onclick="location.hash='#/m/shop/${p.id}'">
-        <div class="row"><span class="grow"><b>${p.name}</b>
-          <div class="muted small mt4">${p.kind === "private" ? "개인수업" : "그룹수업"} · ${p.sessions}회 · ${p.validityDays ? `${p.validityDays}일` : "기간 제한 없음"}</div></span>
-        <span style="text-align:right"><span class="big">${won(p.price)}</span><div class="muted small">회당 ${won(Math.floor(p.price / p.sessions))}</div></span></div>
-      </button>`).join("")}`, { back: true });
+    const section = (title, ps, notice) => `
+      <h2 class="shop-h">${title}</h2>
+      <div class="shop-row">${ps.map(shopCard).join("")}</div>
+      <div class="shop-notice">${notice}</div>`;
+    return shell("m", "수업 멤버십 구매", `<div class="shop">
+      ${section("개인수업", DB.products.filter((p) => p.kind === "private"),
+        "💡 횟수제 수업권이에요. 유효기간이 지나거나 횟수를 다 쓰면 만료돼요")}
+      ${section("그룹수업", DB.products.filter((p) => p.kind === "group"),
+        "💡 (무기한) 수업권은 기간 제한 없이 횟수만 차감돼요")}
+    </div>`, { back: true });
   }
   function vMShopDetail(id) {
     const p = DB.products.find((x) => x.id === id);

@@ -402,3 +402,25 @@ button.stat:active { transform: scale(.97); }
   .hd, .tabbar, .modal { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--border-strong); }
   .card, .stat, .role-card { border-color: var(--border-strong); }
 }
+
+/* ══ v2.16 회원 «수업 멤버십 구매» — 실서비스 구매 화면 카드 문법 (purchase_ui_spec.md v1 실측) ══
+   ⚠️ 레드 계열(#CE0000·#C80000 등)은 실서비스 실측값 — 니짐 Rose(#FF0065)로 치환 금지 (스펙 §3-1) */
+.shop { margin: -16px -16px -24px; padding: 4px 0 28px; background: #ffffff; }
+.shop-h { margin: 28px 16px 0; font-size: 20px; font-weight: 700; color: #111111; line-height: 1.3; }
+.shop-h:first-child { margin-top: 10px; }
+.shop-row { display: flex; align-items: flex-start; gap: 30px; overflow-x: auto; padding: 24px 18px 8px; scroll-snap-type: x proximity; scroll-padding-left: 18px; scrollbar-width: none; }
+.shop-row::-webkit-scrollbar { display: none; }
+.shop-card { position: relative; flex: 0 0 140px; width: 140px; display: flex; flex-direction: column; padding: 0; background: #ffffff; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,.08); text-align: center; scroll-snap-align: start; transition: transform .12s var(--ease-out); }
+.shop-card:active { transform: scale(.97); }
+.sc-cap { display: flex; align-items: center; justify-content: center; height: 23px; border-radius: 10px 10px 0 0; background: #343434; color: #ffffff; font-size: 17px; font-weight: 700; }
+.shop-card.ev .sc-cap { background: #ce0000; }
+.sc-band { display: flex; align-items: center; justify-content: center; height: 15px; background: #d6d6d6; color: #333333; font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap; }
+.shop-card.ev .sc-band { background: #ffced5; }
+.sc-price { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 18px 8px; }
+.sc-won { font-size: 17px; font-weight: 700; color: #111111; line-height: 1.25; }
+.sc-per { font-size: 13px; font-weight: 500; color: #767676; line-height: 1.3; }
+.sc-list { font-size: 13px; font-weight: 500; color: #555555; line-height: 1.25; text-decoration: line-through; }
+.sc-sale { font-size: 15px; font-weight: 600; color: #c80000; line-height: 1.25; }
+.sc-per-ev { font-size: 17px; font-weight: 800; color: #c80000; line-height: 1.25; }
+.sc-badge { position: absolute; left: -10px; top: -24px; z-index: 2; width: 34px; height: 34px; border-radius: 50%; background: #fcce00; color: #443300; font-size: 10px; font-weight: 700; line-height: 1.15; display: flex; align-items: center; justify-content: center; text-align: center; }
+.shop-notice { margin: 20px 16px 0; padding: 14px 18px; border-radius: 12px; background: #f1f1f1; color: #333333; font-size: 13px; font-weight: 500; line-height: 1.6; }
