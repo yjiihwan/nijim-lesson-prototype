@@ -35,6 +35,9 @@
    스냅샷→«구매/예약 시점 기준», 인용→«이의 인정») ③ 회원 홈 확인 카드 보조 버튼 «자세히 · 문제가 있어요»→
    «자세히 보기»(이의제기는 상세 화면에서) ④ 데모 전용 장치(회원 폰 열기·이의기간 경과)는 점선 demo-box+
    «프로토타입 데모» 캡션으로 실서비스 UI와 시각 구분. 정책 의미·동작은 무변경(문구만).
+   v2.19 (2026-08-18): 센터 정산 화면 «엑셀로 내려받기» — 화면 집계를 그대로 .xlsx로 저장.
+   외부 라이브러리 없이 zip(무압축)+시트 XML 직접 생성. 확정·이의 보류(합계 제외)·노쇼 보상 행 +
+   마지막 합계 행. 파일명 니짐내짐_정산_<YYYY-MM>.xlsx. 화면 집계 로직(slines 동적 집계)과 동일 계산.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -1422,6 +1425,91 @@
         </span></div>`).join("")}</div>
       <p class="muted small">모든 확인에는 시각·기기 기록이 남고, 한 번 남은 기록은 바꾸거나 지울 수 없어요.</p>`, { back: true });
   }
+  // ── 엑셀(.xlsx) 생성 — 외부 라이브러리 없이 무압축 zip + 시트 XML 직접 조립 ──
+  const XLSX_CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+    return t;
+  })();
+  const xlsxCrc32 = (u) => { let c = -1; for (let i = 0; i < u.length; i++) c = XLSX_CRC_TABLE[(c ^ u[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
+  const xlsxXmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // rows: (string|number|null)[][] — 숫자는 숫자 셀로 넣어 엑셀에서 합계·수식이 바로 되게 한다
+  function xlsxBytes(rows, colWidths) {
+    const colRef = (i) => { let s = ""; for (i += 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s; return s; };
+    const cell = (v, r, ci) => v == null || v === ""
+      ? ""
+      : typeof v === "number"
+        ? `<c r="${colRef(ci)}${r}" t="n"><v>${v}</v></c>`
+        : `<c r="${colRef(ci)}${r}" t="inlineStr"><is><t xml:space="preserve">${xlsxXmlEsc(v)}</t></is></c>`;
+    const XMLH = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+    const sheet = `${XMLH}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${(colWidths || []).map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols><sheetData>${rows.map((row, ri) => `<row r="${ri + 1}">${row.map((v, ci) => cell(v, ri + 1, ci)).join("")}</row>`).join("")}</sheetData></worksheet>`;
+    const files = [
+      ["[Content_Types].xml", `${XMLH}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
+      ["_rels/.rels", `${XMLH}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+      ["xl/workbook.xml", `${XMLH}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="정산 내역" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+      ["xl/_rels/workbook.xml.rels", `${XMLH}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+      ["xl/styles.xml", `${XMLH}<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Malgun Gothic"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>`],
+      ["xl/worksheets/sheet1.xml", sheet],
+    ];
+    const enc = new TextEncoder();
+    const d = NOW; // 데모 고정 시각 — zip 타임스탬프도 고정해 같은 데이터=같은 파일
+    const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    const parts = []; const central = []; let offset = 0;
+    files.forEach(([name, text]) => {
+      const nameB = enc.encode(name); const data = enc.encode(text); const crc = xlsxCrc32(data);
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, nameB.length, true);
+      parts.push(new Uint8Array(lh.buffer), nameB, data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, nameB.length, true);
+      ch.setUint32(42, offset, true);
+      central.push(new Uint8Array(ch.buffer), nameB);
+      offset += 30 + nameB.length + data.length;
+    });
+    const cdSize = central.reduce((a, u) => a + u.length, 0);
+    const eocd = new DataView(new ArrayBuffer(22));
+    eocd.setUint32(0, 0x06054b50, true); eocd.setUint16(8, files.length, true); eocd.setUint16(10, files.length, true);
+    eocd.setUint32(12, cdSize, true); eocd.setUint32(16, offset, true);
+    const all = [...parts, ...central, new Uint8Array(eocd.buffer)];
+    const out = new Uint8Array(all.reduce((a, u) => a + u.length, 0));
+    let p = 0; all.forEach((u) => { out.set(u, p); p += u.length; });
+    return out;
+  }
+  // 엑셀 행 구성 — vCSettlement와 같은 집계(확정=합계 포함, 이의 보류=제외 표기, 노쇼 보상=정책 지원 시 포함)
+  function settlementExportRows() {
+    // desc 형식 두 가지 수용: "8/13 (목) 19:00 · PT"(슬롯) / "8/13 (목) 19:00 PT"·"8/8 수업명"(시드)
+    const split = (d) => {
+      const m = (d || "").match(/^(\d{1,2}\/\d{1,2}(?:\s*\([^)]+\))?(?:\s+\d{1,2}:\d{2})?)(?:\s*·\s*|\s+)(.*)$/);
+      return m ? [m[1], m[2]] : [d || "", ""];
+    };
+    const rows = [["수업일시", "수업명", "선생님", "회원", "수업권", "구분", "회당 단가(원)", "정산 금액(원)"]];
+    let total = 0, cnt = 0, heldN = 0, nsCnt = 0;
+    DB.teachers.forEach((t) => {
+      const lines = DB.slines.filter((l) => l.teacherId === t.id);
+      lines.filter((l) => l.status === "eligible").forEach((l) => {
+        const [when, title] = split(l.desc);
+        rows.push([when, title, t.name, l.member, l.passName || "수업권", `수강 확인 완료 (${l.method})`, l.unitPrice, l.unitPrice]);
+        total += l.unitPrice; cnt++;
+      });
+      lines.filter((l) => l.status === "held").forEach((l) => {
+        const [when, title] = split(l.desc);
+        rows.push([when, title, t.name, l.member, l.passName || "수업권", "이의 심사 중 — 합계에서 제외", l.unitPrice, ""]);
+        heldN++;
+      });
+      if (rewardOn()) noshowFinals(t.id).forEach((r) => {
+        const [when, title] = split(r.desc || (r.slotId ? slotDesc(slot(r.slotId)) : ""));
+        const amt = noshowUnit(r);
+        rows.push([when, title, t.name, r.member, "", "노쇼 보상 (센터 정책)", amt, amt]);
+        total += amt; nsCnt++;
+      });
+    });
+    rows.push([]);
+    rows.push(["합계", `수강 확인 ${cnt}회${nsCnt ? ` + 노쇼 보상 ${nsCnt}건` : ""}${heldN ? ` · 이의 심사 중 ${heldN}건은 제외` : ""}`, "", "", "", "", "", total]);
+    return { rows, total, cnt, heldN, nsCnt };
+  }
   // S-5: 정산 = 라인 동적 집계. held 제외·멱등 전송·전송 후 이의 경고
   function vCSettlement() {
     const per = DB.teachers.map((t) => {
@@ -1463,6 +1551,9 @@
         </div></div>`).join("")}
       ${hiddenN > 0 ? `<div class="card flat"><div class="muted small">이번 달 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
       ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건은 수강확인이 안 돼 정산에 포함되지 않았어요. 노쇼 보상은 현재 <b>${rewardLabel}</b>이에요 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정에서 변경 ›</a></div></div>` : ""}
+      <div class="card"><div class="row" style="gap:12px"><span class="grow"><b>엑셀로 내려받기</b>
+        <div class="muted small mt4">지금 화면의 이번 달 정산 내역을 엑셀 파일로 저장해요. 이의 심사 중인 회차는 제외 표시가 붙고, 마지막 줄에 합계가 들어 있어요.</div></span>
+        <button class="btn sm" onclick="App.exportSettlement()">📥 내려받기</button></div></div>
       <div class="banner"><span class="ic">🔗</span><span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 확정된 회차만 넘겨요. 같은 회차는 여러 번 보내도 한 번만 반영되니 안심하고 누르세요.</span></div>`);
   }
   function vCPolicy() {
@@ -2276,6 +2367,18 @@
       if (lines.length) parts.push(`${lines.length}회`);
       if (rewards.length) parts.push(`노쇼 보상 ${rewards.length}건 · ${won(rewards.reduce((a, r) => a + r.rewardAmount, 0))}`);
       toast(`${t.name} 선생님 ${parts.join(" + ")}를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. 같은 회차는 다시 보내도 중복 반영되지 않아요. (프로토타입 모의 전송)`);
+    },
+    // v2.19: 정산 화면 «엑셀로 내려받기» — 화면 집계 그대로 .xlsx 저장, 마지막 행=합계
+    exportSettlement() {
+      const { rows, total } = settlementExportRows();
+      const month = DB.TODAY.slice(0, 7);
+      const blob = new Blob([xlsxBytes(rows, [16, 30, 12, 12, 26, 30, 14, 14])], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `니짐내짐_정산_${month}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast(`엑셀 파일을 내려받았어요 — 합계 ${won(total)}. 지금 화면의 정산 내역이 그대로 담겨 있어요.`);
     },
     toggle(key) {
       const P = DB.policy;
