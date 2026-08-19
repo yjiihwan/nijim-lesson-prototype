@@ -366,9 +366,98 @@
     }
   }
   // 하-5: 조율·«수업 만들기»로 만든 회차가 비면 정리 (유령 슬롯 방지)
+  // v2.28: 반복 생성 회차는 «자리를 비워 두는 것»이 정상이라 이 정리에서 제외한다.
   function cleanupSlot(s) {
-    if (s && s.adhoc && s.status === "scheduled" && seatCount(s.id) === 0 && waitBk(s.id).length === 0) s.status = "canceled";
+    if (s && s.adhoc && !s.recurId && s.status === "scheduled" && seatCount(s.id) === 0 && waitBk(s.id).length === 0) s.status = "canceled";
   }
+
+  // ══ v2.28 «매주 반복 수업 자동 개설» (형 확정 2026-08-19) ══
+  // ① 롤링 생성: 기준일(실서비스=오늘)부터 항상 앞으로 8주치 회차를 미리 만들어 둔다. 기준일이 한 주
+  //    밀리면 뒤에 한 주가 자동으로 붙는다. ② 종료=«종료일 지정»/«중단할 때까지». ③ 기본형=자리 열기,
+  //    지정 확정도 반복 가능하되 수업권이 모자란 회차는 «확정 보류»로 남기고 선생님·센터에 알린다.
+  // ④ 공휴일·휴무는 «이번만 건너뛰기»(skips), 수정은 «이 회차만/앞으로 전부» 선택. ⑤ 회차엔 🔁 배지.
+  const ROLL_WEEKS = 8;
+  const RECUR_MAX_DAYS = 400; // 생성 루프 상한 — 규칙이 잘못돼도 무한 루프가 되지 않게
+  const dowOf = (d) => new Date(d + "T12:00:00+09:00").getDay();
+  const recur = (id) => DB.recurs.find((r) => r.id === id);
+  const recurOf = (s) => (s && s.recurId ? recur(s.recurId) : null);
+  const recurBadge = (s) => (s && s.recurId ? `<span class="badge b-rc">🔁 반복</span>` : "");
+  const recurDowLabel = (r) => r.weekdays.slice().sort().map((d) => DOW[d]).join("·");
+  const recurLabel = (r) => `매주 ${recurDowLabel(r)} ${r.time}`;
+  const recurEndLabel = (r) => (r.endMode === "date" && r.endDate ? `${r.endDate.replaceAll("-", ".")}까지` : "중단할 때까지");
+  const recurFillLabel = (r) => (r.fill === "assign" ? "회원 지정해서 바로 확정" : "자리 열어두고 신청 받기");
+  const recurAnchor = () => DB.rollAnchor || DB.TODAY;
+  const recurHorizon = () => addDays(recurAnchor(), ROLL_WEEKS * 7);
+  // 후차감 모델이라 remaining은 «수강확인» 전까지 줄지 않는다 — 이미 잡아 둔 예약분을 빼야 실제 여유가 나온다.
+  const passHeld = (p) => DB.bookings.filter((b) => b.passId === p.id && ["booked", "waitlisted", "confirm_wait"].includes(b.status)).length;
+  const passFree = (p) => p.remaining - passHeld(p);
+  function recurDates(r, from, to) {
+    const out = [];
+    let d = from, guard = 0;
+    while (d <= to && guard++ < RECUR_MAX_DAYS) {
+      if (r.weekdays.includes(dowOf(d)) && !(r.skips || []).includes(d)
+        && !(r.endMode === "date" && r.endDate && d > r.endDate)) out.push(d);
+      d = addDays(d, 1);
+    }
+    return out;
+  }
+  const recurSlotAt = (r, d) => DB.slots.find((s) => s.classId === r.classId && s.date === d && s.time === r.time && s.status !== "canceled");
+  const recurSlots = (r) => DB.slots.filter((s) => s.recurId === r.id && s.status !== "canceled").sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const recurNext = (r) => recurSlots(r).find((s) => !isPast(s)) || null;
+  // 지정 확정 반복 — 회원별로 자격·여유를 확인하고, 안 되는 회원은 «확정 보류»로 남긴다(부분 생성 아님: 회차는 만든다).
+  function recurAssign(r, c, s) {
+    let held = 0;
+    for (const mid of r.memberIds || []) {
+      const g = bookGuard(c, mid);
+      const free = g.ok ? passFree(g.pass) : 0;
+      let why = null;
+      if (!g.ok) why = g.msg;
+      else if (free <= 0) why = `«${g.pass.name}» 잔여 ${Math.max(0, g.pass.remaining)}회가 앞선 예약 ${passHeld(g.pass)}건에 이미 배정돼 있어요.`;
+      else if (seatCount(s.id) >= c.capacity) why = `정원(${c.capacity}명)이 이미 찼어요.`;
+      if (why) {
+        (s.holds = s.holds || []).push({ memberId: mid, reason: why });
+        DB.notices.push({ id: nid("nt"), kind: "recur_hold", recurId: r.id, slotId: s.id, classId: c.id,
+          teacherId: c.teacherId, memberId: mid, reason: why, at: nowStamp, resolved: false });
+        held++;
+        continue;
+      }
+      DB.bookings.push({ id: nid("bk"), slotId: s.id, memberId: mid, passId: g.pass.id, status: "booked", policySnap: snapPolicy(), viaRecur: r.id });
+    }
+    return held;
+  }
+  function recurGenerate(r) {
+    if (!r.active) return { made: 0, held: 0 };
+    const c = cls(r.classId);
+    if (!c || c.status === "closed") return { made: 0, held: 0 };
+    const anchor = recurAnchor();
+    const from = r.startDate > anchor ? r.startDate : anchor;
+    let made = 0, held = 0;
+    for (const d of recurDates(r, from, recurHorizon())) {
+      const exist = recurSlotAt(r, d);
+      if (exist) { if (!exist.recurId) exist.recurId = r.id; continue; } // 같은 일시 회차가 있으면 흡수 — 중복 생성 금지
+      const s = { id: nid("s"), classId: c.id, date: d, time: r.time, status: "scheduled", recurId: r.id };
+      DB.slots.push(s);
+      made++;
+      if (r.fill === "assign") held += recurAssign(r, c, s);
+    }
+    return { made, held };
+  }
+  function recurRollAll() {
+    let made = 0, held = 0;
+    for (const r of DB.recurs) { const x = recurGenerate(r); made += x.made; held += x.held; }
+    return { made, held };
+  }
+  // 반복을 끌 때 «앞으로의 빈 회차»만 정리 — 예약이 있는 회차는 건드리지 않는다(회원 보호).
+  function recurPurge(r) {
+    let n = 0;
+    DB.slots.filter((s) => s.recurId === r.id && s.status === "scheduled" && !isPast(s) && !s.detached
+      && seatCount(s.id) === 0 && waitBk(s.id).length === 0).forEach((s) => { s.status = "canceled"; s.cancelReason = "반복 중단"; n++; });
+    return n;
+  }
+  // 확정 보류 알림 — 선생님은 본인 담당만, 센터는 전체. 회차가 사라졌으면 자동으로 목록에서 빠진다.
+  const recurHolds = (role) => DB.notices.filter((n) => !n.resolved && n.kind === "recur_hold"
+    && (role !== "t" || n.teacherId === DB.me.teacher)
+    && ((slot(n.slotId) || {}).status === "scheduled"));
 
   // ── 모션 유틸 (Apple 스프링: damping ratio + response, 인터럽터블) ──
   const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -1209,6 +1298,7 @@
     const today = tSlots().filter((s) => s.date === DB.TODAY).sort((a, b) => a.time.localeCompare(b.time));
     const pending = DB.reports.filter((r) => r.status === "pending").length;
     const arrs = tPendingArrs().length;
+    const holds = recurHolds("t").length; // v2.28 ③ 확정 보류 알림
     return shell("t", "박코치 선생님", `
       <div class="stat-grid">
         <div class="stat"><div class="k">오늘 수업</div><div class="v">${today.length}<small>회</small></div></div>
@@ -1216,10 +1306,11 @@
       </div>
       ${arrs ? `<button class="banner" onclick="location.hash='#/t/inbox'">${icb("mail")}<span>회원 조율 요청이 <b>${arrs}건</b> 기다리고 있어요. <u>확인하기</u></span></button>` : ""}
       ${pending ? `<button class="banner" onclick="location.hash='#/t/report'">${icb("clip")}<span>회원 확인을 기다리는 수업이 ${pending}건 있어요.</span></button>` : ""}
+      ${holds ? `<button class="banner warn" onclick="location.hash='#/t/holds'">${icb("alert")}<span>매주 반복 수업 중 수업권이 모자라 <b>확정 보류</b>된 회차가 ${holds}건 있어요. <u>확인하기</u></span></button>` : ""}
       <div class="sec-title">오늘 일정 · ${dlabel(DB.TODAY)}</div>
       <div class="card flat">${today.length ? today.map((s) => {
         return `<div class="slot"><span class="time">${s.time}</span>
-          <span class="grow"><span class="t">${cls(s.classId).title}</span><div class="muted small">${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
+          <span class="grow"><span class="t">${cls(s.classId).title} ${recurBadge(s)}</span><div class="muted small">${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
           ${overlapBadge(s)}<button class="btn sm ghost" onclick="location.hash='#/t/slot/${s.id}'">상세</button></div>`;
       }).join("") : `<p class="muted">오늘 수업이 없어요.</p>`}</div>
       <a class="btn primary mt8" href="#/t/create">${ici("plus")}수업 만들기</a>
@@ -1247,7 +1338,7 @@
       <div class="card flat">${list.length ? list.map((s) => {
         const c = cls(s.classId);
         return `<div class="slot"><span class="time">${s.time}</span>
-          <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(s.date)} · ${c.schedule === "fixed" ? "고정" : "조율"} · ${seatCount(s.id)}명</div></span>
+          <span class="grow"><span class="t">${c.title} ${recurBadge(s)}</span><div class="muted small">${dlabel(s.date)} · ${c.schedule === "fixed" ? "고정" : "조율"} · ${seatCount(s.id)}명</div></span>
           ${overlapBadge(s)}<button class="btn sm ghost" onclick="location.hash='#/t/slot/${s.id}'">상세</button></div>`;
       }).join("") : `<p class="muted">${dlabel(sel)}에는 수업이 없어요.</p>`}</div>`);
   }
@@ -1317,7 +1408,8 @@
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${c.duration}분</div>
         <div class="mt8"><span class="badge ${done ? "b-gray" : "b-green"}">${done ? "종료" : "예정"}</span>
-        <span class="badge ${priv ? "b-rose" : "b-blue"}">${priv ? "개인 1:1" : `그룹 · ${seats.length}/${c.capacity}명`}</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}</div></div>
+        <span class="badge ${priv ? "b-rose" : "b-blue"}">${priv ? "개인 1:1" : `그룹 · ${seats.length}/${c.capacity}명`}</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
+      ${recurSlotHtml(s, "t")}
       ${ov.length ? `<div class="banner warn">${icb("alert")}<span>같은 시간대에 <b>${ov.map((o) => `${o.time} ${cls(o.classId).title}`).join(", ")}</b> 수업이 함께 잡혀 있어요. 확인하고 진행해 주세요.</span></div>` : ""}
       <div class="sec-title">참석자</div>
       <div class="card flat">${seats.length ? seats.map((b) => {
@@ -1380,7 +1472,9 @@
       const first = list[0] || null;
       ccUI = { role, fill: "assign", classId: first ? first.id : "new", slotSel: "new",
         date: "2026-08-22", time: "11:00", title: "", teacherId: (DB.teachers[0] || {}).id,
-        kind: "group", cap: "6", sched: "fixed", elig: first ? first.eligibility : "pass" };
+        kind: "group", cap: "6", sched: "fixed", elig: first ? first.eligibility : "pass",
+        // v2.28 반복 — wdays=null이면 «고른 날짜의 요일»을 따라간다(요일을 직접 건드리면 그때부터 고정)
+        rep: false, wdays: null, endMode: "until", endDate: "2026-12-31" };
     }
     return ccUI;
   }
@@ -1393,7 +1487,11 @@
     set("date", val("qk-date")); set("time", val("qk-time")); set("slotSel", val("qk-slot"));
     set("title", val("nc-title")); set("teacherId", val("nc-teacher")); set("cap", val("nc-cap"));
     set("kind", seg("#nc-kind .on")); set("sched", seg("#nc-sched .on")); set("elig", seg("#nc-elig .on"));
+    set("endDate", val("rp-end")); set("endMode", seg("#rp-endmode .on"));
   }
+  // v2.28: 반복은 «매주 고정» 수업에만 — 조율형은 일정 자체를 회원과 맞추는 방식이라 반복 대상이 아니다.
+  const ccRepOk = (U, c) => (c ? c.schedule === "fixed" : U.sched === "fixed");
+  const ccWdays = (U) => (U.wdays && U.wdays.length ? U.wdays : [dowOf(U.date || DB.TODAY)]);
   // 폼이 «지금 만들려는 수업»의 정원·1:1 여부 — 아직 DB에 없는 새 수업도 같은 규칙으로 한도를 계산한다
   function ccDraftClass(role) {
     const U = ccState(role);
@@ -1423,6 +1521,8 @@
     }
     const draft = ccDraftClass(r);
     const lim = ccLimit();
+    const repOk = ccRepOk(U, c);   // v2.28: 조율형 수업은 반복 대상이 아니라 토글 자체를 내린다
+    const wdays = ccWdays(U);
     const scopeLabel = { valid: "유효 수업권 보유자만", all: "전체 회원", mine: "담당 회원만" }[DB.policy.quickScope];
     const scoped = r === "t" && tScope(DB.me.teacher).mode === "custom";
     const joinable = c ? DB.slots.filter((x) => x.classId === c.id && x.status === "scheduled" && !isPast(x) && seatCount(x.id) < c.capacity) : [];
@@ -1456,9 +1556,28 @@
           ${opt("new", "새 일시로 만들기", U.slotSel === "new")}
           ${joinable.map((x) => opt(x.id, `${dlabel(x.date)} ${x.time} 기존 회차 합류 (${seatCount(x.id)}/${c.capacity}명)`, x.id === U.slotSel)).join("")}</select>
           <div class="hint">기존 회차를 고르면 아래 날짜·시간은 무시돼요.</div></div>` : ""}
-        <div class="field"><label>날짜</label><input type="date" id="qk-date" value="${U.date}" min="${DB.TODAY}"></div>
+        <div class="field"><label>날짜</label><input type="date" id="qk-date" value="${U.date}" min="${DB.TODAY}" onchange="App.ccDate('${r}', this.value)"></div>
         <div class="field"><label>시간</label><input type="time" id="qk-time" value="${U.time}"></div>
       </div>
+      ${repOk ? `
+      <div class="sec-title">매주 반복할까요?</div>
+      <div class="card">
+        <div class="toggle-row" style="padding-top:2px"><span><div class="tl">매주 반복 수업으로 만들기</div>
+          <div class="td">앞으로 <b>${ROLL_WEEKS}주치</b> 회차를 미리 만들어 두고, 한 주가 지나면 뒤에 한 주를 자동으로 더해요.</div></span>
+          <button class="sw${U.rep ? " on" : ""}" onclick="App.ccRep('${r}')" aria-label="매주 반복" aria-pressed="${!!U.rep}"></button></div>
+        ${U.rep ? `
+        <div class="divider"></div>
+        <div class="field"><label>반복 요일</label>
+          <div class="chips" id="rp-wdays">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<button class="chip${wdays.includes(d) ? " on" : ""}" data-v="${d}" onclick="App.ccWday('${r}',${d})">${DOW[d]}</button>`).join("")}</div>
+          <div class="hint">고른 요일마다 <b>${U.time}</b>에 회차가 만들어져요. 날짜를 바꾸면 그 날 요일이 기본으로 잡혀요.</div></div>
+        <div class="field"><label>언제까지 반복할까요?</label><div class="seg" id="rp-endmode">
+          <button class="${U.endMode === "until" ? "on" : ""}" data-v="until" onclick="App.ccSeg('${r}',this,'endMode')">중단할 때까지</button>
+          <button class="${U.endMode === "date" ? "on" : ""}" data-v="date" onclick="App.ccSeg('${r}',this,'endMode')">종료일 지정</button></div>
+          <div class="hint">«중단할 때까지»는 끝을 정하지 않고 계속 이어가요 — «수업» 탭에서 언제든 끌 수 있어요.</div></div>
+        ${U.endMode === "date" ? `<div class="field"><label>종료일</label><input type="date" id="rp-end" value="${U.endDate}" min="${U.date}"><div class="hint">이 날짜까지만 회차를 만들어요.</div></div>` : ""}
+        <div class="banner">${icb("cal")}<span>미리 만들어 둔 회차는 <b>🔁 반복</b> 배지로 표시돼요. 공휴일·휴무는 그 회차만 «이번만 건너뛰기»로 빼고, 시간을 바꿀 땐 «이 회차만 / 앞으로 전부»를 고를 수 있어요.</span></div>
+        ${U.fill === "assign" ? `<div class="banner warn">${icb("alert")}<span>지정 확정 반복은 회원 <b>수업권이 모자란 회차</b>를 확정하지 않고 <b>확정 보류</b>로 남겨요. 보류가 생기면 선생님과 센터에 바로 알려요.</span></div>` : ""}` : ""}
+      </div>` : ""}
       <div class="sec-title">회원을 어떻게 채울까요?</div>
       <div class="card">
         <div class="fill-opts" role="radiogroup" aria-label="회원을 어떻게 채울까요?" id="cc-fill">
@@ -1509,6 +1628,21 @@
   }
   const ccPastAsk = () => modal(`<h3>지난 일시로는 만들 수 없어요</h3><p>수업은 앞으로의 일시로만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 감사 기록에 남아요.</p>
     <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
+  // v2.28: 첫 회차를 만든 뒤 «매주 반복» 규칙을 세우고 롤링 8주치를 바로 채운다.
+  // 규칙은 첫 회차가 실제로 만들어진 뒤에만 생긴다 — 검증에 걸려 회차가 없는데 규칙만 남는 사고 방지.
+  function ccMakeRecur(role, c, s) {
+    const U = ccUI;
+    if (!U || !U.rep || !ccRepOk(U, c) || !s || recurOf(s)) return null;
+    const r = { id: nid("rc"), classId: c.id, weekdays: ccWdays(U).slice().sort((a, b) => a - b), time: s.time,
+      fill: U.fill, memberIds: U.fill === "assign" ? DB.bookings.filter((b) => b.slotId === s.id).map((b) => b.memberId) : [],
+      startDate: s.date, endMode: U.endMode, endDate: U.endMode === "date" ? (U.endDate || null) : null,
+      active: true, skips: [], createdAt: nowStamp };
+    DB.recurs.push(r);
+    s.recurId = r.id;
+    const x = recurGenerate(r);
+    return { r, made: x.made + 1, held: x.held }; // +1 = 방금 만든 첫 회차
+  }
+  const ccRecurMsg = (rc) => (rc ? ` ${recurLabel(rc.r)} 반복으로 회차 ${rc.made}개를 미리 만들었어요 (${recurEndLabel(rc.r)}).${rc.held ? ` 수업권이 모자란 ${rc.held}건은 확정 보류로 뒀어요.` : ""}` : "");
   function ccDone(role, msg) {
     delete pickers["qk-member"]; delete pickers["nc-mems"];
     ccUI = null;
@@ -1554,7 +1688,8 @@
       if (!sl) { sl = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true }; DB.slots.push(sl); }
       for (const mid of mids) DB.bookings.push({ id: nid("bk"), slotId: sl.id, memberId: mid, passId: passOf[mid].id, status: "booked", policySnap: snapPolicy() });
       const who = mids.length === 1 ? `${memberName(mids[0])} 회원` : `${memberName(mids[0])} 외 ${mids.length - 1}명`;
-      ccDone(role, `${who} ${dlabel(sl.date)} ${sl.time} 예약 확정! 회원에게 알림을 보냈어요.`);
+      const rc = joinId ? null : ccMakeRecur(role, c, sl); // 기존 회차 합류엔 반복을 걸지 않는다
+      ccDone(role, `${who} ${dlabel(sl.date)} ${sl.time} 예약 확정! 회원에게 알림을 보냈어요.${ccRecurMsg(rc)}`);
     };
     // v2.25 ②: 새 회차를 만들 때만 겹침 검사 — 기존 회차 합류는 이미 잡힌 시간이라 새 겹침이 안 생긴다.
     const hits = sl ? [] : overlapSlots(c.teacherId, d, t, c.duration, []);
@@ -1585,8 +1720,10 @@
     const finish = () => {
       if (isNew) DB.classes.push(c);
       else { c.eligibility = elig; c.eligibleProductIds = elig === "list" ? [] : prodIds; c.memberIds = elig === "pass" ? [] : memIds; }
-      DB.slots.push({ id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true });
-      ccDone(role, `«${c.title}» ${dlabel(d)} ${t} 자리를 열었어요. 조건에 맞는 회원이 «수업 예약»에서 신청할 수 있어요.`);
+      const sl = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true };
+      DB.slots.push(sl);
+      const rc = ccMakeRecur(role, c, sl);
+      ccDone(role, `«${c.title}» ${dlabel(d)} ${t} 자리를 열었어요. 조건에 맞는 회원이 «수업 예약»에서 신청할 수 있어요.${ccRecurMsg(rc)}`);
     };
     const hits = overlapSlots(c.teacherId, d, t, c.duration || 50, []);
     if (hits.length) { overlapAsk(hits, finish); return; }
@@ -1673,6 +1810,7 @@
       ? DB.teachers.map((t) => ({ t, ...autoStats(t.id) })).filter((x) => x.total && x.rate >= DB.policy.autoWarnRate) : [];
     // v2.25 ②: 겹쳐서 강행한 회차는 센터도 한눈에 — 예정 회차만 집계
     const ovDays = DB.slots.filter((s) => s.status === "scheduled" && !isPast(s) && slotOverlaps(s).length);
+    const cHolds = recurHolds("c").length; // v2.28 ③ 확정 보류 알림
     return shell("c", DB.center.name, `
       <div class="stat-grid">
         <div class="stat"><div class="k">오늘 수업</div><div class="v">${todaySlots.length}<small>회</small></div></div>
@@ -1682,6 +1820,7 @@
       </div>
       ${disputes ? `<button class="banner warn" onclick="location.hash='#/c/confirms'">${icb("alert")}<span>처리할 이의제기가 ${disputes}건 있어요. 해당 회차 정산은 보류 중이에요.</span></button>` : ""}
       ${arrs ? `<button class="banner" onclick="location.hash='#/c/bookings'">${icb("mail")}<span>선생님 확인 대기 중인 조율 요청 ${arrs}건.</span></button>` : ""}
+      ${cHolds ? `<button class="banner warn" onclick="location.hash='#/c/holds'">${icb("alert")}<span>매주 반복 수업 중 <b>확정 보류</b>된 회차가 ${cHolds}건 있어요. 회원 수업권을 확인해 주세요.</span></button>` : ""}
       ${ovDays.length ? `<button class="banner warn" onclick="location.hash='#/c/bookings'">${icb("clock")}<span>선생님 시간이 겹치는 회차가 <b>${ovDays.length}건</b> 있어요. 예약 현황에서 확인해 주세요.</span></button>` : ""}
       ${warns.map((x) => `<button class="banner warn" onclick="location.hash='#/c/confirms'">${icb("clock")}<span>${x.t.name} 선생님 자동확정 비율 <b>${x.rate}%</b> — 임계(${DB.policy.autoWarnRate}%) 초과. 검토를 권장해요.</span></button>`).join("")}
       <div class="sec-title">바로가기</div>
@@ -1860,6 +1999,74 @@
         ${pickerHtml(prefix + "-mems", { multi: true, initial: selM, pool })}
         <div class="hint">${scoped ? `센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)}) 안의 회원만 보여요. 기존 지정 회원은 범위 밖이어도 유지돼요.` : "회원 목록은 니짐내짐(호스트 앱)의 회원 명단을 가져와요 — 프로토타입은 더미 데이터예요."}</div></div>`;
   }
+  // ── v2.28 «수업» 탭 반복 설정 — 원본 규칙 일괄 on/off (형 확정 ⑤) ──
+  const recurRows = (role) => DB.recurs.filter((r) => {
+    const c = cls(r.classId);
+    if (!c || c.status === "closed") return false;
+    return role !== "t" || c.teacherId === DB.me.teacher;
+  });
+  function recurPanelHtml(role) {
+    const rows = recurRows(role);
+    const on = rows.filter((r) => r.active).length;
+    const holds = recurHolds(role).length;
+    return `
+      <div class="sec-title">🔁 반복 수업 설정 <span class="muted small" style="font-weight:600">— 매주 자동 개설</span></div>
+      <div class="card flat">
+        ${rows.length ? `
+        <div class="rc-top"><span class="muted small">켜짐 <b>${on}</b> / 전체 ${rows.length}건 · 앞으로 <b>${ROLL_WEEKS}주치</b>를 미리 만들어 둬요</span>
+          <span class="rc-allbtns"><button class="btn sm ghost" onclick="App.recurAll('${role}','1')">전체 켜기</button>
+          <button class="btn sm ghost" onclick="App.recurAll('${role}','0')">전체 끄기</button></span></div>
+        ${rows.map((r) => {
+          const c = cls(r.classId);
+          const nx = recurNext(r);
+          const cnt = recurSlots(r).filter((x) => !isPast(x)).length;
+          return `<div class="toggle-row"><span class="grow"><div class="tl">${c.title}</div>
+            <div class="td"><b>${recurLabel(r)}</b> · ${recurFillLabel(r)} · ${recurEndLabel(r)}</div>
+            <div class="td">${r.active ? `앞으로 ${cnt}회차 · 다음 ${nx ? `${dlabel(nx.date)} ${nx.time}` : "없음"}` : "중단됨 — 새 회차를 만들지 않아요"}${(r.skips || []).length ? ` · 건너뛴 날 ${r.skips.length}일` : ""}</div></span>
+            <button class="sw${r.active ? " on" : ""}" onclick="App.recurToggle('${r.id}','${role}')" aria-label="${c.title} 반복" aria-pressed="${r.active}"></button></div>`;
+        }).join("")}
+        <div class="demo-box"><span class="demo-cap">프로토타입 데모</span>
+          <span class="muted small grow">기준일 ${recurAnchor().replaceAll("-", ".")} · 8주 뒤 ${recurHorizon().replaceAll("-", ".")}까지 채워져 있어요.</span>
+          <button class="btn sm demo" onclick="App.recurRoll()">${ici("fwd")}한 주 지나가기</button></div>`
+        : `<p class="muted">아직 반복 수업이 없어요. «수업 만들기»에서 <b>매주 반복</b>을 켜면 여기에 나타나요.</p>`}
+      </div>
+      ${holds ? `<button class="banner warn" onclick="location.hash='#/${role}/holds'">${icb("alert")}<span>수업권이 모자라 <b>확정 보류</b>된 반복 회차가 ${holds}건 있어요. <u>확인하기</u></span></button>` : ""}`;
+  }
+  // v2.28 ④⑤: 반복 회차의 예외 처리 블록 — 회차 상세(선생님·센터 공용)
+  function recurSlotHtml(sl, role) {
+    const r = recurOf(sl);
+    if (!r) return "";
+    const editable = sl.status === "scheduled" && !isPast(sl);
+    const holds = (sl.holds || []).filter((h) => DB.notices.some((n) => n.slotId === sl.id && n.memberId === h.memberId && !n.resolved));
+    return `
+      <div class="card">
+        <div class="row"><span class="grow"><b>🔁 매주 반복으로 만들어진 회차예요</b>
+          <div class="muted small mt4">${recurLabel(r)} · ${recurFillLabel(r)} · ${recurEndLabel(r)}${r.active ? "" : " · 지금은 중단됨"}</div>
+          ${sl.detached ? `<div class="muted small mt4">이 회차만 따로 옮긴 회차예요 — 앞으로의 일괄 변경에 휩쓸리지 않아요.</div>` : ""}</span></div>
+        ${editable ? `<div class="btn-row mt8">
+          <button class="btn sm ghost" onclick="App.recurSkipAsk('${sl.id}')">이번만 건너뛰기</button>
+          <button class="btn sm ghost" onclick="App.slotEditAsk('${sl.id}')">회차 시간 수정</button>
+          <a class="btn sm ghost" href="#/${role === "t" ? "t/schedule" : "c/classes"}">반복 설정</a></div>
+          <div class="hint mt8">공휴일·휴무면 «이번만 건너뛰기»로 이 회차만 빼요. 시간을 바꿀 땐 «이 회차만 / 앞으로 전부»를 고를 수 있어요.</div>` : ""}
+      </div>
+      ${holds.length ? `<div class="banner warn">${icb("alert")}<span><b>확정 보류 ${holds.length}건</b> — ${holds.map((h) => `${memberName(h.memberId)}: ${h.reason}`).join(" / ")} <u onclick="location.hash='#/${role}/holds'" style="cursor:pointer">보류 목록 보기</u></span></div>` : ""}`;
+  }
+  // v2.28 ③: 지정 확정 반복에서 수업권이 모자라 확정하지 못한 회차 — 선생님·센터 공용 목록
+  function vHolds(role) {
+    const list = recurHolds(role);
+    return shell(role, "확정 보류", `
+      <p class="muted" style="margin-bottom:12px">매주 반복으로 만든 회차 중 <b>회원 수업권이 모자라</b> 예약을 확정하지 못한 건이에요. 회차는 그대로 열려 있고 자리만 비어 있어요.</p>
+      ${list.length ? list.map((n) => {
+        const sl = slot(n.slotId), c = cls(n.classId);
+        return `<div class="card"><span class="grow"><b>${memberName(n.memberId)}</b> <span class="badge b-warn">확정 보류</span> ${recurBadge(sl)}
+          <div class="muted small mt4">${dlabel(sl.date)} ${sl.time} · ${c.title} · ${teacher(c.teacherId).name} 선생님</div>
+          <div class="muted small mt4">사유: ${n.reason}</div>
+          <div class="btn-row"><button class="btn sm primary" onclick="App.holdConfirm('${n.id}')">지금 확정하기</button>
+            <button class="btn sm ghost" onclick="location.hash='#/${role}/slot/${sl.id}'">회차 보기</button>
+            <button class="btn sm ghost" onclick="App.recurSkipAsk('${sl.id}')">이번만 건너뛰기</button></div></span></div>`;
+      }).join("") : `<div class="card flat"><p class="muted">확정 보류된 회차가 없어요.</p></div>`}
+      <div class="banner">${icb("info")}<span>회원이 수업권을 채우면 «지금 확정하기»로 바로 확정할 수 있어요. 그 주만 쉬는 거라면 «이번만 건너뛰기»로 회차를 빼요.</span></div>`, { back: true });
+  }
   // 시정①: 센터·선생님 공용 수업 관리 — 선생님은 본인 수업 + classAuth(P2-2) 권한 필요
   function classListHtml(role) {
     const isT = role === "t";
@@ -1879,6 +2086,7 @@
         : `<div class="banner warn" style="margin-bottom:14px">${icb("lock")}<span><b>수업 만들기·관리 권한이 없어요.</b> 센터관리자에게 수업 개설 권한을 요청해야 해요.</span></div>`)
         : `<a class="btn ghost" href="#/c/products" style="margin-bottom:14px">${ici("ticket")}수업상품 관리 ›</a>`}
       ${auth.ok ? `<a class="btn primary" href="#/${role}/create" style="margin-bottom:14px">${ici("plus")}수업 만들기</a>` : ""}
+      ${auth.ok ? recurPanelHtml(role) : ""}
       <div class="sec-title">${isT ? "내 수업" : "수업 목록"} <span class="muted small" style="font-weight:600">— 눌러서 수정·폐강</span></div>
       ${list.length ? list.map(card).join("") : `<div class="card flat"><p class="muted">${isT ? "담당 수업이 없어요. «수업 만들기»로 첫 수업을 만들어 보세요." : "등록된 수업이 없어요."}</p></div>`}`;
   }
@@ -1967,7 +2175,7 @@
       const c = cls(s.classId); const n = seatCount(s.id); const w = waitBk(s.id).length;
       const full = n >= c.capacity;
       return `<div class="slot"><span class="time">${s.time}</span>
-        <span class="grow"><span class="t">${c.title}</span>
+        <span class="grow"><span class="t">${c.title} ${recurBadge(s)}</span>
           <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (n / c.capacity) * 100)}%"></i></div>
           <div class="muted small mt4">${teacher(c.teacherId).name} · ${n}/${c.capacity}명${w ? ` · 대기 ${w}` : ""}</div></span>
         ${overlapBadge(s)}<button class="btn sm ghost" onclick="location.hash='#/c/slot/${s.id}'">${s.status === "done" ? "종료" : full ? "마감" : "상세"}</button></div>`;
@@ -2021,7 +2229,8 @@
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="mt8"><span class="badge ${s.status === "done" ? "b-gray" : "b-green"}">${s.status === "done" ? "종료" : "예정"}</span>
-        <span class="badge b-blue">${seats.length}/${c.capacity}명</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}</div></div>
+        <span class="badge b-blue">${seats.length}/${c.capacity}명</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
+      ${recurSlotHtml(s, "c")}
       ${ov.length ? `<div class="banner warn">${icb("alert")}<span>${teacher(c.teacherId).name} 선생님이 같은 시간대에 <b>${ov.map((o) => `${o.time} ${cls(o.classId).title}`).join(", ")}</b> 수업도 맡고 있어요.</span></div>` : ""}
       <div class="sec-title">예약자</div>
       <div class="card flat">${seats.length ? seats.map((b) => {
@@ -2984,6 +3193,169 @@
       }
       return U.fill === "assign" ? ccAssign(role, c, isNew) : ccOpen(role, c, isNew);
     },
+    // ── v2.28 «매주 반복» 폼 액션 ──
+    ccRep(role) {
+      ccSync();
+      const U = ccState(role);
+      U.rep = !U.rep;
+      if (U.rep && !U.wdaysTouched) U.wdays = [dowOf(U.date || DB.TODAY)];
+      render();
+    },
+    ccWday(role, d) {
+      ccSync();
+      const U = ccState(role);
+      const cur = ccWdays(U).slice();
+      const i = cur.indexOf(d);
+      if (i >= 0) {
+        if (cur.length === 1) { toast("반복 요일은 최소 1개는 골라야 해요."); return; }
+        cur.splice(i, 1);
+      } else cur.push(d);
+      U.wdays = cur.sort((a, b) => a - b);
+      U.wdaysTouched = true; // 직접 고른 뒤로는 날짜를 바꿔도 요일이 따라가지 않는다
+      render();
+    },
+    ccDate(role, v) {
+      ccSync();
+      const U = ccState(role);
+      U.date = v || U.date;
+      if (!U.wdaysTouched) U.wdays = [dowOf(U.date)];
+      if (U.rep) render();
+    },
+    // ── v2.28 반복 설정 관리 (수업 탭) ──
+    recurToggle(id, role) {
+      const r = recur(id);
+      if (!r) return;
+      if (!r.active) {
+        r.active = true;
+        const x = recurGenerate(r);
+        render();
+        toast(`«${cls(r.classId).title}» ${recurLabel(r)} 반복을 다시 켰어요. 회차 ${x.made}개를 채웠어요.${x.held ? ` 확정 보류 ${x.held}건.` : ""}`);
+        return;
+      }
+      const empty = DB.slots.filter((s) => s.recurId === r.id && s.status === "scheduled" && !isPast(s) && !s.detached
+        && seatCount(s.id) === 0 && waitBk(s.id).length === 0).length;
+      modal(`<h3>«${cls(r.classId).title}» 반복 끄기</h3>
+        <p>${recurLabel(r)} 반복 생성을 멈춰요. <b>이미 예약이 들어온 회차는 그대로 유지</b>돼요.</p>
+        <p class="muted small mt8">아직 예약이 없는 앞으로의 반복 회차가 <b>${empty}개</b> 있어요. 함께 정리할까요?</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn ghost" onclick="App.recurOff('${id}','${role}',0)">그냥 끄기</button>
+        <button class="btn primary" onclick="App.recurOff('${id}','${role}',1)">정리하고 끄기</button></div>`);
+    },
+    recurOff(id, role, purge) {
+      const r = recur(id);
+      if (!r) return;
+      r.active = false;
+      const n = Number(purge) ? recurPurge(r) : 0;
+      closeModal();
+      render();
+      toast(`«${cls(r.classId).title}» 반복을 껐어요.${n ? ` 예약 없는 회차 ${n}개를 정리했어요.` : " 만들어 둔 회차는 그대로 뒀어요."}`);
+    },
+    // 일괄 on/off — 이 화면에서 보이는 규칙 전체
+    recurAll(role, on) {
+      const list = recurRows(role);
+      if (!list.length) { toast("반복 설정이 아직 없어요."); return; }
+      const want = String(on) === "1";
+      let made = 0, held = 0, off = 0;
+      list.forEach((r) => {
+        if (r.active === want) return;
+        r.active = want;
+        if (want) { const x = recurGenerate(r); made += x.made; held += x.held; } else off++;
+      });
+      render();
+      toast(want ? `반복 ${list.length}건을 모두 켰어요 · 회차 ${made}개 생성${held ? ` · 확정 보류 ${held}건` : ""}.`
+                 : `반복 ${off || list.length}건을 모두 껐어요. 만들어 둔 회차는 그대로 뒀어요.`);
+    },
+    // 프로토타입 데모 — 기준일을 한 주 밀어 «한 주 지나면 뒤에 한 주가 붙는» 롤링을 눈으로 확인
+    recurRoll() {
+      DB.rollAnchor = addDays(recurAnchor(), 7);
+      const x = recurRollAll();
+      render();
+      toast(`한 주가 지난 것처럼 기준일을 ${DB.rollAnchor.replaceAll("-", ".")}로 옮겼어요 — 뒤에 회차 ${x.made}개가 자동으로 붙었어요.${x.held ? ` 확정 보류 ${x.held}건.` : ""}`);
+    },
+    // ── v2.28 회차 예외: «이번만 건너뛰기» ──
+    recurSkipAsk(slotId) {
+      const sl = slot(slotId);
+      const r = recurOf(sl);
+      if (!sl || !r) return;
+      const n = seatBk(sl.id).length + waitBk(sl.id).length;
+      modal(`<h3>이 회차만 건너뛸까요?</h3>
+        <p><b>${dlabel(sl.date)} ${sl.time} · ${cls(sl.classId).title}</b> 한 회차만 빼요. 공휴일·휴무처럼 그 주만 쉬는 경우예요.</p>
+        <p class="muted small mt8">${recurLabel(r)} 반복은 그대로 계속돼요. 건너뛴 날은 다시 만들어지지 않아요.${n ? ` <b>예약 ${n}건이 취소되고 회원에게 알림이 가요.</b> 아직 차감 전이라 횟수 손실은 없어요.` : ""}</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.recurSkip('${slotId}')">이번만 건너뛰기</button></div>`);
+    },
+    recurSkip(slotId) {
+      const sl = slot(slotId);
+      const r = recurOf(sl);
+      if (!sl || !r) return;
+      let n = 0;
+      DB.bookings.filter((b) => b.slotId === sl.id && ["booked", "waitlisted"].includes(b.status)).forEach((b) => {
+        b.status = "canceled"; b.cancelBy = "center"; b.cancelReason = "반복 회차 건너뛰기"; n++;
+      });
+      sl.status = "canceled"; sl.cancelReason = "반복 건너뛰기";
+      if (!(r.skips || []).includes(sl.date)) (r.skips = r.skips || []).push(sl.date);
+      DB.notices.filter((x) => x.slotId === sl.id && !x.resolved).forEach((x) => (x.resolved = true));
+      closeModal();
+      history.back();
+      toast(`${dlabel(sl.date)} ${sl.time} 회차를 건너뛰었어요.${n ? ` 예약 ${n}건 취소 · 회원 알림 발송.` : ""} 다음 회차부터 반복은 그대로예요.`);
+    },
+    // ── v2.28 회차 수정: 항상 «이 회차만 / 앞으로 전부» 선택 ──
+    slotEditAsk(slotId) {
+      const sl = slot(slotId);
+      const r = recurOf(sl);
+      if (!sl || !r) return;
+      const later = recurSlots(r).filter((x) => x.date >= sl.date && !isPast(x)).length;
+      modal(`<h3>회차 시간 바꾸기</h3>
+        <p class="muted small">${cls(sl.classId).title} · ${recurLabel(r)} 반복 회차예요. 바꾼 뒤 적용 범위를 골라 주세요.</p>
+        <div class="field mt12"><label>날짜</label><input type="date" id="se-date" value="${sl.date}" min="${DB.TODAY}"></div>
+        <div class="field"><label>시간</label><input type="time" id="se-time" value="${sl.time}"></div>
+        <p class="muted small">«이 회차만»은 이 한 회차의 날짜·시간을 옮기고 원래 날짜는 건너뛴 것으로 둬요.
+        «앞으로 전부»는 오늘 이후 남은 반복 회차 <b>${later}개</b>의 <b>시간</b>을 새 시간으로 바꿔요 (요일은 그대로).</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn ghost" onclick="App.slotEdit('${slotId}','one')">이 회차만</button>
+        <button class="btn primary" onclick="App.slotEdit('${slotId}','all')">앞으로 전부</button></div>`);
+    },
+    slotEdit(slotId, scope) {
+      const sl = slot(slotId);
+      const r = recurOf(sl);
+      if (!sl || !r) return;
+      const d = (document.getElementById("se-date") || {}).value || sl.date;
+      const t = (document.getElementById("se-time") || {}).value || sl.time;
+      if (new Date(`${d}T${t}:00+09:00`) <= NOW) { toast("지난 일시로는 옮길 수 없어요."); return; }
+      if (scope === "one") {
+        const from = sl.date;
+        if (DB.slots.some((x) => x.id !== sl.id && x.classId === sl.classId && x.date === d && x.time === t && x.status !== "canceled")) {
+          toast("그 일시엔 같은 수업 회차가 이미 있어요."); return;
+        }
+        sl.date = d; sl.time = t; sl.detached = true; // 규칙에서 떼어 낸 회차 — 이후 «앞으로 전부» 변경에 휩쓸리지 않는다
+        if (!(r.skips || []).includes(from)) (r.skips = r.skips || []).push(from);
+        closeModal(); render();
+        toast(`이 회차만 ${dlabel(d)} ${t}로 옮겼어요. 나머지 반복은 그대로예요.${seatBk(sl.id).length ? " 예약한 회원에게 변경 알림을 보냈어요." : ""}`);
+        return;
+      }
+      r.time = t;
+      const targets = recurSlots(r).filter((x) => x.date >= sl.date && !isPast(x) && !x.detached);
+      let moved = 0, told = 0;
+      targets.forEach((x) => { if (x.time !== t) { x.time = t; moved++; told += seatBk(x.id).length; } });
+      closeModal(); render();
+      toast(`앞으로의 반복 회차 ${moved}개 시간을 ${t}로 바꿨어요.${told ? ` 예약 ${told}건에 변경 알림을 보냈어요.` : ""}`);
+    },
+    // 확정 보류 → 수업권이 채워졌으면 그 자리에서 확정
+    holdConfirm(nid_) {
+      const n = DB.notices.find((x) => x.id === nid_);
+      if (!n || n.resolved) return;
+      const sl = slot(n.slotId), c = cls(n.classId);
+      if (!sl || sl.status !== "scheduled") { n.resolved = true; render(); toast("이미 사라진 회차예요."); return; }
+      const g = bookGuard(c, n.memberId);
+      if (!g.ok) { toast(`아직 확정할 수 없어요 — ${g.msg}`); return; }
+      if (passFree(g.pass) <= 0) { toast(`아직 «${g.pass.name}» 남은 횟수가 없어요. 수업권을 채운 뒤 다시 확정해 주세요.`); return; }
+      if (seatCount(sl.id) >= c.capacity) { toast(`정원(${c.capacity}명)이 찼어요.`); return; }
+      DB.bookings.push({ id: nid("bk"), slotId: sl.id, memberId: n.memberId, passId: g.pass.id, status: "booked", policySnap: snapPolicy(), viaRecur: n.recurId });
+      n.resolved = true;
+      sl.holds = (sl.holds || []).filter((h) => h.memberId !== n.memberId);
+      render();
+      toast(`${memberName(n.memberId)} 회원 ${dlabel(sl.date)} ${sl.time} 예약을 확정했어요. 회원에게 알림을 보냈어요.`);
+    },
     // v2.25 ②: 겹침 확인 모달 — [그래도 진행]은 보류해 둔 동작을 그대로 실행(차단하지 않음)
     overlapGo() {
       const fn = overlapPending; overlapPending = null;
@@ -3391,6 +3763,7 @@
     [/^#\/t\/slot\/(.+)$/, vTSlot],
     [/^#\/t\/create$/, () => vCreate("t")],
     [/^#\/t\/class\/(.+)$/, (id) => vClassManage("t", id)],
+    [/^#\/t\/holds$/, () => vHolds("t")],
     [/^#\/t\/report$/, vTReport],
     [/^#\/t\/earnings$/, vTEarnings],
     [/^#\/c\/home$/, vCHome],
@@ -3400,6 +3773,7 @@
     [/^#\/c\/bookings$/, vCBookings],
     [/^#\/c\/slot\/(.+)$/, vCSlot],
     [/^#\/c\/create$/, () => vCreate("c")],
+    [/^#\/c\/holds$/, () => vHolds("c")],
     [/^#\/c\/confirms$/, vCConfirms],
     [/^#\/c\/settlement$/, vCSettlement],
     [/^#\/c\/policy$/, vCPolicy],
@@ -3480,5 +3854,6 @@
     if (hd) hd.classList.toggle("scrolled", window.scrollY > 4);
   }, { passive: true });
   window.addEventListener("hashchange", () => { closeModal(true); render(); });
+  recurRollAll(); // v2.28 ①: 부팅 시 롤링 — 기준일부터 앞으로 8주치를 미리 채운다
   render();
 })();

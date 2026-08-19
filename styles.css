@@ -102,6 +102,14 @@ a { color: var(--link); text-decoration: none; }
 .b-warn { background: var(--warning-surface); color: var(--warning); }
 .b-danger { background: var(--danger-surface); color: var(--danger); }
 .b-gray { background: var(--surface-sunken); color: var(--text-muted); }
+/* v2.28 반복 생성 회차 배지 — 상태(예정·마감)와 구분되는 «출처» 표시라 중립 톤 */
+.b-rc { background: var(--surface-sunken); color: var(--text); border: 1px solid var(--border-strong); padding: 2px 8px; }
+
+/* v2.28 «수업» 탭 반복 설정 헤더 — 390px에서 버튼이 줄바꿈되도록 */
+.rc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px 10px; flex-wrap: wrap; padding: 4px 0 10px; border-bottom: 1px solid var(--border); }
+.rc-top .rc-allbtns { display: flex; gap: 6px; flex-shrink: 0; }
+.toggle-row .grow { min-width: 0; }
+.toggle-row .tl, .toggle-row .td { word-break: keep-all; }
 
 /* 버튼 — pointer-down 즉시 피드백(scale), 터치 타깃 확보 */
 .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 50px; text-align: center; border-radius: 14px; padding: 14px 16px; font-size: 15px; font-weight: 700; letter-spacing: -0.005em; transition: transform .12s var(--ease-out), background .15s ease; }

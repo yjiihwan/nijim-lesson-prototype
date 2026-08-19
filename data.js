@@ -202,6 +202,24 @@ window.DB = {
     },
   },
 
+  // v2.28 «매주 반복 수업 자동 개설» (형 확정 2026-08-19)
+  // 반복 «규칙»은 원본 1건, 회차는 규칙에서 파생 생성(롤링 8주). 회차를 지워도 규칙은 남는다.
+  // fill: open(자리 열어두고 신청 받기 · 기본형) | assign(회원 지정해서 바로 확정)
+  // endMode: until(중단할 때까지) | date(종료일 지정, endDate까지)
+  // skips: «이번만 건너뛰기»한 날짜 — 재생성 때 다시 만들지 않는다(공휴일·휴무 예외).
+  recurs: [
+    { id: "rc1", classId: "c1", weekdays: [1, 3], time: "10:00", fill: "open", memberIds: [],
+      startDate: "2026-08-17", endMode: "until", endDate: null, active: true, skips: [], createdAt: "2026-08-17 12:00" },
+    // 지정 확정 반복 데모 — 한소라(m6)는 ps10 잔여 4회에 기존 예약 3건이라 남는 여유가 1회뿐.
+    // 첫 회차만 확정되고 나머지는 «확정 보류 + 선생님·센터 알림»으로 떨어진다(형 확정 ③).
+    { id: "rc2", classId: "c3", weekdays: [2, 5], time: "06:30", fill: "assign", memberIds: ["m6"],
+      startDate: "2026-08-17", endMode: "date", endDate: "2026-09-05", active: true, skips: [], createdAt: "2026-08-17 12:00" },
+  ],
+  // 반복 확정 보류 알림 (선생님·센터 공용) — 회차×회원 1건
+  notices: [],
+  // 롤링 기준일 — 실서비스는 «오늘». 프로토타입은 데모 버튼으로 한 주씩 밀어 롤링을 눈으로 확인한다.
+  rollAnchor: "2026-08-17",
+
   // 정산 라인 (8월) — 수강확인 성립 tx마다 1행. status: eligible|held(이의 보류)|removed(인용·무효화)
   slines: [],
 };
