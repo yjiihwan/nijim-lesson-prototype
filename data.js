@@ -478,3 +478,17 @@ window.DB = {
     { id: "rpC3", slotId: "s22", bookingId: "bkC3", memberId: "m1", member: "김지은", status: "pending", method: null, label: "회원 확인 대기", at: "8/17 08:30 보고", deducted: false, lineId: null },
   );
 })();
+
+// ── v2.25 ② 선생님 시간 겹침 검증 프리셋 (형 확정 B: 경고 후 강행 허용) ──
+// ?case=overlap 으로 열면 t1(박코치)의 8/18 11:00 PT(s6)와 겹치는 그룹 회차 1건을 추가한다.
+// 겹침 «표시»(선생님·센터 화면 뱃지·배너) 검증용 — 확인 모달은 즉시확정·조율 수락·제안 보내기에서 재현한다.
+// ⚠️ LCG 시드 뒤 append 원칙 동일. 기본(파라미터 없음) 시드는 전혀 건드리지 않는다.
+(function seedOverlap() {
+  if (new URLSearchParams(location.search).get("case") !== "overlap") return;
+  const D = window.DB, SNAP = { cancelHours: 24, cancelMode: "conditional" };
+  D.slots.push({ id: "s30", classId: "c3", date: "2026-08-18", time: "11:30", status: "scheduled", adhoc: true });
+  D.bookings.push(
+    { id: "bkD1", slotId: "s30", memberId: "m2", passId: "ps5", status: "booked", policySnap: SNAP },
+    { id: "bkD2", slotId: "s30", memberId: "m7", passId: "ps11", status: "booked", policySnap: SNAP },
+  );
+})();

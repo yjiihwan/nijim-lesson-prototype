@@ -298,6 +298,47 @@ button.stat:active { transform: scale(.97); }
 .role-m .tab .ic svg { width: 23px; height: 23px; display: block; }
 .role-m .tab.on { background: none; color: var(--cta); font-weight: 800; }
 
+/* ══ v2.25 ④ 선생님·센터 화면 톤 통일 (형 확정 A) ══
+   회원(role-m)이 쓰던 실서비스 디자인 시스템(팔레트·하단탭·라인 아이콘)을 선생님(role-t)·센터(role-c)에도 그대로 적용.
+   기능·정보 구조는 무변경 — 토큰과 크롬만 공유한다. */
+.role-t, .role-c {
+  --bg: #f5f5f7;
+  --cta: #f0195f;
+  --cta-hover: #d31150;
+  --cta-disabled: #f9c0d4;
+  --link: #e01458;
+  --surface-rose: #ffe9f1;
+}
+.role-t .hd, .role-c .hd { background: rgba(245,245,247,.8); }
+.role-t .btn.primary, .role-c .btn.primary { box-shadow: 0 4px 14px rgba(240,25,95,.22); }
+.role-t .day.on, .role-c .day.on { box-shadow: 0 4px 12px rgba(240,25,95,.26); }
+.role-t .field :is(input, select, textarea):focus,
+.role-c .field :is(input, select, textarea):focus { box-shadow: 0 0 0 3px rgba(240,25,95,.12); }
+.role-t .tabbar, .role-c .tabbar { bottom: 0; margin: 12px 0 0; width: 100%; max-width: none; border-radius: 18px 18px 0 0; border: 0; border-top: 1px solid var(--border); background: rgba(255,255,255,.94); padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 28px rgba(22,22,28,.07); }
+.role-t .tab, .role-c .tab { gap: 3px; padding: 7px 0 5px; color: #8e8e96; }
+.role-t .tab.on, .role-c .tab.on { background: none; color: var(--cta); font-weight: 800; }
+
+/* 라인 아이콘 — 배너·탭·버튼 안 (stroke=currentColor라 주변 색을 따라간다) */
+.tab .ic { display: flex; align-items: center; justify-content: center; }
+.tab .ic svg { width: 23px; height: 23px; display: block; }
+.banner .ic { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.banner .ic svg { width: 19px; height: 19px; display: block; }
+.ic-inline { display: inline-flex; align-items: center; justify-content: center; vertical-align: -3px; margin-right: 6px; }
+.ic-inline svg { width: 16px; height: 16px; display: block; }
+.mb-empty .em svg { width: 32px; height: 32px; stroke: var(--text-disabled); }
+.stat .v .ic-inline svg { width: 17px; height: 17px; }
+
+/* v2.25 ③ 사용 수업권 블록 — 라벨/«변경»을 한 줄, 값은 아래로 (라벨 줄바꿈·버튼 잘림 방지) */
+.pass-pick .pp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 34px; }
+.pass-pick .pp-head .muted { white-space: nowrap; }
+.pass-pick .pass-chg { width: auto; min-height: 32px; padding: 5px 13px; flex: 0 0 auto; }
+.pass-pick .pp-name { display: block; font-size: 15px; letter-spacing: -0.01em; margin-top: 2px; }
+.pass-opt { display: block; width: 100%; text-align: left; }
+.pass-opt .po-sub { display: block; font-weight: 600; font-size: 12px; opacity: .82; margin-top: 2px; }
+
+/* v2.25 ⑤ 회원 «예약» 탭 상단 세그먼트 (캘린더 | 내 예약) */
+.book-seg { margin-bottom: 14px; }
+
 /* ══ v2.11 회원 «수업 예약» — 주간 캘린더 스트립 + 날짜별 회차 리스트 (role-m 팔레트 상속) ══ */
 .mb-cal { padding: 12px 12px 10px; }
 .mb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
