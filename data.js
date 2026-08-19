@@ -62,7 +62,7 @@ window.DB = {
     { id: "ps9", memberId: "m5", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 24000, purchasePrice: 480000, listPrice: 600000, expiresAt: "2026-10-05", remaining: 14 },
     { id: "ps10", memberId: "m6", productId: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group", total: 10, unitPrice: 35000, expiresAt: null, remaining: 4 },
     { id: "ps11", memberId: "m7", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, expiresAt: "2026-11-01", remaining: 17 },
-    { id: "ps12", memberId: "m10", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-12-31", remaining: 20 }, // 이필라: 멤버십 자격으로 수업 개설 (시정①)
+    { id: "ps12", memberId: "m10", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-12-31", remaining: 20 }, // 이필라(선생님 계정)도 회원으로서 수업권 보유 — 일반 회원 수업권(개설 권한과 무관)
   ],
 
   // 수업권 원장 (append-only) — m1 것만 시드
@@ -192,8 +192,9 @@ window.DB = {
     noshowRewardCustomMode: "amount",
     noshowRewardPercent: 30,     // percent 모드: 회당 단가(정상 단가)의 n% (0~100), 원 단위 반올림
     noshowRewardPush: "auto",    // 샐리 전달: auto(special rewardCodes push)/manual(샐리 수동 체크)
-    // P2-2 (시정①) 수업 개설·관리 권한: 센터 지정 회원 or 자격 멤버십 보유 회원. 둘 다 비우면 센터만.
-    classAuth: { memberIds: ["m9"], productIds: ["pr3"] }, // 박코치=센터 지정, 이필라=필라테스 그룹 멤버십 자격
+    // P2-2 수업 개설·관리 권한: 센터가 지정한 선생님만. 비우면 수업 개설·관리는 센터만 가능.
+    // 2026-08-19 형 확정: «자격 멤버십»(멤버십 보유로 권한 자동 부여) 경로 폐기 — productIds 키 삭제.
+    classAuth: { memberIds: ["m9"] }, // 박코치=센터 지정 (이필라=미지정 → 권한 없음 화면 데모)
     // P2-2b (v2.3) 선생님별 «지정 가능 회원 범위» — 키 없음 또는 mode:"all"=전체 회원(기본, v2.2까지 동작과 동일).
     // custom: productIds(멤버십 단위 전체) ∪ memberIds(멤버십 하위 개별 선택 회원). 수업 만들기 «지정 회원»·«바로 확정» 목록에 적용.
     teacherScope: {
@@ -298,7 +299,7 @@ window.DB = {
     const mid = "gtm" + i;
     M.push({ id: mid, name, phone: "010-8000-" + s4, staff: true });
     T.push({ id: "gt" + i, name, subject: SUBJ[rnd(SUBJ.length)], memberId: mid });
-    // 일부는 자격 멤버십(pr3) 보유 — «멤버십 자격» 권한 경로가 규모에서도 동작하는지 검증용
+    // 일부 선생님 계정도 회원으로서 수업권(pr3) 보유 — 정산·예약 자격 데모용(개설 권한과 무관)
     if (i % 11 === 0) P.push({ id: "gtps" + i, memberId: mid, productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
       total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-12-31", remaining: 20 });
   }

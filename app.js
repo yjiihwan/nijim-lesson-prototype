@@ -1,6 +1,6 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
    v2 (2026-08-17 보완): 감사 결함 35건 + 신규 4건 반영.
-   v2.1 (2026-08-17 시정): 선생님 수업 개설·관리(수정·폐강) — 권한=센터 지정 회원 or 자격 멤버십 보유(02 P2-2).
+   v2.1 (2026-08-17 시정): 선생님 수업 개설·관리(수정·폐강) — 권한=센터가 지정한 회원만(02 P2-2).
    v2.2 (2026-08-17 형 확정 반영): ① P5-4b 노쇼=보고→통지→무이의 시 자동 확정·차감(이의 건만 센터 중재)
    ② P9-1 노쇼 보상=센터별 설정(없음/지원 — 정상·별도 단가, 샐리 자동 push·수동 체크) — 정산 미리보기 동적 반영.
    v2.3 (2026-08-17): P2-2b 선생님별 «지정 가능 회원 범위» — 전체/멤버십 단위/멤버십 하위 개별 회원 선택,
@@ -10,7 +10,7 @@
    v2.5 (2026-08-17): P9-1 별도 단가에 «수업료의 %» 방식 추가 — 회당 단가(정상 단가)×n%(0~100), 원 단위
    반올림(Math.round) 일관 적용. 설정 실시간 예시 미리보기. 기존 고정 금액 저장분(customMode 키 없음)=하위 호환.
    v2.7 (2026-08-17 형 지적): 정책 화면 선생님 권한 UI를 수십 명 규모 대응으로 개편 — P2-2 센터 지정
-   선생님·자격 멤버십=요약+편집(검색·체크 리스트), P2-2b=검색 리스트(행=이름·직군·설정 요약)→행 탭 시
+   선생님=요약+편집(검색·체크 리스트), P2-2b=검색 리스트(행=이름·직군·설정 요약)→행 탭 시
    상세 화면(#/c/policy/scope/:tid)에서 편집. 기능(전체/범위 지정·멤버십 단위·개별 회원)은 전부 유지.
    더미 선생님 32명 추가(총 34명, 직군 혼합) — 정산 화면은 내역 있는 선생님만 표시.
    v2.9 (2026-08-18 형 지적): 회원별·등록시기별 회당 단가 차이 화면 노출 — ① 센터 정산·내 정산에
@@ -77,7 +77,12 @@
    ④ 구 라우트는 리다이렉트(#/t/quick→#/t/create, #/c/quick→#/c/create, #/t/classes→#/t/schedule «내 수업»)
    ⑤ 통합 전 잔재 용어(«바로 확정»의 옛 이름) 전면 제거 — UI·토스트·안내문·정책 화면·주석. QA v226 57/57.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
-   차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
+   차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02).
+   v2.27 (2026-08-19 형 확정): «자격 멤버십»(멤버십 보유 → 수업 개설 권한 자동 부여) 경로 전면 폐기 —
+   수업 개설·관리 권한은 «센터가 지정한 선생님»(classAuth.memberIds) 단일 경로만. policy.classAuth.productIds
+   키·센터 설정 «자격 멤버십» UI·App.authProduct 삭제, 권한 없음 안내는 "센터관리자에게 수업 개설 권한을
+   요청해야 해요"로 통일. ※ 수업별 «예약 자격(eligibility)»·«지정 가능 회원 범위(P2-2b)»는 별개 기능 — 유지.
+*/
 (function () {
   const DB = window.DB;
   const NOW = new Date("2026-08-17T12:00:00+09:00"); // 데모 고정 현재시각
@@ -143,13 +148,12 @@
     return passIdx.get(mid) || [];
   }
 
-  // ── 시정①: 수업 개설·관리 권한 (02 P2-2) — 센터 지정 회원 or 자격 멤버십 보유 회원 ──
+  // ── 수업 개설·관리 권한 (02 P2-2) — 센터가 지정한 선생님만 ──
+  // 2026-08-19 형 확정: «자격 멤버십»(유효 수업권 보유 시 권한 자동 부여) 경로 폐기. 센터 지정(memberIds) 단일 경로.
   function classAuth(t) {
     if (!t) return { ok: false };
-    const A = DB.policy.classAuth || { memberIds: [], productIds: [] };
+    const A = DB.policy.classAuth || { memberIds: [] };
     if ((A.memberIds || []).includes(t.memberId)) return { ok: true, via: "센터 지정" };
-    const p = passesOf(t.memberId).filter(passUsable).find((x) => (A.productIds || []).includes(x.productId));
-    if (p) return { ok: true, via: `멤버십 자격 · ${p.name}` };
     return { ok: false };
   }
 
@@ -1414,7 +1418,7 @@
     const c = isNew ? null : cls(U.classId);
     if (isNew && !auth.ok) {
       return shell(r, "수업 만들기", `
-        <div class="banner warn">${icb("lock")}<span><b>새 수업을 만들 권한이 없어요.</b> 센터관리자의 지정을 받거나 자격 멤버십(예: 그룹 필라테스)을 보유해야 해요.${classes.length ? " 이미 있는 내 수업에는 회차를 만들 수 있어요." : ""}</span></div>
+        <div class="banner warn">${icb("lock")}<span><b>새 수업을 만들 권한이 없어요.</b> 센터관리자에게 수업 개설 권한을 요청해야 해요.${classes.length ? " 이미 있는 내 수업에는 회차를 만들 수 있어요." : ""}</span></div>
         ${classes.length ? `<button class="btn primary" onclick="App.ccClass('${r}','${classes[0].id}')">내 수업으로 만들기</button>` : ""}`, { back: true });
     }
     const draft = ccDraftClass(r);
@@ -1484,7 +1488,7 @@
   // 중간에 실패해도 유령 수업이 남지 않게 하려는 것.
   function ccBuildClass(role) {
     const U = ccUI;
-    if (role === "t" && !classAuth(teacher(DB.me.teacher)).ok) { toast("새 수업을 만들 권한이 없어요 — 센터 지정 또는 자격 멤버십이 필요해요."); return null; }
+    if (role === "t" && !classAuth(teacher(DB.me.teacher)).ok) { toast("새 수업을 만들 권한이 없어요 — 센터 지정이 필요해요."); return null; }
     const teacherId = role === "t" ? DB.me.teacher : (U.teacherId || DB.teachers[0].id);
     const kind = U.kind;
     const capacity = kind === "private" ? 1 : Math.max(1, parseInt(U.cap, 10) || 6);
@@ -1814,15 +1818,6 @@
         <span class="grow"><b>${t.name}</b> <span class="muted small">${t.subject}</span></span>
         <span class="pk-check">${on.has(t.memberId) ? "✓" : "+"}</span></button>`).join("") || POL_EMPTY;
   }
-  // P2-2 자격 멤버십 — 체크 리스트 (멤버십도 늘어날 수 있어 동일 패턴)
-  function polProdRows() {
-    const q = (polState().q.prod || "").trim();
-    const list = q ? DB.products.filter((p) => p.name.includes(q)) : DB.products;
-    const on = new Set(DB.policy.classAuth.productIds || []);
-    return list.map((p) => `<button class="pk-row${on.has(p.id) ? " on" : ""}" onclick="App.authProduct('${p.id}')">
-        <span class="grow"><b>${p.name}</b> <span class="muted small">${p.kind === "private" ? "개인" : "그룹"} · ${p.sessions}회</span></span>
-        <span class="pk-check">${on.has(p.id) ? "✓" : "+"}</span></button>`).join("") || POL_EMPTY;
-  }
   // P2-2b 선생님 리스트 — 행=이름·직군·설정 요약, 탭하면 상세 화면에서 편집
   function polScopeRows() {
     return polFilterTeachers("scope").map((t) => `<button class="pk-row" onclick="location.hash='#/c/policy/scope/${t.id}'">
@@ -1830,7 +1825,7 @@
           <div class="muted small">${tScopeShort(t.id)}</div></span>
         <span class="arrow">›</span></button>`).join("") || POL_EMPTY;
   }
-  const polRows = { auth: polAuthRows, prod: polProdRows, scope: polScopeRows };
+  const polRows = { auth: polAuthRows, scope: polScopeRows };
   // 접힘 요약: "지정 N명 — 박코치 외 N-1" (전체 나열 금지)
   function polSummary(names, unit) {
     if (!names.length) return "지정 없음";
@@ -1881,7 +1876,7 @@
     return `
       ${isT ? (auth.ok
         ? `<div class="banner" style="margin-bottom:14px">${icb("unlock")}<span>수업 만들기·관리 권한: <b>${auth.via}</b> — 내 수업의 개설·수정·폐강이 가능해요.</span></div>`
-        : `<div class="banner warn" style="margin-bottom:14px">${icb("lock")}<span><b>수업 만들기·관리 권한이 없어요.</b> 센터관리자의 지정을 받거나 자격 멤버십(예: 그룹 필라테스)을 보유해야 해요. 센터에 문의해 주세요.</span></div>`)
+        : `<div class="banner warn" style="margin-bottom:14px">${icb("lock")}<span><b>수업 만들기·관리 권한이 없어요.</b> 센터관리자에게 수업 개설 권한을 요청해야 해요.</span></div>`)
         : `<a class="btn ghost" href="#/c/products" style="margin-bottom:14px">${ici("ticket")}수업상품 관리 ›</a>`}
       ${auth.ok ? `<a class="btn primary" href="#/${role}/create" style="margin-bottom:14px">${ici("plus")}수업 만들기</a>` : ""}
       <div class="sec-title">${isT ? "내 수업" : "수업 목록"} <span class="muted small" style="font-weight:600">— 눌러서 수정·폐강</span></div>
@@ -2324,16 +2319,10 @@
             polSummary((P.classAuth.memberIds || []).map((mid) => (DB.teachers.find((t) => t.memberId === mid) || { name: mid }).name), "명"),
             "선생님 이름·직군 검색", `선생님 총 ${DB.teachers.length.toLocaleString("ko-KR")}명 — 검색해 지정·해제해 주세요`)}
           <div class="hint">지정된 선생님은 본인 수업의 개설·수정·폐강이 가능해요.</div></div>
-        <div class="field"><label>자격 멤버십</label>
-          ${polEditBlock("prod",
-            polSummary((P.classAuth.productIds || []).map((pid) => (DB.products.find((p) => p.id === pid) || { name: pid }).name), "개"),
-            "멤버십 이름 검색", `멤버십 총 ${DB.products.length.toLocaleString("ko-KR")}개`)}
-          <div class="hint">이 멤버십(유효 수업권)을 보유한 선생님 계정도 개설 권한을 가져요 — 예: 그룹 필라테스 멤버십.</div></div>
         <div class="muted small">${(() => {
           const authed = DB.teachers.filter((t) => classAuth(t).ok);
-          const byCenter = authed.filter((t) => classAuth(t).via === "센터 지정").length;
-          return `현재 개설 권한 보유: <b>${authed.length.toLocaleString("ko-KR")}명</b> / 선생님 ${DB.teachers.length.toLocaleString("ko-KR")}명 (센터 지정 ${byCenter}명 · 멤버십 자격 ${authed.length - byCenter}명)`;
-        })()}<br>둘 다 비우면 수업 개설·관리는 센터만 가능해요. 선생님 계정은 호스트 앱(니짐내짐) 회원 계정과 연결돼요.</div>
+          return `현재 개설 권한 보유: <b>${authed.length.toLocaleString("ko-KR")}명</b> / 선생님 ${DB.teachers.length.toLocaleString("ko-KR")}명`;
+        })()}<br>비워 두면 수업 개설·관리는 센터만 가능해요. 선생님 계정은 호스트 앱(니짐내짐) 회원 계정과 연결돼요.</div>
       </div>
       <div class="sec-title">선생님별 지정 가능 회원 범위</div>
       <div class="card">
@@ -3042,7 +3031,7 @@
       if (role !== "t") return true;
       const c = cls(id);
       if (!c || c.teacherId !== DB.me.teacher) { toast("내 담당 수업만 관리할 수 있어요."); return false; }
-      if (!classAuth(teacher(DB.me.teacher)).ok) { toast("수업 관리 권한이 없어요 — 센터 지정 또는 자격 멤버십이 필요해요."); return false; }
+      if (!classAuth(teacher(DB.me.teacher)).ok) { toast("수업 관리 권한이 없어요 — 센터 지정이 필요해요."); return false; }
       return true;
     },
     // B1: 수업 수정
@@ -3293,11 +3282,6 @@
       const A = DB.policy.classAuth;
       A.memberIds = (A.memberIds || []).includes(mid) ? A.memberIds.filter((x) => x !== mid) : [...(A.memberIds || []), mid];
       render(); toast("수업 개설 권한이 변경됐어요. 이미 개설된 수업은 그대로 운영돼요.");
-    },
-    authProduct(pid) {
-      const A = DB.policy.classAuth;
-      A.productIds = (A.productIds || []).includes(pid) ? A.productIds.filter((x) => x !== pid) : [...(A.productIds || []), pid];
-      render(); toast("자격 멤버십이 변경됐어요. 이미 개설된 수업은 그대로 운영돼요.");
     },
     // v2.3 (P2-2b): 선생님별 지정 가능 회원 범위 — 모드 전환 시 기존 선택은 보존(다시 켜면 복원)
     scopeMode(tid, mode) {
