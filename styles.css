@@ -517,3 +517,25 @@ button.stat:active { transform: scale(.97); }
 .slot.tapable { cursor: pointer; border-radius: 10px; transition: background .15s ease, transform .12s var(--ease-out); }
 .slot.tapable:active { transform: scale(.985); background: var(--surface-alt, rgba(0,0,0,.03)); }
 .slot .chev { flex-shrink: 0; font-size: 17px; font-weight: 700; color: var(--text-disabled); line-height: 1; }
+
+/* v2.26 «수업 만들기» — 회원 채우는 방식 선택(라디오 카드).
+   세그먼트가 아니라 카드형인 이유: 각 선택지에 «무슨 일이 벌어지는지» 한 줄 설명이 필요해서. */
+.fill-opts { display: flex; flex-direction: column; gap: 8px; }
+.fill-opt {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+  padding: 13px 14px; border: 1.5px solid var(--border-strong); border-radius: 14px;
+  background: var(--surface); color: var(--text);
+  transition: border-color .18s var(--ease-out), background .18s var(--ease-out), transform .12s var(--ease-out);
+}
+.fill-opt:active { transform: scale(.985); }
+.fill-opt.on { border-color: var(--cta); background: var(--surface-rose); }
+.fill-opt .fo-dot {
+  flex-shrink: 0; width: 19px; height: 19px; margin-top: 1px; border-radius: 50%;
+  border: 2px solid var(--border-strong); background: var(--surface);
+  transition: border-color .18s var(--ease-out), box-shadow .18s var(--ease-out);
+}
+.fill-opt.on .fo-dot { border-color: var(--cta); box-shadow: inset 0 0 0 4px var(--cta); }
+.fill-opt .grow { min-width: 0; }
+.fill-opt b { display: block; font-size: 14px; font-weight: 800; line-height: 1.35; word-break: keep-all; }
+.fill-opt .fo-d { display: block; margin-top: 3px; font-size: 12.5px; font-weight: 600; line-height: 1.5; color: var(--text-muted); word-break: keep-all; }
+.fill-opt.on .fo-d { color: var(--text); }

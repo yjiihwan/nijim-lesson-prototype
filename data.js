@@ -21,7 +21,7 @@ window.DB = {
     { id: "m6", name: "한소라", phone: "010-6789-0123" },
     { id: "m7", name: "오세훈", phone: "010-7890-1234" },
     { id: "m8", name: "유나래", phone: "010-8901-2345" }, // 수업권 없음 (필터 데모)
-    // 선생님의 호스트 앱 회원 계정 (staff=수강 회원 picker·즉시확정 목록에서 제외)
+    // 선생님의 호스트 앱 회원 계정 (staff=수강 회원 picker·«바로 확정» 목록에서 제외)
     { id: "m9", name: "박코치", phone: "010-9012-3456", staff: true },
     { id: "m10", name: "이필라", phone: "010-0123-4567", staff: true },
   ],
@@ -95,7 +95,7 @@ window.DB = {
       eligibility: "both", eligibleProductIds: ["pr3", "pr4"], memberIds: ["m2", "m7"], status: "active" },
   ],
 
-  // 회차 — 좌석·대기 수는 bookings에서 파생 (저장 안 함). adhoc=조율/즉시확정으로 생성
+  // 회차 — 좌석·대기 수는 bookings에서 파생 (저장 안 함). adhoc=조율/«수업 만들기»로 생성
   slots: [
     { id: "s1", classId: "c1", date: "2026-08-17", time: "10:00", status: "done" },
     { id: "s2", classId: "c1", date: "2026-08-19", time: "10:00", status: "scheduled" },
@@ -177,7 +177,7 @@ window.DB = {
     // P5-4b 형 확정(2026-08-17): teacher_report=보고→회원 즉시 통지→이의기간(P7-4) 무이의 시 자동 확정·차감,
     // 이의 건만 센터 중재. center_only=센터만 판정(대안 옵션). 이의기간 길이는 disputeDays(센터별, 기본 7일).
     noshowActor: "teacher_report",
-    quickScope: "valid",        // P6-4 즉시확정 회원 표시: valid(유효 수업권 보유자만)/all/mine(담당만)
+    quickScope: "valid",        // P6-4 «회원 지정» 표시 범위: valid(유효 수업권 보유자만)/all/mine(담당만)
     signPrivate: true,          // P7-1 개인수업 수강확인 필수
     signGroup: false,           // P7-1 그룹수업
     methodApp: true, methodQr: true, // P7-2 (v2.13: PIN 전면 폐지 → 현장 일회용 QR)
@@ -195,7 +195,7 @@ window.DB = {
     // P2-2 (시정①) 수업 개설·관리 권한: 센터 지정 회원 or 자격 멤버십 보유 회원. 둘 다 비우면 센터만.
     classAuth: { memberIds: ["m9"], productIds: ["pr3"] }, // 박코치=센터 지정, 이필라=필라테스 그룹 멤버십 자격
     // P2-2b (v2.3) 선생님별 «지정 가능 회원 범위» — 키 없음 또는 mode:"all"=전체 회원(기본, v2.2까지 동작과 동일).
-    // custom: productIds(멤버십 단위 전체) ∪ memberIds(멤버십 하위 개별 선택 회원). 수업 개설 «지정 회원»·즉시확정 목록에 적용.
+    // custom: productIds(멤버십 단위 전체) ∪ memberIds(멤버십 하위 개별 선택 회원). 수업 만들기 «지정 회원»·«바로 확정» 목록에 적용.
     teacherScope: {
       t2: { mode: "custom", productIds: ["pr3"], memberIds: ["m2"] }, // 이필라: 필라테스 그룹 20회 전체 + 개별 박서준 (데모 시드)
     },
@@ -481,7 +481,7 @@ window.DB = {
 
 // ── v2.25 ② 선생님 시간 겹침 검증 프리셋 (형 확정 B: 경고 후 강행 허용) ──
 // ?case=overlap 으로 열면 t1(박코치)의 8/18 11:00 PT(s6)와 겹치는 그룹 회차 1건을 추가한다.
-// 겹침 «표시»(선생님·센터 화면 뱃지·배너) 검증용 — 확인 모달은 즉시확정·조율 수락·제안 보내기에서 재현한다.
+// 겹침 «표시»(선생님·센터 화면 뱃지·배너) 검증용 — 확인 모달은 회차 생성·조율 수락·제안 보내기에서 재현한다.
 // ⚠️ LCG 시드 뒤 append 원칙 동일. 기본(파라미터 없음) 시드는 전혀 건드리지 않는다.
 (function seedOverlap() {
   if (new URLSearchParams(location.search).get("case") !== "overlap") return;

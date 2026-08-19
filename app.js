@@ -4,7 +4,7 @@
    v2.2 (2026-08-17 형 확정 반영): ① P5-4b 노쇼=보고→통지→무이의 시 자동 확정·차감(이의 건만 센터 중재)
    ② P9-1 노쇼 보상=센터별 설정(없음/지원 — 정상·별도 단가, 샐리 자동 push·수동 체크) — 정산 미리보기 동적 반영.
    v2.3 (2026-08-17): P2-2b 선생님별 «지정 가능 회원 범위» — 전체/멤버십 단위/멤버십 하위 개별 회원 선택,
-   수업 개설 «지정 회원» picker·즉시확정 목록에 적용(액션 재검증 포함). 미설정 기본값=전체 회원(02 문서).
+   수업 만들기 «지정 회원» picker·«바로 확정» 회원 목록에 적용(액션 재검증 포함). 미설정 기본값=전체 회원(02 문서).
    v2.4 (2026-08-17 형 지적): 회원 선택 전 지점을 검색 기반 공통 picker로 교체 — 이름·전화 검색+멤버십 필터+
    점진 로딩(전체 렌더 금지)+선택 칩 요약. 더미 회원 3,000명 규모에서 검증. 칩 전체 나열 UI 제거.
    v2.5 (2026-08-17): P9-1 별도 단가에 «수업료의 %» 방식 추가 — 회당 단가(정상 단가)×n%(0~100), 원 단위
@@ -22,7 +22,7 @@
    잔여 정원·자격 배지·내 예약 상태·바로 예약), 조율 수업 상시 섹션, 빈 날짜 안내(가까운 수업일 이동).
    v2.13 (2026-08-18 형 확정): 수업완료 확인 PIN 전면 폐지 — ① 기본 경로=회원 본인 폰 원탭 확인
    (홈 «수업 확인 요청» 카드+탭바 배지, 확인 권한은 회원 계정에만 귀속·대리 확인 불가) ② 현장
-   즉시확정=일회용 QR(해당 수업 1건 전용 토큰·5분 만료·재사용 불가, 프로토는 «회원 폰에서 열기»
+   현장 확인=일회용 QR(해당 수업 1건 전용 토큰·5분 만료·재사용 불가, 프로토는 «회원 폰에서 열기»
    시뮬레이션) ③ 미확인 방치=기존 자동확정·이의 정책 유지(확인 대기/자동확정 안내 표기 정리).
    v2.14 (2026-08-18 형 시정): 회원 «멤버십/수업권» UI를 실서비스 «내 멤버십» 화면과 동일 문법으로
    재작업(끼워넣기 목적) — 카드=시설명+핑크 원형 화살표 배지/프로그램명/멤버십 라벨/큰 잔여 숫자+작은
@@ -59,13 +59,23 @@
    U11 홈 탭 배지 = 확인 요청 카드와 같은 소스 / U17 로즈 배너 아이콘 교체·U22 캘린더 조율 표식을 셀 안으로.
    v2.25 (2026-08-19 형 확정 5건): ① 일정 변경 제안=1:1 수업 전용 — 그룹은 진입점 미노출 + 액션·수락
    단계에서도 거부, 못 오는 회원은 취소/거절 플로우로 안내 ② 선생님 시간 겹침=경고 후 강행 허용 —
-   즉시확정·조율 수락·제안 보내기 시점에 같은 선생님 중첩 시간 검사 → 확인 모달([취소]/[그래도 진행]),
+   회차 생성·조율 수락·제안 보내기 시점에 같은 선생님 중첩 시간 검사 → 확인 모달([취소]/[그래도 진행]),
    진행하면 정상 확정되고 겹친 회차는 선생님·센터 화면에 «시간 겹침» 뱃지·배너 ③ 수업권 차감 우선순위=
    만료 임박 순(같으면 먼저 등록한 것) 자동 선택 + 예약 화면 «사용 수업권 (변경)»으로 회원이 직접 교체,
    예약 상세·내 예약·이용 내역에 차감 수업권 상시 표기 ④ 선생님·센터 화면을 회원 화면과 같은 디자인
    시스템(role-t/role-c)으로 통일 — 장식용 이모지 전면 제거·공용 라인 아이콘(IC) 대체, 기능·정보 구조 무변경
    ⑤ 회원 «예약» 탭 최상단 [캘린더 | 내 예약] 세그먼트 — 내 예약=다가올 예약+대기/확인 필요(지난 건은 제외).
    검증 시드 ?case=overlap (겹침 표시용).
+   v2.26 (2026-08-19 형 확정): «즉시 예약확정»을 «수업 만들기» 하나로 통합 — 두 진입점(+즉시 예약확정 /
+   내 수업 관리)이 사실은 같은 «수업을 만드는» 행위이고 차이는 «회원을 누가 채우냐» 하나뿐이라서다.
+   ① 선생님 «오늘»·센터 화면 = [+ 수업 만들기] 단일 진입점(#/t/create·#/c/create)
+   ② 폼 = 수업 종류(기존 수업 or ＋새 수업)·날짜·시간 → «회원을 어떻게 채울까요?»
+      ○ 회원 지정해서 바로 확정(구 즉시확정: 검색 picker·그룹=정원/잔여석까지 복수·1:1=1명·전원 통과 시에만 확정)
+      ○ 자리 열어두고 신청 받기(구 수업 개설: 예약 가능 회원 3모드 유지 + 빈 회차 개설 → 회원이 신청)
+      모드 전환은 폼 상태(ccUI) 재렌더로 — 초기 렌더부터 모드별 노출(v2.6 회귀 방지). 실패 시 유령 수업 미생성.
+   ③ 수정·폐강 = «일정» 탭 하위 뷰 [주간 일정 | 내 수업]으로 흡수(선생님) / 센터는 «수업» 탭 유지
+   ④ 구 라우트는 리다이렉트(#/t/quick→#/t/create, #/c/quick→#/c/create, #/t/classes→#/t/schedule «내 수업»)
+   ⑤ «즉시 예약확정»·«즉시확정» 용어 전면 제거(UI·토스트·안내·정책 화면·주석). QA v226 57/57.
    구조 원칙: bookings=좌석의 단일 진실(정원·대기는 파생 계산), 정산=slines 라인 동적 집계,
    차감·정산라인·확인은 confirmTx 한 함수(04 원칙2), 취소규정은 예약 시점 스냅샷(02). */
 (function () {
@@ -351,7 +361,7 @@
       if (first.memberId === DB.me.member) toast("대기하던 수업에 자리가 나서 예약이 확정됐어요! 🎉 알림을 보냈어요.");
     }
   }
-  // 하-5: 조율·즉시확정으로 만든 회차가 비면 정리 (유령 슬롯 방지)
+  // 하-5: 조율·«수업 만들기»로 만든 회차가 비면 정리 (유령 슬롯 방지)
   function cleanupSlot(s) {
     if (s && s.adhoc && s.status === "scheduled" && seatCount(s.id) === 0 && waitBk(s.id).length === 0) s.status = "canceled";
   }
@@ -573,6 +583,7 @@
     fwd: svgIc(`<path d="M4 6.2 11 12l-7 5.8Z"/><path d="M12.8 6.2 19.8 12l-7 5.8Z"/>`),
     empty: svgIc(`<rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 10h17M8 2.8v4M16 2.8v4"/><path d="M9.4 15.4h5.2"/>`),
   };
+  IC.plus = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
   const icb = (k) => `<span class="ic">${IC[k]}</span>`;      // 배너 앞 아이콘
   const ici = (k) => `<span class="ic-inline">${IC[k]}</span>`; // 버튼·문장 안 아이콘
 
@@ -1207,16 +1218,24 @@
           <span class="grow"><span class="t">${cls(s.classId).title}</span><div class="muted small">${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
           ${overlapBadge(s)}<button class="btn sm ghost" onclick="location.hash='#/t/slot/${s.id}'">상세</button></div>`;
       }).join("") : `<p class="muted">오늘 수업이 없어요.</p>`}</div>
-      <a class="btn primary mt8" href="#/t/quick">${ici("bolt")}즉시 예약확정</a>
-      <a class="btn ghost mt8" href="#/t/classes">${ici("users")}내 수업 관리 (개설·수정·폐강)</a>
-      <p class="muted small mt8" style="text-align:center">즉시확정 시 회원에게 바로 알림이 가요.</p>`);
+      <a class="btn primary mt8" href="#/t/create">${ici("plus")}수업 만들기</a>
+      <p class="muted small mt8" style="text-align:center">회원을 지정해 바로 확정하거나, 자리만 열어두고 신청을 받을 수 있어요.<br>수업 수정·폐강은 «일정» 탭의 «내 수업»에서 해요.</p>`);
   }
   let tSchedDay = null; // 주간 일정 선택 요일 — 화면 이탈 시 초기화(render)
+  // v2.26 (형 확정 08-19): «내 수업 관리»를 일정 탭 하위 뷰로 흡수 — 수정·폐강은 여기서 수업을 눌러서 한다.
+  let tSchedTab = "cal";
+  function vTSchedSeg() {
+    return `<div class="seg book-seg" id="ts-seg" role="tablist">
+      <button role="tab" aria-selected="${tSchedTab === "cal"}" class="${tSchedTab === "cal" ? "on" : ""}" onclick="App.tsTab('cal')">주간 일정</button>
+      <button role="tab" aria-selected="${tSchedTab === "classes"}" class="${tSchedTab === "classes" ? "on" : ""}" onclick="App.tsTab('classes')">내 수업</button>
+    </div>`;
+  }
   function vTSchedule() {
+    if (tSchedTab === "classes") return shell("t", "일정", vTSchedSeg() + classListHtml("t"));
     const days = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"];
     const sel = days.includes(tSchedDay) ? tSchedDay : (days.includes(DB.TODAY) ? DB.TODAY : days[0]);
     const list = tSlots().filter((s) => s.date === sel).sort((a, b) => a.time.localeCompare(b.time));
-    return shell("t", "주간 일정", `
+    return shell("t", "일정", vTSchedSeg() + `
       <div class="daystrip">${days.map((d) => {
         const dt = new Date(d + "T00:00:00+09:00");
         return `<button type="button" class="day${d === sel ? " on" : ""}" onclick="App.schedDay('${d}')"><div class="dw">${DOW[dt.getDay()]}</div><div class="dn">${dt.getDate()}</div></button>`;
@@ -1312,7 +1331,7 @@
         : `<div class="banner"><span class="ic">⏳</span><span>완료 보고됨 — 회원 확인·처리를 기다리고 있어요. 확인되어야 정산에 들어가요.</span></div>`)
         : `<button class="btn ghost" disabled style="color:var(--text-disabled)">수업 종료 후 완료 보고할 수 있어요</button>`}`, { back: true });
   }
-  // B3: 즉시확정 — 회원 필터(센터 정책), 기존 회차 합류, 과거 차단(S-2)
+  // B3: «회원 지정해서 바로 확정» — 회원 필터(센터 정책), 기존 회차 합류, 과거 차단(S-2)
   function quickMembers(role) {
     let list = DB.members.filter((m) => !m.staff); // 선생님 계정은 수강 회원 목록에서 제외
     const scope = DB.policy.quickScope;
@@ -1326,7 +1345,7 @@
     if (role === "t") list = list.filter((m) => inTScope(DB.me.teacher, m.id));
     return list;
   }
-  // 형 지적 08-17: 즉시확정도 그룹수업은 정원 한도 내 복수 선택 (1:1만 1명 제한 + 안내)
+  // 형 지적 08-17: 지정 확정도 그룹수업은 정원 한도 내 복수 선택 (1:1만 1명 제한 + 안내)
   function qkLimitOf(c, slotSel) {
     if (!c) return { max: 0, msg: "수업을 먼저 선택해 주세요." };
     if (c.kind === "private" || c.capacity === 1)
@@ -1344,30 +1363,230 @@
   const qkHintHtml = (lim) => lim.one
     ? `${ici("info")}<b>${lim.msg}</b>`
     : `그룹수업은 정원 한도까지 복수 선택할 수 있어요 — 지금은 최대 <b>${lim.max}명</b>.`;
-  function vTQuick(role) {
-    const r = role || "t";
-    const classes = (r === "t" ? DB.classes.filter((c) => c.teacherId === DB.me.teacher) : DB.classes).filter((c) => c.status !== "closed");
-    const members = quickMembers(r);
+  // ── v2.26 (형 확정 08-19): «수업 만들기» 통합 화면 ──
+  // 기존 [바로 확정] + [수업 개설] 두 진입점을 하나로 합쳤다. 둘 다 «수업을 만드는» 행위이고
+  // 차이는 «회원을 누가 채우냐»(assign=선생님이 지정 / open=회원이 신청) 하나뿐이라서다.
+  // 폼 상태를 모듈 변수(ccUI)에 두는 이유: 모드 전환이 재렌더로 반영돼야 «초기 렌더부터 모드별 노출»이
+  // 보장된다 — DOM style 토글만 쓰면 v2.6에서 고쳤던 «초기 렌더 미적용» 버그가 재발한다.
+  let ccUI = null;
+  const ccClasses = (role) => (role === "t" ? DB.classes.filter((c) => c.teacherId === DB.me.teacher) : DB.classes).filter((c) => c.status !== "closed");
+  function ccState(role) {
+    if (!ccUI || ccUI.role !== role) {
+      const list = ccClasses(role);
+      const first = list[0] || null;
+      ccUI = { role, fill: "assign", classId: first ? first.id : "new", slotSel: "new",
+        date: "2026-08-22", time: "11:00", title: "", teacherId: (DB.teachers[0] || {}).id,
+        kind: "group", cap: "6", sched: "fixed", elig: first ? first.eligibility : "pass" };
+    }
+    return ccUI;
+  }
+  // 재렌더 전에 현재 입력값을 상태로 회수 — 모드를 바꿔도 입력한 값이 날아가지 않게
+  function ccSync() {
+    if (!ccUI) return;
+    const val = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; };
+    const seg = (sel) => { const el = document.querySelector(sel); return el ? el.dataset.v : undefined; };
+    const set = (k, v) => { if (v !== undefined) ccUI[k] = v; };
+    set("date", val("qk-date")); set("time", val("qk-time")); set("slotSel", val("qk-slot"));
+    set("title", val("nc-title")); set("teacherId", val("nc-teacher")); set("cap", val("nc-cap"));
+    set("kind", seg("#nc-kind .on")); set("sched", seg("#nc-sched .on")); set("elig", seg("#nc-elig .on"));
+  }
+  // 폼이 «지금 만들려는 수업»의 정원·1:1 여부 — 아직 DB에 없는 새 수업도 같은 규칙으로 한도를 계산한다
+  function ccDraftClass(role) {
+    const U = ccState(role);
+    const c = U.classId === "new" ? null : cls(U.classId);
+    if (c) return c;
+    const kind = U.kind;
+    return { id: null, title: (U.title || "").trim() || "새 수업", kind,
+      capacity: kind === "private" ? 1 : Math.max(1, parseInt(U.cap, 10) || 6) };
+  }
+  function ccLimit() {
+    if (!ccUI) return qkLimit();
+    return qkLimitOf(ccDraftClass(ccUI.role), ccUI.classId === "new" ? "new" : ccUI.slotSel);
+  }
+  function vCreate(role) {
+    const r = role === "c" ? "c" : "t";
+    const U = ccState(r);
+    const me = r === "t" ? teacher(DB.me.teacher) : null;
+    const auth = r === "t" ? classAuth(me) : { ok: true, via: "센터 관리자" };
+    const classes = ccClasses(r);
+    // 권한 없는 선생님도 «이미 있는 내 수업»에는 회차를 만들 수 있다(통합 전 «바로 확정»과 동일 권한). 새 수업 개설만 P2-2로 막는다.
+    const isNew = U.classId === "new" || !cls(U.classId);
+    const c = isNew ? null : cls(U.classId);
+    if (isNew && !auth.ok) {
+      return shell(r, "수업 만들기", `
+        <div class="banner warn">${icb("lock")}<span><b>새 수업을 만들 권한이 없어요.</b> 센터관리자의 지정을 받거나 자격 멤버십(예: 그룹 필라테스)을 보유해야 해요.${classes.length ? " 이미 있는 내 수업에는 회차를 만들 수 있어요." : ""}</span></div>
+        ${classes.length ? `<button class="btn primary" onclick="App.ccClass('${r}','${classes[0].id}')">내 수업으로 만들기</button>` : ""}`, { back: true });
+    }
+    const draft = ccDraftClass(r);
+    const lim = ccLimit();
     const scopeLabel = { valid: "유효 수업권 보유자만", all: "전체 회원", mine: "담당 회원만" }[DB.policy.quickScope];
-    const firstClass = classes[0];
-    const joinable = firstClass ? DB.slots.filter((s) => s.classId === firstClass.id && s.status === "scheduled" && !isPast(s) && seatCount(s.id) < firstClass.capacity) : [];
-    return shell(r, "즉시 예약확정", `
-      <p class="muted" style="margin-bottom:12px">예약 절차 없이 일자와 회원을 골라 바로 확정해요. 지난 일시로는 만들 수 없어요.</p>
+    const scoped = r === "t" && tScope(DB.me.teacher).mode === "custom";
+    const joinable = c ? DB.slots.filter((x) => x.classId === c.id && x.status === "scheduled" && !isPast(x) && seatCount(x.id) < c.capacity) : [];
+    const opt = (v, label, on) => `<option value="${v}"${on ? " selected" : ""}>${label}</option>`;
+    const fillOpt = (v, title, desc) => `<button type="button" class="fill-opt${U.fill === v ? " on" : ""}" role="radio" aria-checked="${U.fill === v}" data-v="${v}" onclick="App.ccFill('${r}','${v}')">
+      <span class="fo-dot" aria-hidden="true"></span><span class="grow"><b>${title}</b><span class="fo-d">${desc}</span></span></button>`;
+    return shell(r, "수업 만들기", `
+      <p class="muted" style="margin-bottom:12px">수업을 하나 만들어요. <b>회원을 지정해 바로 확정</b>하거나, <b>자리만 열어두고 신청</b>을 받을 수 있어요. 지난 일시로는 만들 수 없어요.</p>
+      ${r === "t" && !auth.ok ? `<div class="banner warn">${icb("lock")}<span>새 수업을 만들 권한이 없어서 <b>이미 있는 내 수업</b>만 고를 수 있어요.</span></div>` : ""}
       <div class="card">
-        <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span>${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
-          ${pickerHtml("qk-member", { multi: true, pool: members, limit: qkLimit })}
-          <div class="hint" id="qk-cap-hint">${qkHintHtml(qkLimitOf(firstClass, "new"))}</div>
-          <div class="hint">회원 목록은 니짐내짐(호스트 앱)의 회원 명단을 가져와요 — 프로토타입은 더미 데이터예요. 표시 범위는 센터 설정에서 바꿔요.${r === "t" && tScope(DB.me.teacher).mode === "custom" ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요.` : ""}</div></div>
-        <div class="field"><label>수업</label><select id="qk-class" onchange="App.quickClassChange('${r}')">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
-        <div class="field"><label>회차</label><select id="qk-slot" onchange="App.quickSlotChange()">
-          <option value="new">새 일시로 만들기</option>
-          ${joinable.map((s) => `<option value="${s.id}">${dlabel(s.date)} ${s.time} 기존 회차 합류 (${seatCount(s.id)}/${cls(s.classId).capacity}명)</option>`).join("")}</select>
-          <div class="hint">기존 회차를 고르면 아래 날짜·시간은 무시돼요.</div></div>
-        <div class="field"><label>날짜</label><input type="date" id="qk-date" value="2026-08-22" min="${DB.TODAY}"></div>
-        <div class="field"><label>시간</label><input type="time" id="qk-time" value="11:00"></div>
-        <button class="btn primary" onclick="App.quickBook('${r}')">바로 예약 확정</button>
+        <div class="field"><label>수업 종류</label>
+          <select id="qk-class" onchange="App.ccClass('${r}', this.value)">
+            ${classes.map((x) => opt(x.id, `${x.title} · ${x.kind === "private" ? "개인 1:1" : `그룹 ${x.capacity}명`}`, x.id === U.classId)).join("")}
+            ${auth.ok ? opt("new", "＋ 새 수업 만들기", isNew) : ""}
+          </select>
+          ${c ? `<div class="hint">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · ${eligLabel(c)}</div>`
+              : `<div class="hint">새 수업을 만들면서 첫 회차까지 한 번에 만들어요.</div>`}</div>
+        ${isNew ? `
+        <div class="field"><label>수업명</label><input type="text" id="nc-title" value="${(U.title || "").replaceAll('"', "&quot;")}" placeholder="예: 저녁 요가 클래스"></div>
+        ${r === "t" ? `<div class="field"><label>담당 선생님</label><input type="text" value="${me.name} (본인)" disabled><div class="hint">선생님이 만든 수업은 본인 담당으로 만들어져요.</div></div>`
+          : `<div class="field"><label>담당 선생님</label><select id="nc-teacher">${DB.teachers.map((t) => opt(t.id, `${t.name} (${t.subject})`, t.id === U.teacherId)).join("")}</select></div>`}
+        <div class="field"><label>종류</label><div class="seg" id="nc-kind">
+          <button class="${U.kind === "group" ? "on" : ""}" data-v="group" onclick="App.ccSeg('${r}',this,'kind')">그룹 (다인)</button>
+          <button class="${U.kind === "private" ? "on" : ""}" data-v="private" onclick="App.ccSeg('${r}',this,'kind')">개인 (1:1)</button></div></div>
+        ${U.kind === "group" ? `<div class="field"><label>정원</label><input type="number" id="nc-cap" value="${U.cap}" min="1"></div>` : ""}
+        <div class="field"><label>일정 방식</label><div class="seg" id="nc-sched">
+          <button class="${U.sched === "fixed" ? "on" : ""}" data-v="fixed" onclick="App.ccSeg('${r}',this,'sched')">매주 고정</button>
+          <button class="${U.sched === "arranged" ? "on" : ""}" data-v="arranged" onclick="App.ccSeg('${r}',this,'sched')">선생님과 조율</button></div>
+          <div class="hint">보통 그룹=고정, 개인=조율이지만 자유롭게 선택할 수 있어요.</div></div>` : ""}
+        ${U.fill === "assign" && c ? `<div class="field"><label>회차</label><select id="qk-slot" onchange="App.ccSlot('${r}', this.value)">
+          ${opt("new", "새 일시로 만들기", U.slotSel === "new")}
+          ${joinable.map((x) => opt(x.id, `${dlabel(x.date)} ${x.time} 기존 회차 합류 (${seatCount(x.id)}/${c.capacity}명)`, x.id === U.slotSel)).join("")}</select>
+          <div class="hint">기존 회차를 고르면 아래 날짜·시간은 무시돼요.</div></div>` : ""}
+        <div class="field"><label>날짜</label><input type="date" id="qk-date" value="${U.date}" min="${DB.TODAY}"></div>
+        <div class="field"><label>시간</label><input type="time" id="qk-time" value="${U.time}"></div>
       </div>
-      <div class="banner">${icb("bell")}<span>확정 즉시 회원에게 알림이 가요. 회원 몰래 만드는 예약은 불가능해요. 수업권 자격도 함께 검증해요. 같은 선생님 시간이 겹치면 확인 후 진행할 수 있어요.</span></div>`, { back: true });
+      <div class="sec-title">회원을 어떻게 채울까요?</div>
+      <div class="card">
+        <div class="fill-opts" role="radiogroup" aria-label="회원을 어떻게 채울까요?" id="cc-fill">
+          ${fillOpt("assign", "회원 지정해서 바로 확정", "회원을 골라 예약을 확정해요. 확정하면 회원에게 바로 알림이 가요.")}
+          ${fillOpt("open", "자리 열어두고 신청 받기", "자리만 열어둬요. 회원이 «수업 예약»에서 신청하면 자리가 채워져요.")}
+        </div>
+        <div class="divider"></div>
+        ${U.fill === "assign" ? `
+        <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span>${scoped ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
+          ${pickerHtml("qk-member", { multi: true, pool: quickMembers(r), limit: ccLimit })}
+          <div class="hint" id="qk-cap-hint">${qkHintHtml(lim)}</div>
+          <div class="hint">회원 목록은 니짐내짐(호스트 앱)의 회원 명단을 가져와요 — 프로토타입은 더미 데이터예요. 표시 범위는 센터 설정에서 바꿔요.${scoped ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요.` : ""}</div></div>
+        <button class="btn primary" onclick="App.ccSubmit('${r}')">${isNew ? "수업 만들고 바로 확정" : "바로 예약 확정"}</button>` : `
+        <div class="field"><label>예약 가능 회원</label><div class="seg" id="nc-elig">
+          <button class="${U.elig === "pass" ? "on" : ""}" data-v="pass" onclick="App.ccSeg('${r}',this,'elig')">수업권 보유자</button>
+          <button class="${U.elig === "list" ? "on" : ""}" data-v="list" onclick="App.ccSeg('${r}',this,'elig')">회원 지정</button>
+          <button class="${U.elig === "both" ? "on" : ""}" data-v="both" onclick="App.ccSeg('${r}',this,'elig')">혼합</button></div>
+          <div class="hint">그룹수업도 특정 회원만 지정할 수 있어요.${c ? ` 이 설정을 바꾸면 «${c.title}» 수업 전체에 적용돼요.` : ""}</div></div>
+        ${eligExtraHtml("nc", c, r, U.elig)}
+        <button class="btn primary" onclick="App.ccSubmit('${r}')">${isNew ? "수업 만들고 자리 열기" : "자리 열고 신청 받기"}</button>`}
+      </div>
+      ${U.fill === "assign"
+        ? `<div class="banner">${icb("bell")}<span>확정하면 회원에게 바로 알림이 가요. 회원 몰래 만드는 예약은 불가능해요. 수업권 자격도 함께 검증하고, 선택한 회원 <b>전원</b>이 가능할 때만 확정돼요. 같은 선생님 시간이 겹치면 확인 후 진행할 수 있어요.</span></div>`
+        : `<div class="banner">${icb("calCheck")}<span>자리를 열어두면 «예약 가능 회원» 조건에 맞는 회원이 «수업 예약»에서 신청할 수 있어요. 신청이 들어오면 좌석이 바로 채워지고, 정원이 차면 마감돼요.</span></div>`}`, { back: true });
+  }
+  // 새 수업 객체를 «만들기만» 한다 — DB.classes push는 회차·예약 검증까지 통과한 뒤(ccAssign/ccOpen)에.
+  // 중간에 실패해도 유령 수업이 남지 않게 하려는 것.
+  function ccBuildClass(role) {
+    const U = ccUI;
+    if (role === "t" && !classAuth(teacher(DB.me.teacher)).ok) { toast("새 수업을 만들 권한이 없어요 — 센터 지정 또는 자격 멤버십이 필요해요."); return null; }
+    const teacherId = role === "t" ? DB.me.teacher : (U.teacherId || DB.teachers[0].id);
+    const kind = U.kind;
+    const capacity = kind === "private" ? 1 : Math.max(1, parseInt(U.cap, 10) || 6);
+    // «회원 지정해서 바로 확정»으로 만드는 수업은 고른 회원이 곧 예약 자격 — 별도 자격 설정을 묻지 않는다
+    const elig = U.fill === "assign" ? "list" : U.elig;
+    const prodIds = U.fill === "assign" ? [] : [...document.querySelectorAll("#nc-prods .chip.on")].map((b) => b.dataset.v);
+    const memIds = U.fill === "assign" ? pkSelected("qk-member") : pkSelected("nc-mems");
+    if (elig !== "pass" && !memIds.length) { toast(U.fill === "assign" ? "회원을 검색해 선택해 주세요." : "지정 회원을 1명 이상 선택해 주세요."); return null; }
+    if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return null; }
+    // P2-2b 재검증: 선생님은 «지정 가능 회원 범위» 안의 회원만 (UI 필터만으론 부족 — 04 원칙)
+    if (role === "t" && elig !== "pass") {
+      const bad = memIds.filter((mid) => !inTScope(DB.me.teacher, mid));
+      if (bad.length) { toast(`내 «지정 가능 회원 범위» 밖 회원이에요: ${bad.map(memberName).join(", ")} — 센터에 범위 확대를 요청해 주세요.`); return null; }
+    }
+    return { id: nid("c"), title: (U.title || "").trim() || "새 수업", teacherId, kind, capacity,
+      schedule: U.sched, scheduleLabel: U.sched === "fixed" ? "매주 고정 (시간표 설정)" : "선생님과 조율", duration: 50,
+      eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" };
+  }
+  const ccPastAsk = () => modal(`<h3>지난 일시로는 만들 수 없어요</h3><p>수업은 앞으로의 일시로만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 감사 기록에 남아요.</p>
+    <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
+  function ccDone(role, msg) {
+    delete pickers["qk-member"]; delete pickers["nc-mems"];
+    ccUI = null;
+    closeModal(true);
+    toast(msg);
+    location.hash = role === "c" ? "#/c/bookings" : "#/t/schedule";
+  }
+  // «회원 지정해서 바로 확정» — 통합 전 «바로 확정»과 동일 규칙: 자격은 회원별 검증, 전원 통과해야 확정(부분 확정 없음)
+  function ccAssign(role, c, isNew) {
+    const U = ccUI;
+    const mids = pkSelected("qk-member");
+    if (!mids.length) { toast("회원을 검색해 선택해 주세요."); return; }
+    const joinId = !isNew && U.slotSel && U.slotSel !== "new" ? U.slotSel : null;
+    const lim = qkLimitOf(c, joinId || "new");
+    if (mids.length > lim.max) { toast(lim.msg); return; }
+    const errs = [];
+    const passOf = {};
+    for (const mid of mids) {
+      const m = member(mid);
+      if (role === "t" && !inTScope(DB.me.teacher, mid)) { errs.push(`<b>${m.name}</b>: 내 «지정 가능 회원 범위» 밖이에요 — 센터에 범위 확대를 요청해 주세요.`); continue; }
+      const g = bookGuard(c, mid);
+      if (!g.ok) { errs.push(`<b>${m.name}</b>: ${g.msg}`); continue; }
+      passOf[mid] = g.pass;
+    }
+    let sl = null, d, t;
+    if (joinId) {
+      sl = slot(joinId);
+      if (seatCount(sl.id) + mids.length > c.capacity) errs.push(`정원 초과: 잔여 ${Math.max(0, c.capacity - seatCount(sl.id))}석인데 ${mids.length}명을 선택했어요.`);
+      for (const mid of mids) if (DB.bookings.some((b) => b.slotId === sl.id && b.memberId === mid && ACTIVE.includes(b.status))) errs.push(`<b>${memberName(mid)}</b>: 이미 이 회차에 예약이 있어요.`);
+    } else {
+      d = U.date || "2026-08-22";
+      t = U.time || "11:00";
+      if (new Date(`${d}T${t}:00+09:00`) <= NOW) { ccPastAsk(); return; }
+    }
+    if (errs.length) {
+      modal(`<h3>예약할 수 없어요</h3><p>선택 인원 전원이 가능해야 확정돼요 — 부분 확정은 하지 않아요.</p>
+        <p class="mt8">${errs.join("<br>")}</p>
+        <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
+      return;
+    }
+    const finish = () => {
+      if (isNew) DB.classes.push(c);
+      if (!sl) { sl = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true }; DB.slots.push(sl); }
+      for (const mid of mids) DB.bookings.push({ id: nid("bk"), slotId: sl.id, memberId: mid, passId: passOf[mid].id, status: "booked", policySnap: snapPolicy() });
+      const who = mids.length === 1 ? `${memberName(mids[0])} 회원` : `${memberName(mids[0])} 외 ${mids.length - 1}명`;
+      ccDone(role, `${who} ${dlabel(sl.date)} ${sl.time} 예약 확정! 회원에게 알림을 보냈어요.`);
+    };
+    // v2.25 ②: 새 회차를 만들 때만 겹침 검사 — 기존 회차 합류는 이미 잡힌 시간이라 새 겹침이 안 생긴다.
+    const hits = sl ? [] : overlapSlots(c.teacherId, d, t, c.duration, []);
+    if (hits.length) { overlapAsk(hits, finish); return; }
+    finish();
+  }
+  // «자리 열어두고 신청 받기» — 회차만 열고 좌석은 비워 둔다. 회원이 «수업 예약»에서 신청하면 채워진다.
+  function ccOpen(role, c, isNew) {
+    const U = ccUI;
+    const d = U.date || "2026-08-22";
+    const t = U.time || "11:00";
+    if (new Date(`${d}T${t}:00+09:00`) <= NOW) { ccPastAsk(); return; }
+    const elig = U.elig;
+    const prodIds = [...document.querySelectorAll("#nc-prods .chip.on")].map((b) => b.dataset.v);
+    const memIds = pkSelected("nc-mems");
+    if (!isNew) {
+      if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
+      if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return; }
+      // P2-2b 재검증: 신규 추가만 범위 검사 (기존 지정 회원은 소급 없이 유지 — updateClass와 같은 규칙)
+      if (role === "t" && elig !== "pass") {
+        const bad = memIds.filter((mid) => !inTScope(DB.me.teacher, mid) && !(c.memberIds || []).includes(mid));
+        if (bad.length) { toast(`내 «지정 가능 회원 범위» 밖 회원이에요: ${bad.map(memberName).join(", ")} — 센터에 범위 확대를 요청해 주세요.`); return; }
+      }
+      if (DB.slots.some((x) => x.classId === c.id && x.date === d && x.time === t && x.status !== "canceled")) {
+        toast("같은 수업의 같은 일시에 이미 회차가 있어요."); return;
+      }
+    }
+    const finish = () => {
+      if (isNew) DB.classes.push(c);
+      else { c.eligibility = elig; c.eligibleProductIds = elig === "list" ? [] : prodIds; c.memberIds = elig === "pass" ? [] : memIds; }
+      DB.slots.push({ id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true });
+      ccDone(role, `«${c.title}» ${dlabel(d)} ${t} 자리를 열었어요. 조건에 맞는 회원이 «수업 예약»에서 신청할 수 있어요.`);
+    };
+    const hits = overlapSlots(c.teacherId, d, t, c.duration || 50, []);
+    if (hits.length) { overlapAsk(hits, finish); return; }
+    finish();
   }
   function vTReport() {
     const auto = DB.policy.autoConfirmHours;
@@ -1463,7 +1682,7 @@
       ${warns.map((x) => `<button class="banner warn" onclick="location.hash='#/c/confirms'">${icb("clock")}<span>${x.t.name} 선생님 자동확정 비율 <b>${x.rate}%</b> — 임계(${DB.policy.autoWarnRate}%) 초과. 검토를 권장해요.</span></button>`).join("")}
       <div class="sec-title">바로가기</div>
       <div class="stat-grid">
-        <button class="stat" style="text-align:left" onclick="location.hash='#/c/quick'"><div class="k">예약</div><div class="v" style="font-size:15px">${ici("bolt")}즉시 예약확정</div></button>
+        <button class="stat" style="text-align:left" onclick="location.hash='#/c/create'"><div class="k">수업</div><div class="v" style="font-size:15px">${ici("plus")}수업 만들기</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/confirms'"><div class="k">수강확인</div><div class="v" style="font-size:15px">${ici("clip")}수강확인 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/products'"><div class="k">판매</div><div class="v" style="font-size:15px">${ici("ticket")}수업상품 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/settlement'"><div class="k">월말</div><div class="v" style="font-size:15px">${ici("won")}정산·샐리 전송</div></button>
@@ -1510,7 +1729,7 @@
       <p class="muted small">이미 판매된 수업권은 구매한 시점의 조건 그대로 보존돼요. 환불·이용정지 처리는 호스트 앱(CRM) 결제·회원 관리와 연동돼요.</p>`, { back: true });
   }
   // ── v2.4: 대규모 회원 «검색 기반 선택» 공통 컴포넌트 (형 지적 08-17: 수천 명 센터 — 칩 전체 나열 금지) ──
-  // 사용처: 수업 개설·수정 «지정 회원»(nc-mems/ec-mems), 즉시확정 회원(qk-member, 단일), P2-2b 개별 회원(scope-*).
+  // 사용처: 수업 만들기·수정 «지정 회원»(nc-mems/ec-mems), «바로 확정» 회원(qk-member), P2-2b 개별 회원(scope-*).
   // 상태: pickers[id] — 같은 해시(화면) 안에서만 유지, 화면 이동 시 초기화. 결과는 PK_PAGE씩 점진 로딩(전체 렌더 금지).
   // controlled(opts.commit): 선택의 진실=DB(P2-2b) — 토글은 커밋 함수로 위임. uncontrolled: 내부 Set, 저장 액션이 pkSelected로 읽음.
   const PK_PAGE = 40;
@@ -1630,11 +1849,11 @@
   }
 
   // B2: 회원 지정 picker + 자격 수업권 지정. v2.3: 선생님은 «지정 가능 회원 범위»(P2-2b) 안의 회원만
-  function eligExtraHtml(prefix, c, role) {
+  function eligExtraHtml(prefix, c, role, modeOverride) {
     const selP = c ? c.eligibleProductIds || [] : ["pr3", "pr4"];
     const selM = c ? c.memberIds || [] : [];
     // 초기 렌더도 segElig와 같은 규칙 적용 — 안 하면 «수업권 보유자» 선택인데 지정 회원이 노출돼 혼합처럼 보임 (형 지적 08-17)
-    const mode = c ? c.eligibility : "pass";
+    const mode = modeOverride || (c ? c.eligibility : "pass");
     const scoped = role === "t" && tScope(DB.me.teacher).mode === "custom";
     // 기존 지정 회원은 범위 밖이어도 표시·유지 (저장 시 조용히 빠지는 사고 방지)
     const pool = DB.members.filter((m) => !m.staff && (!scoped || inTScope(DB.me.teacher, m.id) || selM.includes(m.id)));
@@ -1647,10 +1866,9 @@
         <div class="hint">${scoped ? `센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)}) 안의 회원만 보여요. 기존 지정 회원은 범위 밖이어도 유지돼요.` : "회원 목록은 니짐내짐(호스트 앱)의 회원 명단을 가져와요 — 프로토타입은 더미 데이터예요."}</div></div>`;
   }
   // 시정①: 센터·선생님 공용 수업 관리 — 선생님은 본인 수업 + classAuth(P2-2) 권한 필요
-  function vClasses(role) {
+  function classListHtml(role) {
     const isT = role === "t";
-    const me = isT ? teacher(DB.me.teacher) : null;
-    const auth = isT ? classAuth(me) : { ok: true };
+    const auth = isT ? classAuth(teacher(DB.me.teacher)) : { ok: true };
     const list = isT ? DB.classes.filter((c) => c.teacherId === DB.me.teacher) : DB.classes;
     const card = (c) => `<${auth.ok ? `button class="card card-tap" onclick="location.hash='#/${role}/class/${c.id}'"` : `div class="card"`}>
         <div class="row"><span class="grow"><b>${c.title}</b>${c.status === "closed" ? ' <span class="badge b-danger">폐강</span>' : ""}
@@ -1660,33 +1878,19 @@
         <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "조율형"}</span></div>
         ${c.status === "closed" ? `<div class="muted small mt4">사유: ${c.closedReason}</div>` : ""}</span>
         ${auth.ok ? `<span class="arrow" style="color:var(--text-disabled)">›</span>` : ""}</div></${auth.ok ? "button" : "div"}>`;
-    return shell(role, isT ? "내 수업 관리" : "수업 관리", `
+    return `
       ${isT ? (auth.ok
-        ? `<div class="banner" style="margin-bottom:14px">${icb("unlock")}<span>수업 개설·관리 권한: <b>${auth.via}</b> — 내 수업의 개설·수정·폐강이 가능해요.</span></div>`
-        : `<div class="banner warn" style="margin-bottom:14px">${icb("lock")}<span><b>수업 개설·관리 권한이 없어요.</b> 센터관리자의 지정을 받거나 자격 멤버십(예: 그룹 필라테스)을 보유해야 해요. 센터에 문의해 주세요.</span></div>`)
+        ? `<div class="banner" style="margin-bottom:14px">${icb("unlock")}<span>수업 만들기·관리 권한: <b>${auth.via}</b> — 내 수업의 개설·수정·폐강이 가능해요.</span></div>`
+        : `<div class="banner warn" style="margin-bottom:14px">${icb("lock")}<span><b>수업 만들기·관리 권한이 없어요.</b> 센터관리자의 지정을 받거나 자격 멤버십(예: 그룹 필라테스)을 보유해야 해요. 센터에 문의해 주세요.</span></div>`)
         : `<a class="btn ghost" href="#/c/products" style="margin-bottom:14px">${ici("ticket")}수업상품 관리 ›</a>`}
-      ${list.length ? list.map(card).join("") : `<div class="card flat"><p class="muted">담당 수업이 없어요.</p></div>`}
-      ${auth.ok ? `<div class="sec-title">새 수업 개설</div>
-      <div class="card">
-        <div class="field"><label>수업명</label><input type="text" id="nc-title" placeholder="예: 저녁 요가 클래스"></div>
-        ${isT ? `<div class="field"><label>담당 선생님</label><input type="text" value="${me.name} (본인)" disabled><div class="hint">선생님 개설 수업은 본인 담당으로 만들어져요.</div></div>`
-          : `<div class="field"><label>담당 선생님</label><select id="nc-teacher">${DB.teachers.map((t) => `<option value="${t.id}">${t.name} (${t.subject})</option>`).join("")}</select></div>`}
-        <div class="field"><label>종류</label><div class="seg" id="nc-kind">
-          <button class="on" data-v="group" onclick="App.seg(this)">그룹 (다인)</button>
-          <button data-v="private" onclick="App.seg(this)">개인 (1:1)</button></div></div>
-        <div class="field"><label>정원</label><input type="number" id="nc-cap" value="6"></div>
-        <div class="field"><label>일정 방식</label><div class="seg" id="nc-sched">
-          <button class="on" data-v="fixed" onclick="App.seg(this)">매주 고정</button>
-          <button data-v="arranged" onclick="App.seg(this)">선생님과 조율</button></div>
-          <div class="hint">보통 그룹=고정, 개인=조율이지만 자유롭게 선택할 수 있어요.</div></div>
-        <div class="field"><label>예약 가능 회원</label><div class="seg" id="nc-elig">
-          <button class="on" data-v="pass" onclick="App.segElig(this,'nc')">수업권 보유자</button>
-          <button data-v="list" onclick="App.segElig(this,'nc')">회원 지정</button>
-          <button data-v="both" onclick="App.segElig(this,'nc')">혼합</button></div>
-          <div class="hint">그룹수업도 특정 회원만 지정할 수 있어요.</div></div>
-        ${eligExtraHtml("nc", null, role)}
-        <button class="btn primary" onclick="App.createClass('${role}')">수업 개설</button>
-      </div>` : ""}`, isT ? { back: true } : {});
+      ${auth.ok ? `<a class="btn primary" href="#/${role}/create" style="margin-bottom:14px">${ici("plus")}수업 만들기</a>` : ""}
+      <div class="sec-title">${isT ? "내 수업" : "수업 목록"} <span class="muted small" style="font-weight:600">— 눌러서 수정·폐강</span></div>
+      ${list.length ? list.map(card).join("") : `<div class="card flat"><p class="muted">${isT ? "담당 수업이 없어요. «수업 만들기»로 첫 수업을 만들어 보세요." : "등록된 수업이 없어요."}</p></div>`}`;
+  }
+  // 시정①: 센터·선생님 공용 수업 관리 — 선생님은 본인 수업 + classAuth(P2-2) 권한 필요.
+  // v2.26: 선생님 목록은 «일정» 탭 하위 뷰로 이동 — 이 화면은 센터 «수업» 탭 전용.
+  function vClasses(role) {
+    return shell(role, role === "t" ? "내 수업" : "수업 관리", classListHtml(role), role === "t" ? { back: true } : {});
   }
   // B1+시정①: 수업 수정·폐강 — 선생님은 본인 수업 + 권한 있을 때만
   function vClassManage(role, id) {
@@ -1787,7 +1991,7 @@
       return dates.find((d) => d > sel) || dates.slice().reverse().find((d) => d < sel) || null;
     })();
     return shell("c", "예약 현황", `
-      <a class="btn ghost" href="#/c/quick" style="margin-bottom:14px">${ici("bolt")}즉시 예약확정</a>
+      <a class="btn ghost" href="#/c/create" style="margin-bottom:14px">${ici("plus")}수업 만들기</a>
       ${arrs.length ? `<div class="sec-title">조율 요청 (선생님 확인 대기) <span class="badge b-warn">${arrs.length}건</span></div>
       <div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
       <div class="cb-filters">
@@ -2090,7 +2294,7 @@
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">정원 마감 시 예약대기</div><div class="td">자리가 나면 순번대로 확정</div></span>${sw("waitlist", P.waitlist)}</div>
         <div class="toggle-row"><span><div class="tl">대기 자동 승격</div><div class="td">끄면 자리가 나도 센터가 직접 올려줘야 해요</div></span>${sw("waitlistAuto", P.waitlistPromote === "auto")}</div>
-        <div class="toggle-row"><span><div class="tl">즉시확정 회원 표시 범위</div><div class="td">즉시 예약확정 화면에 보여줄 회원 목록이에요</div></span>
+        <div class="toggle-row"><span><div class="tl">«회원 지정» 표시 범위</div><div class="td">«수업 만들기»에서 회원을 고를 때 보여줄 목록이에요</div></span>
           ${sel("App.setQuickScope(this.value)", [["valid", "유효 수업권 보유자만"], ["all", "전체 회원"], ["mine", "담당 회원만"]], P.quickScope)}</div>
       </div>
       <div class="sec-title">예약 취소 · 노쇼</div>
@@ -2138,7 +2342,7 @@
           <div class="pk-total">선생님 총 ${DB.teachers.length.toLocaleString("ko-KR")}명 — 행을 누르면 범위를 설정해요</div>
           <div class="pk-results tall"><div id="pol-scope-list">${polScopeRows()}</div></div>
         </div>
-        <div class="muted small mt8">범위를 설정하지 않으면 <b>전체 회원</b>이 기본이에요. 이 범위는 선생님이 수업을 만들 때 고르는 <b>«지정 회원» 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 전체 회원으로 두거나, 멤버십 단위로 좁히거나, 멤버십 안에서 회원을 개별로 고를 수 있어요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.</div>
+        <div class="muted small mt8">범위를 설정하지 않으면 <b>전체 회원</b>이 기본이에요. 이 범위는 선생님이 수업을 만들 때 고르는 <b>«지정 회원» 목록</b>과 <b>«회원 지정해서 바로 확정» 회원 목록</b>에 적용돼요. 전체 회원으로 두거나, 멤버십 단위로 좁히거나, 멤버십 안에서 회원을 개별로 고를 수 있어요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.</div>
       </div>
       <div class="sec-title">정산 · 샐리 연동</div>
       <div class="card flat">
@@ -2180,7 +2384,7 @@
           </div>` : ""}
           <div class="muted small mt4">현재 범위: <b>${tScopeLabel(tid)}</b></div>
         </div>
-        <div class="muted small">범위를 설정하지 않으면 <b>전체 회원</b>이 기본이에요. 이 범위는 선생님이 수업을 만들 때 고르는 <b>«지정 회원» 목록</b>과 <b>즉시 예약확정 회원 목록</b>에 적용돼요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.</div>
+        <div class="muted small">범위를 설정하지 않으면 <b>전체 회원</b>이 기본이에요. 이 범위는 선생님이 수업을 만들 때 고르는 <b>«지정 회원» 목록</b>과 <b>«회원 지정해서 바로 확정» 회원 목록</b>에 적용돼요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.</div>
       </div>
       <button class="btn ghost" onclick="location.hash='#/c/policy'">‹ 정책 설정으로 돌아가기</button>`, { back: true });
   }
@@ -2258,6 +2462,7 @@
       }
       pkRefresh(id);
     },
+    tsTab(v) { tSchedTab = v; render(); },
     seg(btn) {
       btn.parentElement.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
       btn.classList.add("on");
@@ -2733,78 +2938,62 @@
       location.hash = "#/m/confirm/" + b.id;
       toast("QR 확인 완료! 수업권 1회가 차감됐고 QR은 만료됐어요.");
     },
-    // S-2: 과거 일시 즉시확정 차단 + 자격검증 + 기존 회차 합류
-    quickClassChange(role) {
-      const cid = document.getElementById("qk-class").value;
-      const c = cls(cid);
-      const joinable = DB.slots.filter((s) => s.classId === cid && s.status === "scheduled" && !isPast(s) && seatCount(s.id) < c.capacity);
-      document.getElementById("qk-slot").innerHTML = `<option value="new">새 일시로 만들기</option>` +
-        joinable.map((s) => `<option value="${s.id}">${dlabel(s.date)} ${s.time} 기존 회차 합류 (${seatCount(s.id)}/${c.capacity}명)</option>`).join("");
-      App.quickSlotChange();
+    // ── v2.26 «수업 만들기» 통합 폼 액션 ──
+    // 모든 상태 변경은 ccSync()로 입력값을 회수한 뒤 render() — 모드별 노출이 «초기 렌더»부터 맞도록.
+    ccClass(role, v) {
+      ccSync();
+      const U = ccState(role);
+      const before = U.classId;
+      U.classId = v || "new";
+      U.slotSel = "new";
+      const c = U.classId === "new" ? null : cls(U.classId);
+      U.elig = c ? c.eligibility : "pass";
+      if (before !== U.classId) delete pickers["nc-mems"]; // 수업이 바뀌면 지정 회원은 그 수업 기준으로 다시
+      App.ccTrim(role);
+      render();
     },
-    // 수업·회차 변경 시 선택 한도 재계산 — 한도 초과분은 앞선 선택만 남기고 잘라냄 (1:1 전환 등)
-    quickSlotChange() {
-      const lim = qkLimit();
-      const st = pickers["qk-member"];
-      if (st && st.sel.size > lim.max) {
-        st.sel = new Set([...st.sel].slice(0, lim.max));
-        toast(lim.msg);
-        pkRefresh("qk-member");
-      }
+    ccSlot(role, v) {
+      ccSync();
+      ccState(role).slotSel = v || "new";
+      // 회차 변경은 한도만 달라진다 — select를 통째로 새로 그리지 않고 힌트만 갱신(선택 흐름 유지)
+      App.ccTrim(role);
       const h = document.getElementById("qk-cap-hint");
-      if (h) h.innerHTML = qkHintHtml(lim);
+      if (h) h.innerHTML = qkHintHtml(ccLimit());
+      pkRefresh("qk-member");
     },
-    // 형 지적 08-17: 복수 회원 일괄 확정 — 전원 가능해야 확정(부분 확정 없음), 자격은 회원별 검증
-    quickBook(role) {
-      const mids = pkSelected("qk-member");
-      const c = cls(document.getElementById("qk-class").value);
-      if (!mids.length) { toast("회원을 검색해 선택해 주세요."); return; }
-      if (!c) { toast("수업을 선택해 주세요."); return; }
-      const lim = qkLimit();
-      if (mids.length > lim.max) { toast(lim.msg); return; }
-      const errs = [];
-      const passOf = {};
-      for (const mid of mids) {
-        const m = member(mid);
-        // P2-2b 재검증 (목록 필터만으론 부족 — 04 원칙)
-        if (role === "t" && !inTScope(DB.me.teacher, mid)) { errs.push(`<b>${m.name}</b>: 내 «지정 가능 회원 범위» 밖이에요 — 센터에 범위 확대를 요청해 주세요.`); continue; }
-        const g = bookGuard(c, mid);
-        if (!g.ok) { errs.push(`<b>${m.name}</b>: ${g.msg}`); continue; }
-        passOf[mid] = g.pass;
-      }
-      const slotSel = document.getElementById("qk-slot").value;
-      let s = null, d, t;
-      if (slotSel && slotSel !== "new") {
-        s = slot(slotSel);
-        if (seatCount(s.id) + mids.length > c.capacity) errs.push(`정원 초과: 잔여 ${Math.max(0, c.capacity - seatCount(s.id))}석인데 ${mids.length}명을 선택했어요.`);
-        for (const mid of mids) if (DB.bookings.some((b) => b.slotId === s.id && b.memberId === mid && ACTIVE.includes(b.status))) errs.push(`<b>${memberName(mid)}</b>: 이미 이 회차에 예약이 있어요.`);
+    ccFill(role, v) {
+      ccSync();
+      ccState(role).fill = v;
+      App.ccTrim(role);
+      render();
+    },
+    ccSeg(role, btn, key) {
+      App.seg(btn);
+      ccSync();
+      ccState(role)[key] = btn.dataset.v;
+      App.ccTrim(role);
+      render();
+    },
+    // 한도(1:1 전환·정원 축소·잔여석)를 넘긴 선택은 앞선 선택만 남기고 잘라낸다
+    ccTrim(role) {
+      ccState(role);
+      const lim = ccLimit();
+      const st = pickers["qk-member"];
+      if (st && st.sel.size > lim.max) { st.sel = new Set([...st.sel].slice(0, lim.max)); toast(lim.msg); }
+    },
+    ccSubmit(role) {
+      ccSync();
+      const U = ccState(role);
+      const isNew = U.classId === "new" || !cls(U.classId);
+      let c;
+      if (isNew) {
+        c = ccBuildClass(role); // 아직 DB에 넣지 않는다 — 검증을 모두 통과해야 만들어진다
+        if (!c) return;
       } else {
-        d = document.getElementById("qk-date").value || "2026-08-22";
-        t = document.getElementById("qk-time").value || "11:00";
-        if (new Date(`${d}T${t}:00+09:00`) <= NOW) {
-          modal(`<h3>지난 일시로는 확정할 수 없어요</h3><p>즉시확정은 앞으로의 수업만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 감사 기록에 남아요.</p>
-            <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
-          return;
-        }
+        c = cls(U.classId);
+        if (role === "t" && c.teacherId !== DB.me.teacher) { toast("내 담당 수업만 만들 수 있어요."); return; }
       }
-      if (errs.length) {
-        modal(`<h3>예약할 수 없어요</h3><p>선택 인원 전원이 가능해야 확정돼요 — 부분 확정은 하지 않아요.</p>
-          <p class="mt8">${errs.join("<br>")}</p>
-          <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
-        return;
-      }
-      const finish = () => {
-        if (!s) { s = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true }; DB.slots.push(s); }
-        for (const mid of mids) DB.bookings.push({ id: nid("bk"), slotId: s.id, memberId: mid, passId: passOf[mid].id, status: "booked", policySnap: snapPolicy() });
-        const who = mids.length === 1 ? `${memberName(mids[0])} 회원` : `${memberName(mids[0])} 외 ${mids.length - 1}명`;
-        closeModal(true);
-        toast(`${who} ${dlabel(s.date)} ${s.time} 예약 확정! 회원에게 알림을 보냈어요.`);
-        location.hash = role === "c" ? "#/c/bookings" : "#/t/schedule";
-      };
-      // v2.25 ② (형 확정 B): 새 회차를 만들 때만 겹침 검사 — 기존 회차 합류는 이미 잡힌 시간이라 새 겹침이 안 생긴다.
-      const hits = s ? [] : overlapSlots(c.teacherId, d, t, c.duration, []);
-      if (hits.length) { overlapAsk(hits, finish); return; }
-      finish();
+      return U.fill === "assign" ? ccAssign(role, c, isNew) : ccOpen(role, c, isNew);
     },
     // v2.25 ②: 겹침 확인 모달 — [그래도 진행]은 보류해 둔 동작을 그대로 실행(차단하지 않음)
     overlapGo() {
@@ -2847,37 +3036,6 @@
       DB.products.push({ id: nid("pr"), name, kind, sessions, price, validityDays: days });
       render();
       toast(`«${name}» 상품이 개설됐어요.`);
-    },
-    // 시정①: 선생님 개설은 classAuth 재검증(UI 숨김만으론 부족 — 04 원칙) + 본인 담당 고정
-    createClass(role) {
-      let teacherId;
-      if (role === "t") {
-        if (!classAuth(teacher(DB.me.teacher)).ok) { toast("수업 개설 권한이 없어요 — 센터 지정 또는 자격 멤버십이 필요해요."); return; }
-        teacherId = DB.me.teacher;
-      } else {
-        teacherId = document.getElementById("nc-teacher").value;
-      }
-      const title = document.getElementById("nc-title").value.trim() || "새 수업";
-      const kind = document.querySelector("#nc-kind .on").dataset.v;
-      const sched = document.querySelector("#nc-sched .on").dataset.v;
-      const elig = document.querySelector("#nc-elig .on").dataset.v;
-      const cap = kind === "private" ? 1 : parseInt(document.getElementById("nc-cap").value, 10) || 6;
-      const prodIds = [...document.querySelectorAll("#nc-prods .chip.on")].map((b) => b.dataset.v);
-      const memIds = pkSelected("nc-mems");
-      // M-4: 자격 데이터 실검증
-      if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
-      if (elig !== "list" && !prodIds.length) { toast("사용 가능한 수업권을 1개 이상 선택해 주세요."); return; }
-      // P2-2b 재검증: 선생님은 «지정 가능 회원 범위» 안의 회원만 지정 가능
-      if (role === "t" && elig !== "pass") {
-        const bad = memIds.filter((mid) => !inTScope(DB.me.teacher, mid));
-        if (bad.length) { toast(`내 «지정 가능 회원 범위» 밖 회원이에요: ${bad.map(memberName).join(", ")} — 센터에 범위 확대를 요청해 주세요.`); return; }
-      }
-      DB.classes.push({ id: nid("c"), title, teacherId, kind, capacity: cap,
-        schedule: sched, scheduleLabel: sched === "fixed" ? "매주 고정 (시간표 설정)" : "선생님과 조율", duration: 50,
-        eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" });
-      delete pickers["nc-mems"]; // 개설 폼 리셋 (입력란은 재렌더로 초기화되므로 picker 선택도 함께)
-      render();
-      toast(`«${title}» 수업이 개설됐어요.`);
     },
     // 시정①: 선생님의 수정·폐강 가드 — 본인 수업 + 권한 보유
     teachGuard(id, role) {
@@ -3112,7 +3270,7 @@
     setCancelHours(v) { DB.policy.cancelHours = parseInt(v, 10); toast("취소 기한이 변경됐어요. 신규 예약부터 적용되고, 기존 예약은 예약 당시 조건이 유지돼요."); },
     setAutoConfirm(v) { DB.policy.autoConfirmHours = parseInt(v, 10); render(); toast("자동확정 설정이 변경됐어요."); },
     setDispute(v) { DB.policy.disputeDays = parseInt(v, 10); toast("이의제기 기간이 변경됐어요."); },
-    setQuickScope(v) { DB.policy.quickScope = v; toast("즉시확정 회원 표시 범위가 변경됐어요."); },
+    setQuickScope(v) { DB.policy.quickScope = v; toast("«회원 지정» 표시 범위가 변경됐어요."); },
     setNoshowActor(v) { DB.policy.noshowActor = v; render(); toast(v === "center_only" ? "센터만 판정으로 변경했어요 — 노쇼 확정·취소를 센터가 직접 결정해요." : "선생님 보고 후 이의가 없으면 자동확정되는 방식이에요 (기본값)."); },
     // P9-1 (형 확정 08-17): 노쇼 보상 센터별 설정 — 변경 즉시 정산 미리보기 재계산
     setNoshowReward(v) { DB.policy.noshowReward = v; render(); toast(v === "support" ? "노쇼 보상을 지원해요 — 정산·샐리 전송 미리보기에 반영됐어요." : "노쇼 보상 없음(기본)으로 설정했어요."); },
@@ -3247,8 +3405,7 @@
     [/^#\/t\/inbox$/, vTInbox],
     [/^#\/t\/propose$/, vTPropose],
     [/^#\/t\/slot\/(.+)$/, vTSlot],
-    [/^#\/t\/quick$/, () => vTQuick("t")],
-    [/^#\/t\/classes$/, () => vClasses("t")],
+    [/^#\/t\/create$/, () => vCreate("t")],
     [/^#\/t\/class\/(.+)$/, (id) => vClassManage("t", id)],
     [/^#\/t\/report$/, vTReport],
     [/^#\/t\/earnings$/, vTEarnings],
@@ -3258,18 +3415,30 @@
     [/^#\/c\/class\/(.+)$/, (id) => vClassManage("c", id)],
     [/^#\/c\/bookings$/, vCBookings],
     [/^#\/c\/slot\/(.+)$/, vCSlot],
-    [/^#\/c\/quick$/, () => vTQuick("c")],
+    [/^#\/c\/create$/, () => vCreate("c")],
     [/^#\/c\/confirms$/, vCConfirms],
     [/^#\/c\/settlement$/, vCSettlement],
     [/^#\/c\/policy$/, vCPolicy],
     [/^#\/c\/policy\/scope\/(.+)$/, vCPolicyScope],
   ];
   let lastHash = null;
+  // v2.26: 통합 전 라우트(딥링크·즐겨찾기·폐강 후 복귀)는 새 화면으로 돌려보낸다.
+  // «내 수업 관리»는 일정 탭 하위 뷰로 흡수됐으므로 탭까지 맞춰서 보낸다.
+  const REDIRECTS = { "#/t/quick": "#/t/create", "#/c/quick": "#/c/create", "#/t/classes": "#/t/schedule" };
   function render() {
+    const h0 = location.hash || "#/";
+    if (REDIRECTS[h0]) {
+      if (h0 === "#/t/classes") tSchedTab = "classes";
+      history.replaceState(null, "", REDIRECTS[h0]);
+      return render();
+    }
     const h = location.hash || "#/";
     if (h !== lastHash) Object.keys(pickers).forEach((k) => { if (pickers[k].hash !== h) delete pickers[k]; }); // 화면 이동 시 picker 상태 초기화
     if (h !== lastHash && !h.startsWith("#/c/policy")) polUI.live = false; // v2.7: 정책 화면군 밖으로 나가면 검색·펼침 초기화
     if (h !== lastHash && h !== "#/t/schedule") tSchedDay = null; // v2.8: 주간 일정 이탈 시 요일 선택 초기화
+    // v2.26: 일정 탭 하위 뷰 — 수업 상세(수정·폐강)를 다녀와도 «내 수업»에 그대로 돌아온다
+    if (h !== lastHash && h !== "#/t/schedule" && !h.startsWith("#/t/class/")) tSchedTab = "cal";
+    if (h !== lastHash && h !== "#/t/create" && h !== "#/c/create") ccUI = null; // v2.26: 수업 만들기 폼 초기화
     if (h !== lastHash && h !== "#/m/book") mBookSel = null; // v2.11: 예약 캘린더 이탈 시 날짜 선택 초기화
     // v2.20: 센터 캘린더 — 회차 상세를 다녀와도 날짜·필터 유지, 그 밖으로 나가면 초기화
     if (h !== lastHash && h !== "#/c/bookings" && !h.startsWith("#/c/slot/")) cbUI = { sel: null, teacher: "all", cls: "all" };
