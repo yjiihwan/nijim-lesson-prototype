@@ -67,18 +67,18 @@ window.DB = {
 
   // 수업권 원장 (append-only) — m1 것만 시드
   ledger: [
-    { passId: "ps1", delta: +10, reason: "구매", detail: "PT 10회 · 1,000,000원", at: "2026-07-30 14:02" },
-    { passId: "ps1", delta: -1, reason: "수강 확인", detail: "8/2 (일) PT · 앱 확인", at: "2026-08-02 12:10" },
-    { passId: "ps1", delta: -1, reason: "수강 확인", detail: "8/6 (목) PT · 앱 확인", at: "2026-08-06 12:05" },
-    { passId: "ps1", delta: -1, reason: "기한 위반 취소", detail: "8/9 (일) PT · 21시간 전 취소", at: "2026-08-08 14:00" },
-    { passId: "ps1", delta: -1, reason: "수강 확인", detail: "8/13 (목) PT · QR 확인", at: "2026-08-13 12:03" },
-    { passId: "ps2", delta: +10, reason: "구매", detail: "필라테스 그룹 10회 · 350,000원", at: "2026-08-01 10:11" },
-    { passId: "ps2", delta: -1, reason: "수강 확인", detail: "8/5 (수) 필라테스 · 자동확정", at: "2026-08-06 10:00" },
-    { passId: "ps2", delta: -1, reason: "수강 확인", detail: "8/12 (수) 필라테스 · 앱 확인", at: "2026-08-12 11:20" },
-    { passId: "ps3", delta: +20, reason: "구매", detail: "필라테스 그룹 20회 · 600,000원", at: "2026-05-12 11:00" },
-    { passId: "ps13", delta: +20, reason: "구매", detail: "필라테스 그룹 20회 · 480,000원 (정가 600,000원 · 재등록 할인)", at: "2026-08-14 10:20" },
-    { passId: "ps13", delta: -1, reason: "수강 확인", detail: "8/14 (금) 필라테스 · 앱 확인", at: "2026-08-14 11:05" },
-    { passId: "ps13", delta: -1, reason: "수강 확인", detail: "8/16 (일) 필라테스 · 앱 확인", at: "2026-08-16 11:02" },
+    { passId: "ps1", delta: +10, reason: "purchase", detail: "PT 10회 · 1,000,000원", at: "2026-07-30 14:02" },
+    { passId: "ps1", delta: -1, reason: "attend", detail: "8/2 (일) PT · 앱 확인", at: "2026-08-02 12:10" },
+    { passId: "ps1", delta: -1, reason: "attend", detail: "8/6 (목) PT · 앱 확인", at: "2026-08-06 12:05" },
+    { passId: "ps1", delta: -1, reason: "late_cancel_forfeit", detail: "8/9 (일) PT · 21시간 전 취소", at: "2026-08-08 14:00" },
+    { passId: "ps1", delta: -1, reason: "attend", detail: "8/13 (목) PT · QR 확인", at: "2026-08-13 12:03" },
+    { passId: "ps2", delta: +10, reason: "purchase", detail: "필라테스 그룹 10회 · 350,000원", at: "2026-08-01 10:11" },
+    { passId: "ps2", delta: -1, reason: "attend", detail: "8/5 (수) 필라테스 · 자동확정", at: "2026-08-06 10:00" },
+    { passId: "ps2", delta: -1, reason: "attend", detail: "8/12 (수) 필라테스 · 앱 확인", at: "2026-08-12 11:20" },
+    { passId: "ps3", delta: +20, reason: "purchase", detail: "필라테스 그룹 20회 · 600,000원", at: "2026-05-12 11:00" },
+    { passId: "ps13", delta: +20, reason: "purchase", detail: "필라테스 그룹 20회 · 480,000원 (정가 600,000원 · 재등록 할인)", at: "2026-08-14 10:20" },
+    { passId: "ps13", delta: -1, reason: "attend", detail: "8/14 (금) 필라테스 · 앱 확인", at: "2026-08-14 11:05" },
+    { passId: "ps13", delta: -1, reason: "attend", detail: "8/16 (일) 필라테스 · 앱 확인", at: "2026-08-16 11:02" },
   ],
 
   // 수업 정의 — eligibility: pass(수업권 보유자)/list(지정 회원)/both(혼합)
@@ -145,26 +145,27 @@ window.DB = {
     { id: "bkA21", slotId: "s10", memberId: "m3", passId: "ps6", status: "confirm_wait", policySnap: { cancelHours: 24, cancelMode: "conditional" } },
   ],
 
-  // 조율 요청 (schedule_mode=arranged) — 확정 전엔 회차·예약 미생성 (ERD 원칙)
-  arranges: [
-    { id: "ar1", classId: "c2", memberId: "m2", passId: "ps4", date: "2026-08-21", time: "09:00",
-      status: "pending", note: "출근 전 이른 시간 희망해요", at: "2026-08-16 20:30" },
+  // ── v2.30 A5: 일정 협상 단일 엔티티 (ERD schedule_negotiations) ──
+  // 회원발 «조율 요청»과 선생님발 «제안»은 같은 «일정 협상» 개념이라 한 테이블로 합쳤다.
+  //   initiator: member | teacher · kind: request(회원 희망) | change(예약 변경) | slot(새 수업) | alt(대안)
+  //   parentId: alt → 원 요청 · status: pending|accepted|declined|canceled (+ canceledBy로 행위자 구분)
+  //   만료는 저장하지 않고 공통 파생(negoState) — 확정 전엔 회차·예약 미생성 (ERD 원칙, 전 kind 공통).
+  // DB.arranges / DB.proposals 는 initiator로 나눈 «호환 뷰»(아래 negoViews) — 실서비스엔 negos 하나만 둔다.
+  negos: [
+    { id: "ar1", initiator: "member", kind: "request", classId: "c2", teacherId: "t1", memberId: "m2", passId: "ps4",
+      date: "2026-08-21", time: "09:00", status: "pending", note: "출근 전 이른 시간 희망해요", at: "2026-08-16 20:30" },
   ],
-
-  // v2.22: 선생님발 제안 — ①확정 예약 «일정 변경 제안» ②빈 시간 «새 수업 제안» ③조율 거절 시 «대안 시간 제안».
-  // arranges(회원발)와 대칭 구조. 수락 전엔 회차·예약을 만들지 않는다 (동일 원칙). 시드는 파일 끝 seedProposals().
-  proposals: [],
 
   // 완료 보고·수강확인 (회차×회원 1행) — deducted=차감 성립 여부, lineId=정산 라인
   reports: [
-    { id: "rp1", slotId: "s7", bookingId: "bk3", memberId: "m1", member: "김지은", status: "pending", method: null, label: "회원 확인 대기", at: "8/16 12:01 보고", deducted: false, lineId: null },
-    { id: "rp5", slotId: "s10", bookingId: "bkA21", memberId: "m3", member: "이하늘", status: "pending", method: null, label: "회원 확인 대기", at: "8/17 10:05 보고", deducted: false, lineId: null },
-    { id: "rp2", slotId: null, bookingId: null, memberId: "m2", member: "박서준", desc: "8/13 (목) 19:00 PT", status: "confirmed", method: "QR 확인", label: "확인 완료", at: "8/13 20:12 확인", deducted: true, lineId: "sl3" },
-    { id: "rp3", slotId: null, bookingId: null, memberId: "m3", member: "이하늘", desc: "8/12 (수) 18:00 PT", status: "auto", method: "자동확정", label: "자동확정", at: "8/13 18:00", deducted: true, lineId: "sl4" },
-    { id: "rp4", slotId: null, bookingId: null, memberId: "m4", member: "최민아", desc: "8/11 (화) 06:30 크로스핏", status: "disputed", method: null, label: "이의제기", at: "8/12 09:30 접수", deducted: true, lineId: "sl12" },
+    { id: "rp1", slotId: "s7", bookingId: "bk3", passId: "ps1", memberId: "m1", member: "김지은", status: "pending", method: null, label: "회원 확인 대기", at: "8/16 12:01 보고", deducted: false, lineId: null },
+    { id: "rp5", slotId: "s10", bookingId: "bkA21", passId: "ps6", memberId: "m3", member: "이하늘", status: "pending", method: null, label: "회원 확인 대기", at: "8/17 10:05 보고", deducted: false, lineId: null },
+    { id: "rp2", slotId: null, bookingId: null, passId: "ps4", memberId: "m2", member: "박서준", desc: "8/13 (목) 19:00 PT", status: "confirmed", method: "qr", label: "확인 완료", at: "8/13 20:12 확인", deducted: true, lineId: "sl3" },
+    { id: "rp3", slotId: null, bookingId: null, passId: "ps6", memberId: "m3", member: "이하늘", desc: "8/12 (수) 18:00 PT", status: "auto", method: "auto", label: "자동확정", at: "8/13 18:00", deducted: true, lineId: "sl4" },
+    { id: "rp4", slotId: null, bookingId: null, passId: "ps8", memberId: "m4", member: "최민아", desc: "8/11 (화) 06:30 크로스핏", status: "disputed", method: null, label: "이의제기", at: "8/12 09:30 접수", deducted: true, lineId: "sl12" },
     // 노쇼 데모 시드 (형 확정 08-17) — noshow=이의 시 센터 중재 분기, teacherId·date·unitPrice=보상 정산·기한 계산용
-    { id: "rp6", slotId: null, bookingId: null, memberId: "m6", member: "한소라", desc: "8/5 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-05", unitPrice: 35000, noshow: true, status: "noshow_final", method: "자동확정", autoFinal: true, label: "노쇼 확정 · 이의 없이 자동확정", at: "8/5 11:05 보고 · 8/12 이의 없이 자동확정", deducted: true, lineId: null },
-    { id: "rp7", slotId: null, bookingId: null, memberId: "m7", member: "오세훈", desc: "8/12 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-12", unitPrice: 30000, noshow: true, status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: "8/12 11:10 보고", deducted: false, lineId: null },
+    { id: "rp6", slotId: null, bookingId: null, passId: "ps10", memberId: "m6", member: "한소라", desc: "8/5 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-05", lessonTime: "10:00", classTitle: "필라테스 기구 초급", unitPrice: 35000, noshow: true, status: "noshow_final", method: "auto", autoFinal: true, label: "노쇼 확정 · 이의 없이 자동확정", at: "8/5 11:05 보고 · 8/12 이의 없이 자동확정", deducted: true, lineId: null },
+    { id: "rp7", slotId: null, bookingId: null, passId: "ps11", memberId: "m7", member: "오세훈", desc: "8/12 (수) 10:00 필라테스 기구 초급", teacherId: "t2", date: "2026-08-12", lessonTime: "10:00", classTitle: "필라테스 기구 초급", unitPrice: 30000, noshow: true, status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: "8/12 11:10 보고", deducted: false, lineId: null },
   ],
 
   // 센터 정책 (02 문서) — 예약·수업권엔 스냅샷으로 소급 안 됨
@@ -221,8 +222,36 @@ window.DB = {
   rollAnchor: "2026-08-17",
 
   // 정산 라인 (8월) — 수강확인 성립 tx마다 1행. status: eligible|held(이의 보류)|removed(인용·무효화)
+  // v2.30 A2: bookingId(멱등키)·slotId·lessonDate·lessonTime·classTitle·listPrice가 정식 컬럼 (desc는 표시 전용).
   slines: [],
+
+  // v2.30 A3: 보고·확인·이의 전이 append-only 로그 (04 원칙3의 프로토타입 대응물).
+  // 실서비스는 completion_reports / attend_confirmations / disputes 3테이블 + 해시체인으로 분리한다.
+  repEvents: [],
 };
+
+// ── v2.30 A5: 협상 호환 뷰 (⚠️ 이식 금지 — 프로토타입·기존 검증 스크립트 호환용) ──
+// DB.negos 가 단일 저장소다. DB.arranges / DB.proposals 는 initiator로 나눈 라이브 투영이고,
+// push는 negos로 위임된다(초기값 initiator·kind 주입). 실서비스는 schedule_negotiations 한 테이블만 둔다.
+(function negoViews() {
+  const D = window.DB;
+  const mkView = (initiator, defKind) => new Proxy([], {
+    get(_t, k) {
+      if (k === "push") {
+        return (...items) => {
+          items.forEach((it) => D.negos.push(Object.assign({ initiator, kind: defKind }, it)));
+          return D.negos.filter((n) => n.initiator === initiator).length;
+        };
+      }
+      const arr = D.negos.filter((n) => n.initiator === initiator);
+      const v = arr[k];
+      return typeof v === "function" ? v.bind(arr) : v;
+    },
+  });
+  const mView = mkView("member", "request"), tView = mkView("teacher", "slot");
+  Object.defineProperty(D, "arranges", { get: () => mView, configurable: true });
+  Object.defineProperty(D, "proposals", { get: () => tView, configurable: true });
+})();
 
 // 8월 기확정분 시드 — 박코치(t1): PT 11회(자동 4) + 크로스핏 1회(이의로 보류), 이필라(t2): 필라테스 18회(자동 1)
 // v2.9: 라인 단가 = 각 회원 수업권(pass)의 구매 시점 스냅샷 — 회원별·등록시기별로 다르다 (일괄 단가 시드 폐기).
@@ -230,25 +259,33 @@ window.DB = {
 (function seedSlines() {
   const L = window.DB.slines;
   const passOf = (pid) => window.DB.passes.find((p) => p.id === pid);
-  const mk = (id, tid, mid, name, pid, desc, method, auto, status) => {
+  // v2.30 A2: 라인은 lessonDate·lessonTime·classTitle·bookingId를 정식 컬럼으로 갖는다.
+  //   desc는 «표시 전용»으로 강등 — 월 필터·정산 캘린더·엑셀은 전부 컬럼을 읽는다(문자열 역파싱 폐기).
+  //   시드는 예약 레코드가 없는 과거분이라 bookingId=null — 실서비스에선 NOT NULL·UNIQUE(멱등키).
+  // v2.30 C4: listPrice도 라인 스냅샷 — 할인 여부 판정이 라이브 pass 조회에 의존하지 않게.
+  const mk = (id, tid, mid, name, pid, date, time, title, desc, method, auto, status, bookingId) => {
     const p = passOf(pid);
-    L.push({ id, teacherId: tid, memberId: mid, member: name, passId: pid, passName: p.name, desc, unitPrice: p.unitPrice, method, auto, status, pushed: false, pushId: null });
+    L.push({ id, bookingId: bookingId || null, slotId: null, lessonDate: date, lessonTime: time, classTitle: title,
+      teacherId: tid, memberId: mid, member: name, passId: pid, passName: p.name, desc,
+      unitPrice: p.unitPrice, listPrice: p.listPrice != null ? p.listPrice : null,
+      listUnitPrice: p.listPrice != null ? Math.floor(p.listPrice / p.total) : null,
+      method, auto, status, pushed: false, pushId: null });
   };
   const t1pt = [
-    ["m2", "박서준", "ps4", "8/2 (일) 11:00 PT", "QR 확인", false],
-    ["m3", "이하늘", "ps6", "8/3 (월) 18:00 PT", "앱 확인", false],
-    ["m2", "박서준", "ps4", "8/13 (목) 19:00 PT", "QR 확인", false], // sl3 = rp2
-    ["m3", "이하늘", "ps6", "8/12 (수) 18:00 PT", "자동확정", true],  // sl4 = rp3
-    ["m1", "김지은", "ps1", "8/2 (일) PT", "앱 확인", false],
-    ["m1", "김지은", "ps1", "8/6 (목) PT", "앱 확인", false],
-    ["m2", "박서준", "ps4", "8/7 (금) 19:00 PT", "자동확정", true],
-    ["m3", "이하늘", "ps6", "8/8 (토) 18:00 PT", "앱 확인", false],
-    ["m1", "김지은", "ps1", "8/13 (목) PT", "QR 확인", false],
-    ["m2", "박서준", "ps4", "8/14 (금) 19:00 PT", "자동확정", true],
-    ["m3", "이하늘", "ps6", "8/15 (토) 18:00 PT", "자동확정", true],
+    ["m2", "박서준", "ps4", "2026-08-02", "11:00", "PT", "8/2 (일) 11:00 PT", "qr", false],
+    ["m3", "이하늘", "ps6", "2026-08-03", "18:00", "PT", "8/3 (월) 18:00 PT", "app", false],
+    ["m2", "박서준", "ps4", "2026-08-13", "19:00", "PT", "8/13 (목) 19:00 PT", "qr", false], // sl3 = rp2
+    ["m3", "이하늘", "ps6", "2026-08-12", "18:00", "PT", "8/12 (수) 18:00 PT", "auto", true],  // sl4 = rp3
+    ["m1", "김지은", "ps1", "2026-08-02", "", "PT", "8/2 (일) PT", "app", false],
+    ["m1", "김지은", "ps1", "2026-08-06", "", "PT", "8/6 (목) PT", "app", false],
+    ["m2", "박서준", "ps4", "2026-08-07", "19:00", "PT", "8/7 (금) 19:00 PT", "auto", true],
+    ["m3", "이하늘", "ps6", "2026-08-08", "18:00", "PT", "8/8 (토) 18:00 PT", "app", false],
+    ["m1", "김지은", "ps1", "2026-08-13", "", "PT", "8/13 (목) PT", "qr", false],
+    ["m2", "박서준", "ps4", "2026-08-14", "19:00", "PT", "8/14 (금) 19:00 PT", "auto", true],
+    ["m3", "이하늘", "ps6", "2026-08-15", "18:00", "PT", "8/15 (토) 18:00 PT", "auto", true],
   ];
-  t1pt.forEach(([mid, name, pid, desc, method, auto], i) => mk("sl" + (i + 1), "t1", mid, name, pid, desc, method, auto, "eligible"));
-  mk("sl12", "t1", "m4", "최민아", "ps8", "8/11 (화) 06:30 크로스핏", "자동확정", false, "held");
+  t1pt.forEach(([mid, name, pid, date, time, title, desc, method, auto], i) => mk("sl" + (i + 1), "t1", mid, name, pid, date, time, title, desc, method, auto, "eligible"));
+  mk("sl12", "t1", "m4", "최민아", "ps8", "2026-08-11", "06:30", "크로스핏", "8/11 (화) 06:30 크로스핏", "auto", false, "held");
   // 필라테스 기구 초급 — 실제 수강 회원 6명 로테이션 ×3주. m5(정우람)=할인 24,000원이 정가 회원들과 같은 명세에 섞인다.
   const t2roster = [
     ["m1", "김지은", "ps2"],  // 35,000
@@ -260,7 +297,9 @@ window.DB = {
   ];
   for (let i = 0; i < 18; i++) {
     const [mid, name, pid] = t2roster[i % 6];
-    mk("sl" + (13 + i), "t2", mid, name, pid, `8/${3 + Math.floor(i / 3)} 필라테스 기구 초급`, i === 5 ? "자동확정" : "앱 확인", i === 5, "eligible");
+    const day = 3 + Math.floor(i / 3);
+    mk("sl" + (13 + i), "t2", mid, name, pid, `2026-08-0${day}`, "", "필라테스 기구 초급",
+      `8/${day} 필라테스 기구 초급`, i === 5 ? "auto" : "app", i === 5, "eligible");
   }
 })();
 
@@ -378,62 +417,72 @@ window.DB = {
   );
 
   // 조율 요청(m1·PT 1:1): 대기 · 수락 · 거절(사유) · 요청 취소 — 회원 화면에서 4상태 전부
+  // v2.30 A5: 협상 단일 엔티티 — kind/teacherId 명시, 거절 사유는 declineReason(제안과 같은 어휘), 철회는 canceledBy
   D.arranges.push(
-    { id: "ar5", classId: "c2", memberId: "m1", passId: "ps1", date: "2026-08-20", time: "18:00",
+    { id: "ar5", kind: "request", classId: "c2", teacherId: "t1", memberId: "m1", passId: "ps1", date: "2026-08-20", time: "18:00",
       status: "pending", note: "퇴근 후 저녁 시간 희망해요", at: "2026-08-16 18:20" },
     // v2.29 §A1-5: 답변이 도착한 조율은 «해야 할 일»에 뜬다 — 시드분은 이미 본 이력이므로 seen 처리
-    { id: "ar2", classId: "c2", memberId: "m1", passId: "ps1", date: "2026-08-22", time: "10:00",
+    { id: "ar2", kind: "request", classId: "c2", teacherId: "t1", memberId: "m1", passId: "ps1", date: "2026-08-22", time: "10:00",
       status: "accepted", seen: true, note: "주말 오전이면 좋아요", at: "2026-08-15 09:10" },
-    { id: "ar3", classId: "c2", memberId: "m1", passId: "ps1", date: "2026-08-19", time: "07:00",
-      status: "declined", seen: true, reason: "이른 시간엔 다른 수업이 있어요", at: "2026-08-14 18:40" },
-    { id: "ar4", classId: "c2", memberId: "m1", passId: "ps1", date: "2026-08-13", time: "20:00",
-      status: "canceled", at: "2026-08-12 21:00" },
+    { id: "ar3", kind: "request", classId: "c2", teacherId: "t1", memberId: "m1", passId: "ps1", date: "2026-08-19", time: "07:00",
+      status: "declined", seen: true, declineReason: "이른 시간엔 다른 수업이 있어요", at: "2026-08-14 18:40" },
+    { id: "ar4", kind: "request", classId: "c2", teacherId: "t1", memberId: "m1", passId: "ps1", date: "2026-08-13", time: "20:00",
+      status: "canceled", canceledBy: "member", at: "2026-08-12 21:00" },
   );
 
   // 보고·수강확인: 노쇼 이의 중재 대기 / 이의 인정 2종(횟수 복원·노쇼 취소) / m1 노쇼 확정·이의기간
   D.reports.push(
-    { id: "rp8", slotId: null, bookingId: null, memberId: "m4", member: "최민아", desc: "8/13 (목) 10:00 필라테스 기구 초급",
-      teacherId: "t2", date: "2026-08-13", unitPrice: 30000, noshow: true, status: "disputed", method: null,
+    { id: "rp8", slotId: null, bookingId: null, passId: "ps8", memberId: "m4", member: "최민아", desc: "8/13 (목) 10:00 필라테스 기구 초급",
+      teacherId: "t2", date: "2026-08-13", lessonTime: "10:00", classTitle: "필라테스 기구 초급", unitPrice: 30000, noshow: true, status: "disputed", method: null,
       disputeReason: "당일 아침에 미리 연락드렸어요", label: "노쇼 이의제기 · 센터 판단 대기",
       at: "8/13 11:00 보고 · 8/14 09:12 이의 접수", deducted: false, lineId: null },
-    { id: "rp9", slotId: null, bookingId: null, memberId: "m2", member: "박서준", desc: "8/4 (화) 06:30 새벽 버닝 크로스핏",
+    { id: "rp9", slotId: null, bookingId: null, passId: "ps5", memberId: "m2", member: "박서준", desc: "8/4 (화) 06:30 새벽 버닝 크로스핏",
       status: "resolved", method: null, label: "이의 인정 · 횟수 복원", at: "8/4 10:12 이의 접수 · 8/5 이의 인정",
       deducted: false, lineId: "sl31" },
-    { id: "rp10", slotId: null, bookingId: null, memberId: "m5", member: "정우람", desc: "8/7 (금) 10:00 필라테스 기구 초급",
-      teacherId: "t2", date: "2026-08-07", unitPrice: 24000, noshow: true, status: "resolved", method: null,
+    { id: "rp10", slotId: null, bookingId: null, passId: "ps9", memberId: "m5", member: "정우람", desc: "8/7 (금) 10:00 필라테스 기구 초급",
+      teacherId: "t2", date: "2026-08-07", lessonTime: "10:00", classTitle: "필라테스 기구 초급", unitPrice: 24000, noshow: true, status: "resolved", method: null,
       label: "이의 인정 · 노쇼 취소", at: "8/7 11:20 보고 · 8/9 이의 인정", deducted: false, lineId: null },
-    { id: "rp11", slotId: "s11", bookingId: "bkB1", memberId: "m1", member: "김지은", teacherId: "t2",
-      date: "2026-08-03", unitPrice: 35000, noshow: true, status: "noshow_final", method: "자동확정", autoFinal: true,
+    { id: "rp11", slotId: "s11", bookingId: "bkB1", passId: "ps2", memberId: "m1", member: "김지은", teacherId: "t2",
+      date: "2026-08-03", unitPrice: 35000, noshow: true, status: "noshow_final", method: "auto", autoFinal: true,
       label: "노쇼 확정 · 이의 없이 자동확정", at: "8/3 11:02 보고 · 8/10 이의 없이 자동확정", deducted: true, lineId: null },
-    { id: "rp12", slotId: "s18", bookingId: "bkB8", memberId: "m1", member: "김지은", teacherId: "t1",
+    { id: "rp12", slotId: "s18", bookingId: "bkB8", passId: "ps2", memberId: "m1", member: "김지은", teacherId: "t1",
       date: "2026-08-14", unitPrice: 35000, noshow: true, status: "noshow_wait", method: null,
       label: "노쇼 보고 · 이의기간", at: "8/14 07:40 보고", deducted: false, lineId: null },
     // bkB3(수강 완료)의 확인 기록 — 이의기간 내 이의 시 lineId(sl32)로 정산 라인 보류가 걸리는 경로용
-    { id: "rp13", slotId: "s13", bookingId: "bkB3", memberId: "m1", member: "김지은",
-      status: "confirmed", method: "앱 확인", label: "확인 완료", at: "8/14 12:30 확인", deducted: true, lineId: "sl32" },
+    { id: "rp13", slotId: "s13", bookingId: "bkB3", passId: "ps1", memberId: "m1", member: "김지은",
+      status: "confirmed", method: "app", label: "확인 완료", at: "8/14 12:30 확인", deducted: true, lineId: "sl32" },
   );
 
   // 정산 라인: 이의 인정으로 무효화된 라인(removed — 집계·화면 전 구간 제외) + bkB3 수강 완료분(eligible)
   D.slines.push(
-    { id: "sl31", teacherId: "t1", memberId: "m2", member: "박서준", passId: "ps5", passName: "필라테스 그룹 10회 (무기한)",
-      desc: "8/4 (화) 06:30 새벽 버닝 크로스핏", unitPrice: 35000, method: "앱 확인", auto: false, status: "removed", pushed: false, pushId: null },
-    { id: "sl32", teacherId: "t1", memberId: "m1", member: "김지은", passId: "ps1", passName: "PT 10회",
-      desc: "8/14 (금) 11:00 PT", unitPrice: 100000, method: "앱 확인", auto: false, status: "eligible", pushed: false, pushId: null },
+    { id: "sl31", bookingId: null, slotId: null, lessonDate: "2026-08-04", lessonTime: "06:30", classTitle: "새벽 버닝 크로스핏",
+      teacherId: "t1", memberId: "m2", member: "박서준", passId: "ps5", passName: "필라테스 그룹 10회 (무기한)",
+      desc: "8/4 (화) 06:30 새벽 버닝 크로스핏", unitPrice: 35000, listPrice: 350000, listUnitPrice: 35000, method: "app", auto: false, status: "removed", pushed: false, pushId: null },
+    { id: "sl32", bookingId: "bkB3", slotId: "s13", lessonDate: "2026-08-14", lessonTime: "11:00", classTitle: "PT",
+      teacherId: "t1", memberId: "m1", member: "김지은", passId: "ps1", passName: "PT 10회",
+      desc: "8/14 (금) 11:00 PT", unitPrice: 100000, listPrice: 1000000, listUnitPrice: 100000, method: "app", auto: false, status: "eligible", pushed: false, pushId: null },
   );
 
   // 원장(m1): 위 케이스와 잔여 횟수가 맞아떨어지게 — ps1=10-5, ps2=10-3+1, ps15=10-10 (전 회차 기록)
   D.ledger.push(
-    { passId: "ps2", delta: -1, reason: "노쇼 확정", detail: "8/3 (월) 필라테스 기구 초급 · 이의 없이 자동확정", at: "2026-08-10 10:00" },
-    { passId: "ps2", delta: -1, reason: "수강 확인", detail: "8/10 (월) 필라테스 기구 초급 · 앱 확인", at: "2026-08-10 11:05" },
-    { passId: "ps2", delta: +1, reason: "이의 인정 · 복원", detail: "8/10 (월) 필라테스 기구 초급 · 센터 판단", at: "2026-08-12 15:30" },
-    { passId: "ps1", delta: -1, reason: "수강 확인", detail: "8/14 (금) PT · 앱 확인", at: "2026-08-14 12:30" },
-    { passId: "ps14", delta: +20, reason: "구매", detail: "PT 20회 · 1,800,000원", at: "2026-07-01 10:00" },
-    { passId: "ps14", delta: -1, reason: "수강 확인", detail: "7/15 (수) PT · 앱 확인", at: "2026-07-15 12:00" },
-    { passId: "ps15", delta: +10, reason: "구매", detail: "필라테스 그룹 10회 · 350,000원", at: "2026-06-01 10:00" },
+    { passId: "ps2", delta: -1, reason: "noshow_forfeit_auto", detail: "8/3 (월) 필라테스 기구 초급 · 이의 없이 자동확정", at: "2026-08-10 10:00" },
+    { passId: "ps2", delta: -1, reason: "attend", detail: "8/10 (월) 필라테스 기구 초급 · 앱 확인", at: "2026-08-10 11:05" },
+    { passId: "ps2", delta: +1, reason: "dispute_restore", detail: "8/10 (월) 필라테스 기구 초급 · 센터 판단", at: "2026-08-12 15:30" },
+    { passId: "ps1", delta: -1, reason: "attend", detail: "8/14 (금) PT · 앱 확인", at: "2026-08-14 12:30" },
+    { passId: "ps14", delta: +20, reason: "purchase", detail: "PT 20회 · 1,800,000원", at: "2026-07-01 10:00" },
+    { passId: "ps14", delta: -1, reason: "attend", detail: "7/15 (수) PT · 앱 확인", at: "2026-07-15 12:00" },
+    { passId: "ps15", delta: +10, reason: "purchase", detail: "필라테스 그룹 10회 · 350,000원", at: "2026-06-01 10:00" },
   );
+  // v2.30 B1: 잔여 = 원장 합 (검증 게이트) — ps3는 구매 +20만 있고 사용 이력이 없어 잔여 2와 어긋나 있었다.
+  // 5/13~8/9 주 2회 수강 18회를 채워 «잔여=Σ원장»을 m1 전 수업권에서 성립시킨다(기간 만료 데모는 그대로).
+  ["05-13", "05-17", "05-20", "05-24", "05-27", "05-31", "06-03", "06-07", "06-10",
+   "06-14", "06-17", "06-21", "06-24", "06-28", "07-01", "07-05", "07-08", "07-12"].forEach((d) => {
+    D.ledger.push({ passId: "ps3", delta: -1, reason: "attend",
+      detail: `${Number(d.slice(0, 2))}/${Number(d.slice(3))} 필라테스 그룹 · 앱 확인`, at: `2026-${d} 11:00` });
+  });
   // ps15 소진 이력 — 6/3~8/5 주 1회 수강 10회 전부 기록 (마지막 회차에 소진 표기)
   ["06-03", "06-10", "06-17", "06-24", "07-01", "07-08", "07-15", "07-22", "07-29", "08-05"].forEach((d, i) => {
-    D.ledger.push({ passId: "ps15", delta: -1, reason: "수강 확인",
+    D.ledger.push({ passId: "ps15", delta: -1, reason: "attend",
       detail: `${Number(d.slice(0, 2))}/${Number(d.slice(3))} 필라테스 · 앱 확인${i === 9 ? " — 마지막 회차, 횟수 소진" : ""}`,
       at: `2026-${d} 11:00` });
   });
@@ -454,7 +503,7 @@ window.DB = {
     { id: "pp2", kind: "slot", teacherId: "t1", memberId: "m1", classId: "c2",
       date: "2026-08-21", time: "16:00", note: "이 시간이 비어 있어요. 어떠세요?", status: "pending", at: "2026-08-16 21:20" },
     // ③ 조율 거절 + 대안 역제안 — ar3(8/19 07:00 희망 거절) 건의 대안 13:00
-    { id: "pp3", kind: "alt", teacherId: "t1", memberId: "m1", classId: "c2", arrangeId: "ar3",
+    { id: "pp3", kind: "alt", teacherId: "t1", memberId: "m1", classId: "c2", parentId: "ar3",
       date: "2026-08-19", time: "13:00", note: "이른 시간은 어렵고, 점심시간은 가능해요", status: "pending", at: "2026-08-14 18:41" },
     // 거절된 변경 제안 (회원 사유 회신) — 회원·선생님 «처리됨» 표시용
     { id: "pp4", kind: "change", teacherId: "t2", memberId: "m1", classId: "c1", bookingId: "bk4",
@@ -511,4 +560,14 @@ window.DB = {
     { id: "bkD1", slotId: "s30", memberId: "m2", passId: "ps5", status: "booked", policySnap: SNAP },
     { id: "bkD2", slotId: "s30", memberId: "m7", passId: "ps11", status: "booked", policySnap: SNAP },
   );
+})();
+
+// ── v2.30 B3: 보고 시점 정책 스냅샷 ──
+// 이의 가능 기간·자동확정 시한·노쇼 차감 여부는 «완료 보고 시점»의 정책으로 판정한다(02 P7 명시).
+// 시드 보고분은 전부 기본 정책 아래에서 만들어진 것으로 보고 현재 값을 스냅샷한다.
+(function seedReportSnaps() {
+  const P = window.DB.policy;
+  window.DB.reports.forEach((r) => {
+    if (!r.policySnap) r.policySnap = { disputeDays: P.disputeDays, autoConfirmHours: P.autoConfirmHours, noshowDeduct: P.noshowDeduct };
+  });
 })();
