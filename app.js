@@ -1208,7 +1208,8 @@
         <div class="muted small mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <button class="btn primary mt12" onclick="App.confirmAttend('${b.id}')">받았어요 (수업 확인)</button>
         <button class="btn ghost mt8" onclick="location.hash='#/m/confirm/${b.id}'">자세히 보기</button>
-        <div class="muted small mt8" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>
+        <div class="muted small mt8" style="text-align:center">확인하면 <b>수업권 1회가 차감</b>돼요. 받지 않은 수업이면 «자세히 보기»에서 이의를 제기할 수 있어요.</div>
+        <div class="muted small mt4" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>
       </div>`;
     }).join("");
     return shell("m", "니짐내짐 레슨", `
@@ -1274,6 +1275,7 @@
         <div class="row" style="justify-content:space-between"><span class="muted">횟수</span><b>${p.sessions}회 (회당 ${won(Math.floor(pay / p.sessions))})</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">유효기간</span><b>${p.validityDays ? `구매일부터 ${p.validityDays}일` : "없음 · 횟수 소진 시까지"}</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">취소 규정</span><b>수업 ${DB.policy.cancelHours}시간 전까지 무료</b></div>
+        <div class="hint mt8">이 수업권으로 들을 수 있는 수업: <b>${passScopeLabel({ productId: p.id })}</b></div>
       </div>
       <p class="muted small">구매 시점의 가격·조건이 그대로 보존돼요. 이후 상품이 바뀌어도 내 수업권은 영향받지 않아요.</p>
       <button class="btn primary mt12" onclick="App.buy('${p.id}')">${won(pay)} 결제하기</button>
@@ -1454,7 +1456,7 @@
     return shell("m", c.title, `
       <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · 정원 ${c.capacity}명 · ${eligLabel(c)}</div></div>
       ${g.ok ? "" : `<div class="banner warn">${icb("ban")}<span>${g.msg}</span></div>`}
-      <div class="sec-title">예약 가능 회차</div>
+      <div class="sec-title">예약 가능 회차 <span class="muted small" style="font-weight:600">— «예약»을 누르면 상세를 확인한 뒤 예약해요</span></div>
       <div class="card flat">${slots.length ? slots.map((s) => {
         const n = seatCount(s.id); const w = waitBk(s.id).length;
         const full = n >= c.capacity;
@@ -1507,7 +1509,7 @@
       action = c.kind === "private" ? `<button class="btn primary" disabled>정원 마감 (1:1 수업은 대기를 받지 않아요)</button>`
         : DB.policy.waitlist
         ? `<button class="btn primary" onclick="App.joinWaitlist('${s.id}')">예약대기 신청 (${waitBk(s.id).length + 1}번째)</button>
-           <p class="muted small mt8" style="text-align:center">자리가 나면 순번대로 자동 확정되고 알림을 보내드려요.</p>`
+           <p class="muted small mt8" style="text-align:center">자리가 나면 순번대로 자동 확정되고 알림을 보내드려요.<br>대기 신청만으로는 횟수가 차감되지 않아요 — 차감은 수업 뒤 «수강 확인»에서 일어나요.</p>`
         : `<button class="btn primary" disabled>정원 마감 (이 센터는 대기를 받지 않아요)</button>`;
     } else {
       action = `<button class="btn primary" onclick="App.book('${s.id}')">예약하기</button>`;
@@ -1518,8 +1520,8 @@
         <div class="mt8"><span class="badge ${full ? "b-danger" : "b-green"}">${full ? `정원 마감 · 대기 ${waitBk(s.id).length}명` : `잔여 ${c.capacity - n}자리`}</span></div>
         <div class="divider"></div>
         ${mine
-          ? `<div class="row" style="justify-content:space-between;gap:10px"><span class="muted">차감될 수업권</span>
-             <span style="text-align:right"><b>${usePass ? usePass.name : "수업권 미연결"}</b>${usePass ? `<span class="muted small"> · ${passLine(usePass)}</span>` : ""}</span></div>
+          ? `<div class="pass-pick"><div class="pp-head"><span class="muted">차감될 수업권</span></div>
+             <b class="pp-name">${usePass ? usePass.name : "수업권 미연결"}</b>${usePass ? `<div class="muted small">${passLine(usePass)}</div>` : ""}</div>
              ${usePass ? `<div class="hint">이 수업권으로 들을 수 있는 수업: <b>${passScopeLabel(usePass)}</b></div>` : ""}
              <div class="hint">수강 확인이 끝나면 이 수업권에서 1회가 차감돼요. 무료 취소하면 차감은 일어나지 않아요.</div>`
           : usePass ? passPickRow(pkey, usePass, cands.length) + `<div class="hint">이 수업권으로 들을 수 있는 수업: <b>${passScopeLabel(usePass)}</b></div>`
@@ -2199,7 +2201,7 @@
       <div class="btn-row"><button class="btn sm primary" onclick="App.reportAsk('${sl.id}')">수업 완료 보고</button></div></span></div>`;
     const nN = needSlots.length + need.length;
     return shell("t", "완료 보고 현황", `
-      <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. 확인은 회원 본인 폰에서만 가능하고, 현장에선 일회용 QR로 바로 확인받을 수 있어요.</p>
+      <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. 확인은 회원 본인 폰에서만 가능하고, 현장에선 일회용 QR로 바로 확인받을 수 있어요.<br>완료 보고 자체는 «일정» 탭에서 그 회차를 열어 «완료 보고»를 눌러요 — 여기선 보고한 뒤의 확인 상태만 봐요.</p>
       <div class="sec-title">처리 필요 ${nN ? `<span class="badge b-warn">${nN}</span>` : ""}</div>
       <div class="card flat">${nN ? needSlots.map(srow).join("") + need.map((r) => row(r, qrBtn(r))).join("")
         : `<p class="muted">지금 처리할 보고가 없어요.</p>`}</div>
@@ -2264,6 +2266,8 @@
         <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${auto}회 ${auto ? '<span class="badge b-warn">검토 대상</span>' : ""}</b></div>
         ${rewardOn() && ns.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">노쇼 보상 (센터 정책)</span><b>${ns.length}건 · ${won(nsAmt)}</b></div>` : ""}
         ${held.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">이의 심사 중 (보류)</span><b>${held.length}회 <span class="badge b-danger">정산 제외 중</span></b></div>` : ""}
+        ${auto ? `<div class="hint">«검토 대상» = 회원이 직접 누르지 않고 무응답으로 자동확정된 회차예요. 금액엔 포함되지만 센터가 정산 전에 다시 볼 수 있어요.</div>` : ""}
+        ${held.length ? `<div class="hint">«정산 제외 중» = 이의 심사가 끝날 때까지 집계·전송에서 빠져요. 이의가 기각되면 다시 들어와요.</div>` : ""}
         ${linesDetailHtml(elig, held)}
       </div>
       <div class="banner">${icb("info")}<span>여기는 <b>정산 대상 금액</b>까지만 보여요. 배분율·공제·실지급액은 급여 시스템(샐리)에서 계산돼요.</span></div>`);
@@ -2483,6 +2487,7 @@
         <div class="rc-top"><span class="muted small">켜짐 <b>${on}</b> / 전체 ${rows.length}건 · 앞으로 <b>${ROLL_WEEKS}주치</b>를 미리 만들어 둬요</span>
           <span class="rc-allbtns"><button class="btn sm ghost" onclick="App.recurAll('${role}','1')">전체 켜기</button>
           <button class="btn sm ghost" onclick="App.recurAll('${role}','0')">전체 끄기</button></span></div>
+        <div class="hint">«끄기»는 <b>새 회차를 더 만들지 않는다</b>는 뜻이에요 — 이미 만들어 둔 회차와 예약은 그대로 남아요. 다시 켜면 앞으로 ${ROLL_WEEKS}주치를 다시 채워요.</div>
         ${rows.map((r) => {
           const c = cls(r.classId);
           const nx = recurNext(r);
@@ -2666,7 +2671,7 @@
       const c = cls(a.classId); const bd = arrBadge(a);
       return `<div class="slot"><span class="time">${a.time}</span>
         <span class="grow"><span class="t">${memberName(a.memberId)} · ${c.title}</span>
-        <div class="muted small">${dlabel(a.date)} 희망 · ${teacher(c.teacherId).name} 선생님 인박스</div>${subHtml(bd)}</span>
+        <div class="muted small">${dlabel(a.date)} 희망 · ${teacher(c.teacherId).name} 선생님 일정 요청함</div>${subHtml(bd)}</span>
         <span class="badge ${bd.badge}">${bd.label}</span></div>`;
     };
     const list = (byDate[sel] || []).slice().sort((a, b) => a.time.localeCompare(b.time));
@@ -4364,8 +4369,8 @@
       if (!lines.length && !rewards.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
       const groups = unitGroups(lines);
       const total = lines.reduce((a, l) => a + l.unitPrice, 0) + rewards.reduce((a, r) => a + noshowUnit(r), 0);
-      modal(`<h3>샐리 push 미리보기 — ${teacher(tid).name} 선생님</h3>
-        <p>회차마다 <b>구매 시점의 회당 단가</b>가 그대로 전송돼요. 배분율·공제는 샐리가 계산해요.</p>
+      modal(`<h3>샐리 전송 미리보기 — ${teacher(tid).name} 선생님</h3>
+        <p>회차마다 <b>구매 시점의 회당 단가</b>가 그대로 전송돼요. 배분율·공제는 샐리가 계산해요.<br>같은 회차는 두 번 보내도 한 번만 반영돼요. 보낸 뒤 정정이 필요하면 샐리에서 처리해요.</p>
         <div class="pd-list">
           ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회</div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
           ${rewards.length ? `<div class="pd-group"><div class="pd-ghead">노쇼 보상 ${rewards.length}건</div>${rewards.map((r) => `<div class="pd-row"><span class="grow"><b>${r.member}</b> <span class="muted small">${r.desc}</span><div class="muted small">노쇼 확정 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}</div></span><span class="pd-price">${won(noshowUnit(r))}</span></div>`).join("")}</div>` : ""}
