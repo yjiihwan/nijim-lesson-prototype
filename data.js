@@ -381,10 +381,11 @@ window.DB = {
   D.arranges.push(
     { id: "ar5", classId: "c2", memberId: "m1", passId: "ps1", date: "2026-08-20", time: "18:00",
       status: "pending", note: "퇴근 후 저녁 시간 희망해요", at: "2026-08-16 18:20" },
+    // v2.29 §A1-5: 답변이 도착한 조율은 «해야 할 일»에 뜬다 — 시드분은 이미 본 이력이므로 seen 처리
     { id: "ar2", classId: "c2", memberId: "m1", passId: "ps1", date: "2026-08-22", time: "10:00",
-      status: "accepted", note: "주말 오전이면 좋아요", at: "2026-08-15 09:10" },
+      status: "accepted", seen: true, note: "주말 오전이면 좋아요", at: "2026-08-15 09:10" },
     { id: "ar3", classId: "c2", memberId: "m1", passId: "ps1", date: "2026-08-19", time: "07:00",
-      status: "declined", reason: "이른 시간엔 다른 수업이 있어요", at: "2026-08-14 18:40" },
+      status: "declined", seen: true, reason: "이른 시간엔 다른 수업이 있어요", at: "2026-08-14 18:40" },
     { id: "ar4", classId: "c2", memberId: "m1", passId: "ps1", date: "2026-08-13", time: "20:00",
       status: "canceled", at: "2026-08-12 21:00" },
   );

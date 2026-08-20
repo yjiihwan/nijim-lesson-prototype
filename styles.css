@@ -547,3 +547,66 @@ button.stat:active { transform: scale(.97); }
 .fill-opt b { display: block; font-size: 14px; font-weight: 800; line-height: 1.35; word-break: keep-all; }
 .fill-opt .fo-d { display: block; margin-top: 3px; font-size: 12.5px; font-weight: 600; line-height: 1.5; color: var(--text-muted); word-break: keep-all; }
 .fill-opt.on .fo-d { color: var(--text); }
+
+/* ══ v2.29 §A1 «해야 할 일» 블록 (감사 2차 U1·U11·U21) ══
+   요약 행은 항목마다 배경·테두리·아이콘 모양을 바꾸지 않는다 — 배너가 색색으로 쌓이던 것이 문제의 핵심.
+   톤 예외는 danger(문제 계열) 하나뿐. */
+.sec-title.todo-title { display: flex; align-items: center; gap: 8px; }
+.card.todo-card { padding: 0; overflow: hidden; }
+.todo-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  min-height: 56px; padding: 14px 16px; background: transparent; color: var(--text);
+  border-bottom: 1px solid var(--border);
+  transition: background .15s ease, transform .12s var(--ease-out);
+}
+.todo-row:last-child { border-bottom: 0; }
+.todo-row:active { transform: scale(.99); background: var(--surface-sunken); }
+.todo-row .ic { flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+.todo-row .ic svg { width: 20px; height: 20px; display: block; }
+.todo-row .tr-t { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.todo-row .tr-n { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.todo-row .chev { flex-shrink: 0; font-size: 17px; font-weight: 700; color: var(--text-disabled); line-height: 1; margin-left: -4px; }
+.todo-row.bad { background: var(--danger-surface); }
+.todo-row.bad .ic, .todo-row.bad .tr-n { color: var(--danger); }
+.todo-row.bad:active { background: #fbd5d5; }
+
+/* §A2-1 행 내 보조 텍스트 — 배지에서 내려온 세부 사유. «문제» 계열만 빨강 */
+.row-sub { font-size: 13px; line-height: 1.45; color: var(--text-muted); margin-top: 4px; }
+.row-sub.bad { color: var(--danger); }
+
+/* §A1-6 스탯 1장만 남는 역할(선생님 홈)은 풀폭 1열 */
+.stat-grid.one { grid-template-columns: 1fr; }
+
+/* §B5 (U19) 이용 내역 — 동명 수업권 구분용 구매일 */
+.hist-buy { font-size: 13px; color: var(--text-muted); margin: -6px 0 8px 2px; }
+
+/* §A4 «처리됨» 안의 하위 구분 캡션 (진행 중 / 기록) */
+.grp-cap { font-size: 12px; font-weight: 700; color: var(--text-muted); letter-spacing: .02em; margin: 12px 0 8px; }
+.card.flat > .grp-cap:first-child { margin-top: 2px; }
+
+/* §A5 (U4) 선생님 «일정» 캘린더 점 마커 — 회원·센터 캘린더와 같은 .mb-dots 문법 재사용 */
+.mb-dots .ov, .mb-legend .ov { background: var(--danger); }
+.mb-dots .rp, .mb-legend .rp { background: var(--warning); }
+
+/* ══ v2.29 §B8 (U7) 인박스 상단 고정 단일 진입 «＋ 시간 제안하기» ══ */
+.sticky-cta { position: sticky; top: 56px; z-index: 5; background: var(--bg); padding: 12px 0; margin-bottom: 2px; border-bottom: 1px solid var(--border); }
+.sticky-cta .btn { margin: 0; }
+
+/* §B8-3 (U8) 요청 카드 3버튼 — 긍정(풀폭) → 중립·부정(1:1 2열) */
+.btn-row.col { flex-direction: column; }
+.btn-row.col .btn-row.half { display: flex; gap: 8px; margin-top: 0; width: 100%; }
+.btn-row.col .btn-row.half .btn { flex: 1; }
+
+/* ══ v2.29 §B13 (U13) 정산 — 상단 월 합계 카드 + «날짜별 상세» 접힘 섹션 ══ */
+.cs-sum .k { font-size: 13px; font-weight: 700; color: var(--text-muted); }
+.cs-sum .cs-total { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.fold-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  min-height: 52px; padding: 14px 16px; margin: 12px 0; border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  font-size: 15px; font-weight: 800; letter-spacing: -0.01em;
+  transition: background .15s ease, transform .12s var(--ease-out);
+}
+.fold-head:active { transform: scale(.99); background: var(--surface-sunken); }
+.fold-head .chev { margin-left: auto; font-size: 17px; font-weight: 700; color: var(--text-disabled); line-height: 1; transition: transform .2s var(--ease-out); }
+.fold-head.on .chev { transform: rotate(90deg); }
