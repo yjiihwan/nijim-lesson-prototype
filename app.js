@@ -76,6 +76,13 @@
    ③ 수정·폐강 = «일정» 탭 하위 뷰 [주간 일정 | 내 수업]으로 흡수(선생님) / 센터는 «수업» 탭 유지
    ④ 구 라우트는 리다이렉트(#/t/quick→#/t/create, #/c/quick→#/c/create, #/t/classes→#/t/schedule «내 수업»)
    ⑤ 통합 전 잔재 용어(«바로 확정»의 옛 이름) 전면 제거 — UI·토스트·안내문·정책 화면·주석. QA v226 57/57.
+   v2.37 (2026-08-20 형 확정 A안 — 회원 예약 목록 중복 제거): 「내 예약」 세그먼트가 「예약 내역」의
+   축소판(같은 데이터·버튼 없음)이던 v2.36 통합 잔재를 없앤다. ① 예약 탭 [캘린더 | 내 예약]의 «내 예약»이
+   옛 「예약 내역」 본문(mBookingsBody)을 그대로 렌더 — 4섹션(답변 필요·확정 예약·보낸 요청·지난 예약)과
+   액션([변경 요청]·[취소]·[확인]·[이의제기])까지 동일. 렌더 함수는 한 벌뿐(복붙 이중화 금지).
+   ② 별도 화면 #/m/bookings 라우트 제거 → #/m/book/mine 리다이렉트(홈 해야 할 일·«전체 보기»·상세 복귀
+   ·수강 확인 안내 등 진입점 전부 교체, #/m/proposals도 여기로 체인). ③ «지난 예약»·«수업 종료·보고 대기»
+   포함 기능 손실 0. ④ 세그먼트 라벨 «내 예약» 유지, 상세·수강 확인 왕복 시 세그먼트·날짜 유지(MBOOK_SCOPE).
    v2.36 (2026-08-20 형 확정 — «시간 얘기» 통합 개편): ① 선생님 «요청» 탭(5칸) 제거 → «일정» 탭 세그먼트
    [주간 일정 | 내 수업 | 요청 N]로 흡수(탭바 4칸, v2.26 «내 수업» 흡수와 같은 패턴, #/t/inbox는 리다이렉트).
    ② 회원 «받은 제안»(#/m/proposals) 화면 제거 → 「예약 내역」 4섹션(답변 필요·확정 예약·보낸 요청·지난 예약)으로
@@ -830,7 +837,7 @@
     if (st === "expired") return st4("end", chg ? "희망하신 시간이 모두 지나 종료됐어요 · 원래 예약은 그대로예요" : "희망하신 시간이 지나 요청이 만료됐어요");
     return st4("wait", chg ? `선생님 답변을 기다리는 중 · ${optsLabel(a)} 희망` : `선생님 수락을 기다리는 중 · ${dlabel(a.date)} ${a.time} 희망`);
   }
-  // ══ v2.36 §2: 회원 「예약 내역」 상태 배지 = 4종만 ══
+  // ══ v2.36 §2: 회원 «내 예약» 상태 배지 = 4종만 ══
   // 답변 필요(내가 눌러야 넘어감) / 확정 / 대기 중(상대·센터를 기다림) / 종료. 같은 뜻에 다른 단어를 쓰지 않는다.
   // 세부 사유는 기존 bkBadge·arrBadge의 보조 텍스트를 그대로 재사용한다(문구 SSOT 유지).
   const M4 = { need: ["답변 필요", "b-rose"], ok: ["확정", "b-green"], wait: ["대기 중", "b-warn"], end: ["종료", "b-gray"] };
@@ -1014,7 +1021,7 @@
   // 문법의 요약 행이다. 배너를 항목마다 다른 색·아이콘으로 쌓던 것이 U1·U21의 원인이었다.
   // 탭바 홈 배지 = 이 블록의 N (§A1-4).
   // 우선순위(§A1-3): 1 마감 임박한 «문제» / 2 수강 확인 대기 / 3 기타 «문제» / 4 내 답변이 필요한 «대기» / 5 나머지
-  // 회원 일정 요청 답변(수락·거절) 도착 알림 — «내 예약»·«예약 내역»을 열면 확인 처리된다
+  // 회원 일정 요청 답변(수락·거절) 도착 알림 — 예약 탭 «내 예약»을 열면 확인 처리된다
   const mArrAnswered = () => DB.arranges.filter((a) => a.memberId === DB.me.member && !a.seen && ["accepted", "declined"].includes(a.status));
   const markArrSeen = () => mArrAnswered().forEach((a) => (a.seen = true));
   // 완료 보고가 필요한 종료 회차 — 시각이 지났고 아직 보고 안 된 좌석이 남아 있는 회차 (U20)
@@ -1032,14 +1039,14 @@
         return r && dday(noshowDeadline(r)) <= 2;
       });
       add({ n: ns.length, tier: "bad", rank: urgent ? 1 : 3, icon: "alert", key: "noshow",
-        text: "노쇼로 보고된 수업이 있어요", go: "#/m/bookings" });
+        text: "노쇼로 보고된 수업이 있어요", go: "#/m/book/mine" });
       add({ n: myConfirmWait().length, tier: "wait", rank: 2, icon: "clip", key: "confirm",
         text: "수업 확인이 필요해요", go: "#/m/confirms" });
       // v2.36 §2: «받은 제안» 화면을 없애고 「예약 내역」 «답변 필요» 섹션 하나로 모았다 — 진입점도 그리로 통일.
       add({ n: myPendingProps().length, tier: "wait", rank: 4, icon: "mail", key: "props",
-        text: "선생님이 보낸 일정 제안이 있어요", go: "#/m/bookings" });
+        text: "선생님이 보낸 일정 제안이 있어요", go: "#/m/book/mine" });
       add({ n: mArrAnswered().length, tier: "wait", rank: 4, icon: "cal", key: "arrans",
-        text: "보낸 요청에 답변이 왔어요", go: "#/m/bookings" });
+        text: "보낸 요청에 답변이 왔어요", go: "#/m/book/mine" });
     } else if (role === "t") {
       add({ n: tPendingArrs().length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
         text: "회원이 보낸 요청에 답해야 해요", go: "#/t/inbox" });
@@ -1209,7 +1216,7 @@
       <div class="sec-title row">내 멤버십<a href="#/m/pass" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
       ${mpCarousel(myPasses())}
       <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>
-      <div class="sec-title row">다가오는 예약<a href="#/m/bookings" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
+      <div class="sec-title row">다가오는 예약<a href="#/m/book/mine" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
       <div class="card flat">${(() => {
         // v2.24 U2: 예약(확정·대기)과 조율 희망일을 한 시간축에 병합해 오름차순.
         // v2.24 U3: 행 전체를 탭하면 그 회차 상세로 — 취소·변경 동선의 입구(조율 건은 «내 예약»으로).
@@ -1220,7 +1227,7 @@
           ${mOverlapBadge(b)}<span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>` };
         }).concat(arrs.map((a) => {
           const c = cls(a.classId); const bd = mArrBadge(a);
-          return { at: new Date(`${a.date}T${a.time}:00+09:00`), html: `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/bookings'"><span class="time">${a.time}</span>
+          return { at: new Date(`${a.date}T${a.time}:00+09:00`), html: `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/book/mine'"><span class="time">${a.time}</span>
           <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(a.date)} 희망</div>${subHtml(bd)}</span>
           <span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>` };
         })).sort((x, y) => x.at - y.at);
@@ -1333,7 +1340,8 @@
     }).join("")}`);
   }
   // v2.25 ⑤ (형 확정 A): 예약 탭 최상단 [캘린더 | 내 예약] 세그먼트.
-  // «내 예약» = 다가올 예약 + 대기/확인 필요. 지난 이력은 «내역» 탭·«내 예약 전체»에만 둔다(중복 노출 금지).
+  // v2.37 (형 확정 A안): «내 예약» = 옛 「예약 내역」과 같은 렌더(mBookingsBody) — 4섹션·액션 버튼 그대로.
+  // 예약 목록 진입은 이 세그먼트 하나뿐이다. 축소판을 다시 만들면 중복이 되살아난다.
   let mBookTab = "cal";
   function vMBookSeg() {
     return `<div class="seg book-seg" role="tablist">
@@ -1341,53 +1349,8 @@
       <button role="tab" aria-selected="${mBookTab === "mine"}" class="${mBookTab === "mine" ? "on" : ""}" onclick="App.mbTab('mine')">내 예약</button>
     </div>`;
   }
-  function vMBookMine() {
-    const up = myUpcoming();
-    const ended = myEnded();
-    const need = myBk().filter((b) => ["confirm_wait", "noshow_wait", "disputed"].includes(b.status));
-    // v2.36: 내가 보낸 «시간 얘기» 2종(일정 요청·일정 변경 요청)을 같은 자리에서 본다.
-    const arrs = DB.arranges.filter((a) => a.memberId === DB.me.member && negoState(a) === "pending");
-    const props = myPendingProps();
-    const row = (b, endedRow) => {
-      const s = slot(b.slotId); const c = cls(s.classId);
-      const bd = mBkBadge(b, endedRow);
-      const bp = b.passId && pass(b.passId);
-      return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/slot/${s.id}'"><span class="time">${s.time}</span>
-        <span class="grow"><span class="t">${c.title}</span>
-          <div class="muted small">${dlabel(s.date)} · ${teacher(c.teacherId).name} 선생님</div>
-          <div class="muted small">${bp ? `사용 수업권: ${bp.name}` : "수업권 미연결"}</div>${subHtml(bd)}</span>
-        ${mOverlapBadge(b)}<span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>`;
-    };
-    return `
-      <div class="sec-title">다가올 예약${up.length ? ` <span class="badge b-gray">${up.length}건</span>` : ""}</div>
-      <div class="card flat">${up.length ? up.map((b) => row(b, false)).join("")
-        : `<p class="muted">다가올 예약이 없어요. «캘린더»에서 수업을 골라 예약해 보세요.</p>`}</div>
-      ${need.length ? `<div class="sec-title">확인 필요 <span class="badge ${need.some((b) => b.status === "noshow_wait") ? "b-danger" : "b-warn"}">${need.length}건</span></div>
-      <div class="card flat">${need.map((b) => {
-        const s = slot(b.slotId); const c = cls(s.classId); const bd = mBkBadge(b);
-        return `<div class="slot"><span class="grow"><span class="t">${c.title}</span>
-          <div class="muted small">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>${subHtml(bd)}</span>
-          <span class="badge ${bd.badge}">${bd.label}</span>
-          ${b.status === "confirm_wait" ? `<button class="btn sm primary" onclick="location.hash='#/m/confirm/${b.id}'">확인</button>` : ""}
-          ${b.status === "noshow_wait" ? `<button class="btn sm ghost" onclick="App.askDispute('${b.id}')">이의제기</button>` : ""}</div>`;
-      }).join("")}</div>` : ""}
-      ${arrs.length ? `<div class="sec-title">보낸 요청 <span class="badge b-warn">${arrs.length}건</span></div>
-      <div class="card flat">${arrs.map((a) => {
-        const c = cls(a.classId); const bd = mArrBadge(a); const chg = a.kind === "change";
-        return `<div class="slot"><span class="grow"><span class="t">${c ? c.title : ""} <span class="badge ${chg ? "b-rose" : "b-blue"}">${chg ? "일정 변경 요청" : "일정 요청"}</span></span>
-          <div class="muted small">${chg ? `${a.origDesc || "기존 일정"} → ${optsLabel(a)} 희망` : `${dlabel(a.date)} ${a.time} 희망`}</div>${subHtml(bd)}</span>
-          <span class="badge ${bd.badge}">${bd.label}</span>
-          <button class="btn sm ghost" onclick="App.arrangeCancel('${a.id}')">요청 취소</button></div>`;
-      }).join("")}</div>` : ""}
-      ${props.length ? `<button class="banner mt8" onclick="location.hash='#/m/bookings'">${icb("mail")}<span>선생님이 보낸 일정 제안이 <b>${props.length}건</b> 기다리고 있어요. <u>「예약 내역」에서 답하기</u></span></button>` : ""}
-      ${ended.length ? `<div class="sec-title">수업 종료 · 보고 대기</div>
-      <div class="card flat">${ended.map((b) => row(b, true)).join("")}
-        <p class="muted small mt8">수업 시각이 지난 회차예요. 선생님이 완료 보고를 하면 «수강 확인 대기»로 넘어가요.</p></div>` : ""}
-      <a class="btn ghost mt8" href="#/m/bookings">예약 내역 전체 보기</a>
-      <p class="muted small mt8" style="text-align:center">수업권 증감 기록은 «내역» 탭에서 볼 수 있어요.</p>`;
-  }
   function vMBook() {
-    if (mBookTab === "mine") return shell("m", "수업 예약", vMBookSeg() + vMBookMine());
+    if (mBookTab === "mine") return shell("m", "수업 예약", vMBookSeg() + mBookingsBody());
     const sel = mBookSel || (mBookSel = DB.TODAY);
     const days = Array.from({ length: 7 }, (_, i) => addDays(mbWeekStart(sel), i));
     const selDt = new Date(sel + "T12:00:00+09:00");
@@ -1525,16 +1488,16 @@
       const pcS = canChange ? changeInFlight(mine.id) : null;
       const chgLine = canChange
         ? (pcS ? `<div class="card flat mt8"><div class="muted small">${pcS.initiator === "member"
-            ? "보낸 변경 요청에 선생님이 답하기를 기다리는 중이에요. 「예약 내역」 «보낸 요청»에서 취소할 수 있어요."
-            : "선생님이 보낸 «일정 변경 제안»이 있어요. 「예약 내역」 «답변 필요»에서 답해 주세요."}</div></div>`
+            ? "보낸 변경 요청에 선생님이 답하기를 기다리는 중이에요. «내 예약» «보낸 요청»에서 취소할 수 있어요."
+            : "선생님이 보낸 «일정 변경 제안»이 있어요. «내 예약» «답변 필요»에서 답해 주세요."}</div></div>`
           : `<button class="btn ghost mt8" onclick="App.mchAsk('${mine.id}')">시간 변경 요청하기</button>`)
         : canCancel && mine.status === "booked" ? `<p class="muted small mt8">${CHANGE_GROUP_HINT}</p>` : "";
       action = `<div class="banner">${icb("ban")}<span>이 회차에 이미 <b>${mine.status === "waitlisted" ? "예약 대기" : "예약"}</b>가 있어요. 중복 예약은 안 돼요.${bd.sub ? ` ${bd.sub}` : ""}</span></div>
         ${canCancel ? `<button class="btn danger-ghost" onclick="App.askCancel('${mine.id}')">${mine.status === "waitlisted" ? "예약대기 취소" : "예약 취소"}</button>
         ${chgLine}
-        <a class="btn ghost mt8" href="#/m/bookings">내 예약 전체 보기</a>`
+        <a class="btn ghost mt8" href="#/m/book/mine">내 예약 보기</a>`
         : `<div class="card flat"><div class="muted small">${isPast(s) ? "수업 시각이 지나 취소할 수 없어요. 선생님 완료 보고 뒤 «수강 확인»으로 넘어가요." : "이 상태에서는 취소할 수 없어요."}</div></div>
-        <a class="btn ghost" href="#/m/bookings">내 예약 전체 보기</a>`}`;
+        <a class="btn ghost" href="#/m/book/mine">내 예약 보기</a>`}`;
     } else if (isPast(s)) {
       action = `<button class="btn primary" disabled>지난 회차는 예약할 수 없어요</button>`;
     } else if (!g.ok) {
@@ -1565,7 +1528,7 @@
       <div class="banner warn">${icb("info")}<span>취소는 수업 <b>${DB.policy.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요. 이 조건은 <b>예약 시점 기준으로 보존</b>돼요.</span></div>
       ${action}`, { back: true });
   }
-  // ══ v2.36 §2: 「예약 내역」 = 회원의 «시간 얘기» 단일 창구 (형 확정 08-20) ══
+  // ══ v2.36 §2 + v2.37 A안: 예약 탭 «내 예약» = 회원의 예약·«시간 얘기» 단일 창구 (형 확정 08-20) ══
   // «받은 제안»(#/m/proposals) 화면을 없애고 여기로 흡수했다. 섹션 순서는 고정이고, 빈 섹션은 헤더째 숨긴다.
   //   ① 답변 필요 — 내가 눌러야 넘어가는 것 (선생님이 보낸 제안·변경 제안 / 수강 확인 / 노쇼 이의)
   //   ② 확정 예약 — 다가오는 확정 건 (여기서 [변경 요청]·[취소])
@@ -1573,7 +1536,9 @@
   //   ④ 지난 예약 — 끝난 것·종결된 것
   // 배지는 4종만 쓴다(답변 필요/확정/대기 중/종료) — mBkBadge·mArrBadge·mPropBadge가 그 SSOT다.
   const CHANGE_GROUP_HINT = "그룹 수업은 시간 변경이 어려워요. 취소 후 다시 예약해 주세요.";
-  function vMBookings() {
+  // v2.37 (형 확정 A안): 별도 「예약 내역」 화면을 없애고, 이 4섹션 본문을
+  // 예약 탭 [캘린더 | 내 예약] 세그먼트가 그대로 그린다. 렌더는 이 함수 한 벌뿐 — 축소판 복제 금지.
+  function mBookingsBody() {
     const mine = myBk();
     const act = myUpcoming();
     const ended = myEnded();
@@ -1625,13 +1590,13 @@
     const sec = (title, inner, badge) => `<div class="sec-title">${title}${badge || ""}</div><div class="card flat">${inner}</div>`;
     markArrSeen();
     const needCount = props.length + need.length;
-    return shell("m", "예약 내역", `
+    return `
       <p class="muted" style="margin-bottom:12px">예약과 선생님과 주고받은 «시간 얘기»가 모두 여기 모여 있어요. 수업권 증감 기록은 «내역» 탭에서 볼 수 있어요.</p>
       ${needCount ? `<div id="m-need"></div>` + sec(`답변 필요 <span class="badge b-rose">${needCount}</span>`,
         props.map((p) => propItemHtml(p, "m")).join("") + need.map((b) => item(b, false)).join("")) : ""}
       ${sec(`확정 예약${act.length ? ` <span class="badge b-gray">${act.length}건</span>` : ""}`,
         act.length ? act.map((b) => item(b, true)).join("")
-          : `<p class="muted">다가오는 예약이 없어요. «예약» 탭에서 수업을 골라 예약해 보세요.</p>`)}
+          : `<p class="muted">다가오는 예약이 없어요. 위 «캘린더»에서 수업을 골라 예약해 보세요.</p>`)}
       ${sent.length ? sec(`보낸 요청 <span class="badge b-warn">${sent.length}</span>`,
         sent.map(sentItem).join("") + `<p class="muted small mt8">선생님이 수락하면 알려드릴게요. 마음이 바뀌면 «요청 취소»를 누르면 돼요. 변경 요청은 거절돼도 원래 예약과 남은 횟수는 그대로예요.</p>`) : ""}
       ${ended.length || waitCenter.length || past.length || sentDone.length || propsDone.length
@@ -1640,7 +1605,7 @@
           + waitCenter.map((b) => item(b, false)).join("")
           + past.map((b) => item(b, false)).join("")
           + sentDone.map(sentItem).join("")
-          + propsDone.map((p) => propItemHtml(p, "m")).join("")) : ""}`, { back: true });
+          + propsDone.map((p) => propItemHtml(p, "m")).join("")) : ""}`;
   }
   function vMConfirm(id) {
     const b = DB.bookings.find((x) => x.id === id);
@@ -1657,7 +1622,7 @@
       return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
         <div class="em state-em">${IC.clock}</div><b style="font-size:17px">이의제기 심사 중</b>
         <p class="muted mt8">${slotDesc(s)}<br>센터가 확인하고 있어요. 결과가 나오면 알려드릴게요.</p></div>
-        <a class="btn ghost" href="#/m/bookings">내 예약으로</a>`, { back: true });
+        <a class="btn ghost" href="#/m/book/mine">내 예약으로</a>`, { back: true });
     }
     // S-1: 완료 보고(pending)가 실존하는 confirm_wait만 확인 가능 — 미래·대기·일정 요청 회차 직접 진입 차단
     const rp = DB.reports.find((r) => r.bookingId === b.id && r.status === "pending");
@@ -1665,7 +1630,7 @@
       return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
         <div class="em state-em">${IC.lock}</div><b style="font-size:17px">아직 확인할 단계가 아니에요</b>
         <p class="muted mt8">${slotDesc(s)}<br>수업이 끝나고 선생님이 완료 보고를 하면<br>그때 수강 확인을 요청드려요.</p></div>
-        <a class="btn ghost" href="#/m/bookings">내 예약으로</a>`, { back: true });
+        <a class="btn ghost" href="#/m/book/mine">내 예약으로</a>`, { back: true });
     }
     const auto = DB.policy.autoConfirmHours;
     return shell("m", "수강 확인", `
@@ -3211,7 +3176,7 @@
     const r = DB.reports.find((x) => x.id === t.rpId);
     const b = r && r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
     if (!r || !b || r.status !== "pending" || b.status !== "confirm_wait")
-      return errCard(IC.clip, "이미 처리된 수업이에요", "이 수업 건은 확인·처리가 끝났어요.<br>내 예약에서 상태를 확인해 주세요.", "#/m/bookings");
+      return errCard(IC.clip, "이미 처리된 수업이에요", "이 수업 건은 확인·처리가 끝났어요.<br>«내 예약»에서 상태를 확인해 주세요.", "#/m/book/mine");
     // 확인 권한=회원 본인 계정 귀속 — 타 회원·타 수업 유용 불가
     if (b.memberId !== DB.me.member)
       return errCard(IC.ban, "내 수업의 QR이 아니에요", `이 QR은 <b>${r.member}</b> 회원의 해당 수업 1건 전용이에요.<br>다른 회원·다른 수업에는 쓸 수 없어요.`);
@@ -3322,7 +3287,7 @@
         // S-3: 취소규정을 예약 시점에 스냅샷
         DB.bookings.push({ id: nid("bk"), slotId, memberId: DB.me.member, passId: up.id, status: "booked", policySnap: snapPolicy() });
         toast(`예약 완료! «${up.name}»에서 차감돼요. 취소 기한 조건은 지금 시점 기준으로 보존돼요.`);
-        location.hash = "#/m/bookings";
+        location.hash = "#/m/book/mine";
       };
       // v2.33 D-2(b): 회원 본인 일정이 겹치면 경고만 — 차단하지 않는다.
       const mh = memberBusyAt(DB.me.member, s.date, s.time, c.duration, []);
@@ -3341,7 +3306,7 @@
       const up = chosenPass(`s:${slotId}`, eligiblePasses(c, DB.me.member)) || g.pass;
       DB.bookings.push({ id: nid("bk"), slotId, memberId: DB.me.member, passId: up.id, status: "waitlisted", pos, policySnap: snapPolicy() });
       toast(`대기 ${pos}번으로 등록됐어요. 자리가 나면 알려드릴게요!`);
-      location.hash = "#/m/bookings";
+      location.hash = "#/m/book/mine";
     },
     // M-2/B4: 일정 요청 — 회차·예약을 만들지 않고 선생님 인박스로
     requestArrange(classId) {
@@ -3358,7 +3323,7 @@
         DB.negos.push({ id: nid("ar"), initiator: "member", kind: "request", classId, teacherId: c.teacherId,
           memberId: DB.me.member, passId: up.id, date: d, time: t, status: "pending", note, at: nowStamp });
         toast(`${teacher(c.teacherId).name} 선생님에게 일정 요청을 보냈어요. 수락하면 예약이 확정돼요.`);
-        location.hash = "#/m/bookings";
+        location.hash = "#/m/book/mine";
       };
       // v2.33 B-4·D-2(a): 선생님 겹침·회원 본인 겹침을 한 모달에 모아 확인만 받는다 — 차단 아님.
       const hits = overlapSlots(c.teacherId, d, t, c.duration, []);
@@ -3498,7 +3463,7 @@
       closeModal(); render();
       toast("거절했어요. 회원 예약은 원래 시간 그대로 유지돼요.");
     },
-    // 「예약 내역」 «답변 필요» 섹션으로 스크롤 — 홈·알림·다른 섹션에서 오는 진입점이 전부 같은 곳에 닿게 한다.
+    // «내 예약» «답변 필요» 섹션으로 스크롤 — 홈·알림·다른 섹션에서 오는 진입점이 전부 같은 곳에 닿게 한다.
     scrollToNeed() {
       const el = document.getElementById("m-need");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -3839,7 +3804,7 @@
         b.status = "disputed";
       }
       closeModal();
-      location.hash = "#/m/bookings";
+      location.hash = "#/m/book/mine";
       toast(pre ? "접수됐어요. 확인·차감 없이 센터가 심사해요." : "접수됐어요. 심사 중에는 차감이 유지되고, 이의가 인정되면 횟수가 복원돼요.");
     },
     // 선생님 완료 보고 — 회원별 참석/노쇼 (M-11), 수강확인 필수 정책 분기 (M-6)
@@ -4501,7 +4466,7 @@
     tsGoto(d) { tSchedDay = d; closeModal(); render(); },
     tsMonthSheet() { monthSheet((tSchedDay || DB.TODAY).slice(0, 7), "tsGoto"); },
     // v2.25 ⑤: 예약 탭 [캘린더 | 내 예약] 전환
-    mbTab(k) { mBookTab = k; render(); },
+    mbTab(k) { history.replaceState(null, "", k === "mine" ? "#/m/book/mine" : "#/m/book"); render(); },
     // v2.11: 회원 예약 캘린더 — 날짜 선택·주 이동·월 이동
     mbDay(d) { mBookSel = d; render(); },
     mbWeek(delta) { mBookSel = addDays(mBookSel || DB.TODAY, delta * 7); render(); },
@@ -4570,10 +4535,12 @@
     [/^#\/m\/pass$/, vMPass],
     [/^#\/m\/shop$/, vMShop],
     [/^#\/m\/shop\/(.+)$/, vMShopDetail],
-    [/^#\/m\/book$/, vMBook],
+    // v2.37: 세그먼트는 해시에서 파생한다(#/m/book=캘린더 · #/m/book/mine=내 예약).
+    // 전역 상태로 들고 있으면 예약 완료 후 «내 예약»으로 보낸 뒤 예약 탭이 계속 목록으로 열리는 잔류가 생긴다.
+    [/^#\/m\/book$/, () => { mBookTab = "cal"; return vMBook(); }],
+    [/^#\/m\/book\/mine$/, () => { mBookTab = "mine"; return vMBook(); }],
     [/^#\/m\/class\/(.+)$/, vMClass],
     [/^#\/m\/slot\/(.+)$/, vMSlot],
-    [/^#\/m\/bookings$/, vMBookings],
     [/^#\/m\/confirms$/, vMConfirms],
     [/^#\/m\/confirm\/(.+)$/, vMConfirm],
     [/^#\/m\/qr\/(.+)$/, vMQr],
@@ -4610,8 +4577,7 @@
     // 일정 탭 하위 뷰 — 수업 상세(수정·폐강)를 다녀와도 «내 수업»에 그대로 돌아온다
     { key: "tSchedTab", keepOn: (h) => h === "#/t/schedule" || h.startsWith("#/t/class/"), reset: () => { tSchedTab = "cal"; } },
     { key: "ccUI", keepOn: (h) => h === "#/t/create" || h === "#/c/create", reset: () => { ccUI = null; } },
-    { key: "mBookSel", keepOn: (h) => h === "#/m/book", reset: () => { mBookSel = null; } },
-    { key: "mBookTab", keepOn: (h) => h === "#/m/book", reset: () => { mBookTab = "cal"; } },
+    { key: "mBookSel", keepOn: (h) => h === "#/m/book" || h === "#/m/book/mine", reset: () => { mBookSel = null; } },
     // 센터 캘린더 — 회차 상세를 다녀와도 날짜·필터 유지, 그 밖으로 나가면 초기화
     { key: "cbUI", keepOn: (h) => h === "#/c/bookings" || h.startsWith("#/c/slot/"), reset: () => { cbUI = { sel: null, teacher: "all", cls: "all" }; } },
     { key: "csUI", keepOn: (h) => h === "#/c/settlement", reset: () => { csUI = { sel: null, teacher: "all", detail: false }; } },
@@ -4623,8 +4589,9 @@
   // v2.26: 통합 전 라우트(딥링크·즐겨찾기·폐강 후 복귀)는 새 화면으로 돌려보낸다.
   // «내 수업 관리»는 일정 탭 하위 뷰로 흡수됐으므로 탭까지 맞춰서 보낸다.
   // v2.36: «요청» 탭·«받은 제안» 화면을 흡수했다. 알림 딥링크·즐겨찾기가 죽지 않게 라우트는 남기고 새 자리로 보낸다.
+  // v2.37: 「예약 내역」(#/m/bookings) 화면도 예약 탭 «내 예약» 세그먼트(#/m/book/mine)로 흡수 — 옛 링크는 여기로.
   const REDIRECTS = { "#/t/quick": "#/t/create", "#/c/quick": "#/c/create", "#/t/classes": "#/t/schedule",
-    "#/t/inbox": "#/t/schedule", "#/m/proposals": "#/m/bookings" };
+    "#/t/inbox": "#/t/schedule", "#/m/proposals": "#/m/book/mine", "#/m/bookings": "#/m/book/mine" };
   function render() {
     const h0 = location.hash || "#/";
     if (REDIRECTS[h0]) {
