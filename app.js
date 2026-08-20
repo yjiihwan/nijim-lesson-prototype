@@ -76,6 +76,12 @@
    ③ 수정·폐강 = «일정» 탭 하위 뷰 [주간 일정 | 내 수업]으로 흡수(선생님) / 센터는 «수업» 탭 유지
    ④ 구 라우트는 리다이렉트(#/t/quick→#/t/create, #/c/quick→#/c/create, #/t/classes→#/t/schedule «내 수업»)
    ⑤ 통합 전 잔재 용어(«바로 확정»의 옛 이름) 전면 제거 — UI·토스트·안내문·정책 화면·주석. QA v226 57/57.
+   v2.33 (2026-08-20 형 확정 B안+D안 — 조율 신청 겹침 안내): ① B안 = 회원 조율 신청 화면에 그 날
+   선생님 일정을 «시간 구간만» 요약 + 희망 시간 겹침 실시간 배너 + 전송 직전 확인 모달(차단 아님).
+   ② D안 = 회원 본인 일정 겹침 검사(memberBusyAt) 4지점(조율 신청·일반 예약·조율 수락·제안 수락) —
+   전부 «경고 후 강행». 두 사유가 동시에 걸리면 모달 하나에 함께 적는다(2연타 금지).
+   ③ 겹친 채 확정된 예약은 회원 «내 예약»·홈에도 기존 «시간 겹침» 배지. 조회 헬퍼는 teacherDaySlots/
+   spanOf/spanHits 한 벌로 통합 — overlapSlots·memberBusyAt이 같은 필터를 재사용한다.
    v2.32 (2026-08-20 형 확정 — 회원 화면 정산 문구 정리): 정산·수업료·급여는 센터↔선생님의 일이라
    회원 화면에서 걷어내고 회원에게 의미 있는 표현(횟수 차감·수업 기록·센터 심사)으로 교체. 4곳 문구만
    교체하고 내부 동작(confirmTx 차감·정산라인 생성, 이의 시 line.status="held")은 그대로 둔다.
@@ -238,18 +244,48 @@
   // ── v2.25 ② 선생님 시간 겹침 (형 확정 B: 경고 후 강행 허용) ──
   // 같은 선생님의 [시작, 시작+수업시간) 구간이 겹치는 다른 회차. 차단하지 않고 확인 모달만 띄운다.
   const slotEndAt = (s) => new Date(slotAt(s).getTime() + ((cls(s.classId) || {}).duration || 50) * 60000);
-  function overlapSlots(teacherId, date, time, duration, excludeIds) {
-    const st = new Date(`${date}T${time}:00+09:00`), en = new Date(st.getTime() + (duration || 50) * 60000);
-    const skip = excludeIds || [];
+  // v2.33 B-1·D-1: 구간 계산과 «유효 회차» 필터를 한 벌로 모았다. 겹침을 보는 곳(선생님·회원)이 늘어도
+  // 판정 규칙은 여기 하나뿐 — 같은 필터를 두 벌 두면 한쪽만 고쳐지는 사고가 난다.
+  const spanOf = (date, time, duration) => { const st = new Date(`${date}T${time}:00+09:00`); return [st, new Date(st.getTime() + (duration || 50) * 60000)]; };
+  const spanHits = (s, st, en) => slotAt(s) < en && slotEndAt(s) > st;
+  // 시:분 문자열 연산 — 표시용 종료 시각은 타임존을 타지 않게 문자열로 계산한다
+  const addMin = (t, m) => { const [h, mi] = t.split(":").map(Number); const x = h * 60 + mi + (m || 0); return `${String(Math.floor(x / 60) % 24).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`; };
+  const slotSpanLabel = (s) => `${s.time}\u2013${addMin(s.time, (cls(s.classId) || {}).duration || 50)}`;
+  // 그 선생님의 그 날 «유효 회차» — 취소 회차·폐강 수업 제외, 시간 오름차순
+  function teacherDaySlots(teacherId, date) {
     return DB.slots.filter((s) => {
-      if (s.status === "canceled" || skip.includes(s.id) || s.date !== date) return false;
+      if (s.status === "canceled" || s.date !== date) return false;
       const c = cls(s.classId);
-      if (!c || c.status === "closed" || c.teacherId !== teacherId) return false;
-      return slotAt(s) < en && slotEndAt(s) > st;
+      return !!c && c.status !== "closed" && c.teacherId === teacherId;
     }).sort((a, b) => a.time.localeCompare(b.time));
   }
+  function overlapSlots(teacherId, date, time, duration, excludeIds) {
+    const [st, en] = spanOf(date, time, duration);
+    const skip = excludeIds || [];
+    return teacherDaySlots(teacherId, date).filter((s) => !skip.includes(s.id) && spanHits(s, st, en));
+  }
+  // v2.33 D-1: 회원 본인 일정 겹침. 좌석을 실제로 점유한 상태만 본다 — waitlisted는 좌석 미확보라 제외.
+  const SEAT_HELD = ["booked", "confirm_wait"];
+  function memberBusyAt(memberId, date, time, duration, excludeBookingIds) {
+    const [st, en] = spanOf(date, time, duration);
+    const skip = excludeBookingIds || [];
+    return DB.bookings.filter((b) => {
+      if (b.memberId !== memberId || !SEAT_HELD.includes(b.status) || skip.includes(b.id)) return false;
+      const s = slot(b.slotId);
+      if (!s || s.status === "canceled" || s.date !== date) return false;
+      const c = cls(s.classId);
+      return !!c && c.status !== "closed" && spanHits(s, st, en);
+    }).sort((x, y) => slot(x.slotId).time.localeCompare(slot(y.slotId).time));
+  }
   const slotOverlaps = (s) => { const c = cls(s.classId); return c ? overlapSlots(c.teacherId, s.date, s.time, c.duration, [s.id]) : []; };
-  const overlapBadge = (s) => (slotOverlaps(s).length ? `<span class="badge b-danger">시간 겹침</span>` : "");
+  const OV_BADGE = `<span class="badge b-danger">시간 겹침</span>`; // 배지 문법 SSOT — 신규 문구 만들지 않는다
+  const overlapBadge = (s) => (slotOverlaps(s).length ? OV_BADGE : "");
+  // v2.33 D-3: 회원 «내 예약»·홈에도 같은 배지. 판정 기준만 «회원 본인 일정»으로 바뀐다.
+  const mOverlapBadge = (b) => {
+    const s = b && slot(b.slotId); const c = s && cls(s.classId);
+    if (!c || s.status === "canceled" || !SEAT_HELD.includes(b.status)) return "";
+    return memberBusyAt(b.memberId, s.date, s.time, c.duration, [b.id]).length ? OV_BADGE : "";
+  };
   // ── v2.31 §D-2 B안(형 확정) — 겹침을 «해야 할 일»에 올리되 «의도한 겹침»은 내린다 ──
   // 강행 허용·«시간 겹침» 배지·경고 모달은 그대로 유지한다. 무시는 «해야 할 일» 노출에만 적용된다.
   // 저장 위치 = 회차 데이터(s.ovOk = 상대 회차 id 배열). 양쪽에 기록해 어느 쪽에서 봐도 같은 판정이 나온다.
@@ -273,15 +309,26 @@
   }
   // 겹침 확인 모달 — [취소] / [그래도 진행]. 진행을 누르면 보류해 둔 동작을 그대로 실행한다.
   let overlapPending = null;
-  function overlapAsk(hits, onProceed) {
+  // v2.33 D-2: 한 동작에서 «선생님 겹침»과 «회원 본인 겹침»이 동시에 걸려도 모달은 하나 — 사유만 함께 적는다.
+  // opts.anon = 회원이 보는 화면. 다른 회원 이름·수업명을 적지 않고 시간 구간만 적는다(프라이버시).
+  function overlapAsk(hits, onProceed, opts) {
+    const o = opts || {}, mh = o.mHits || [], anon = !!o.anon;
     overlapPending = onProceed;
-    const lines = hits.map((s) => {
+    const tl = hits.map((s) => {
       const c = cls(s.classId);
+      if (anon) return `선생님은 <b>${slotSpanLabel(s)}</b>에 이미 수업이 있어요.`;
       const who = attendeeNames(s.id);
       return `이미 <b>${s.time}</b>에 <b>${who.length ? `${who.join(", ")} 회원` : "예약자 없는"}</b> 수업(${c.title} · ${c.duration}분)이 있어요.`;
-    }).join("<br>");
-    modal(`<h3>선생님 시간이 겹쳐요</h3><p>${lines}<br>그래도 진행할까요?</p>
-      <p class="muted small mt8">진행하면 두 회차 모두 선생님·센터 화면에 «시간 겹침»으로 표시돼요.</p>
+    });
+    const ml = mh.map((b) => {
+      const s = slot(b.slotId), c = cls(s.classId);
+      return `${anon ? "회원님은" : `${memberName(b.memberId)} 회원은`} <b>${slotSpanLabel(s)}</b>에 이미 <b>${c.title}</b> 예약이 있어요.`;
+    });
+    const sum = [hits.length ? `선생님 수업 ${hits.length}건` : "", mh.length ? `회원님 예약 ${mh.length}건` : ""].filter(Boolean).join(" · ");
+    modal(`<h3>${hits.length && !mh.length ? "선생님 시간이 겹쳐요" : "이 시간에 겹치는 일정이 있어요"}</h3>
+      ${mh.length ? `<p class="muted small">${sum}</p>` : ""}
+      <p>${tl.concat(ml).join("<br>")}<br>그래도 진행할까요?</p>
+      ${hits.length ? `<p class="muted small mt8">진행하면 두 회차 모두 선생님·센터 화면에 «시간 겹침»으로 표시돼요.</p>` : ""}
       <div class="btn-row"><button class="btn ghost" onclick="App.overlapCancel()">취소</button>
       <button class="btn primary" onclick="App.overlapGo()">그래도 진행</button></div>`);
   }
@@ -1134,7 +1181,7 @@
           const s = slot(b.slotId); const c = cls(s.classId); const bd = bkBadge(b);
           return { at: slotAt(s), html: `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/slot/${s.id}'"><span class="time">${s.time}</span>
           <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(s.date)} · ${teacher(c.teacherId).name} 선생님</div>${subHtml(bd)}</span>
-          <span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>` };
+          ${mOverlapBadge(b)}<span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>` };
         }).concat(arrs.map((a) => {
           const c = cls(a.classId); const bd = arrBadge(a);
           return { at: new Date(`${a.date}T${a.time}:00+09:00`), html: `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/bookings'"><span class="time">${a.time}</span>
@@ -1268,7 +1315,7 @@
         <span class="grow"><span class="t">${c.title}</span>
           <div class="muted small">${dlabel(s.date)} · ${teacher(c.teacherId).name} 선생님</div>
           <div class="muted small">${bp ? `사용 수업권: ${bp.name}` : "수업권 미연결"}</div>${subHtml(bd)}</span>
-        <span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>`;
+        ${mOverlapBadge(b)}<span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>`;
     };
     return `
       <div class="sec-title">다가올 예약${up.length ? ` <span class="badge b-gray">${up.length}건</span>` : ""}</div>
@@ -1357,6 +1404,21 @@
         <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`;
       }).join("") : `<div class="card flat"><p class="muted">수시 조율로 진행하는 수업이 없어요.</p></div>`}`);
   }
+  // v2.33 B-2: 조율 신청 화면의 «그 날 선생님 일정» — 시간 구간만 적는다.
+  // 다른 회원 이름·수업명은 절대 노출하지 않고, 아직 수락 안 된 조율 요청도 넣지 않는다(확정 일정이 아님).
+  function arrDayHtml(c, d) {
+    if (!c || !d) return "";
+    const list = teacherDaySlots(c.teacherId, d);
+    return `${dlabel(d)} 선생님 일정 \u2014 ${list.length ? list.map(slotSpanLabel).join(" · ") : "이 날은 잡힌 수업이 없어요."}`;
+  }
+  // v2.33 B-3: 희망 시간이 그 일정과 겹치면 경고 배너. 차단하지 않는다(08-19 형 확정 ② 경고 후 강행).
+  const ARR_OV_MSG = "그 시간엔 선생님 수업이 있어요. 그래도 보낼 수 있지만, 선생님이 다른 시간을 제안할 수 있어요.";
+  function arrOvHtml(c, d, t) {
+    if (!c || !d || !t) return "";
+    return overlapSlots(c.teacherId, d, t, c.duration, []).length
+      ? `<div class="banner warn">${icb("info")}<span>${ARR_OV_MSG}</span></div>` : "";
+  }
+  const ARR_D0 = "2026-08-21", ARR_T0 = "11:00"; // 조율 신청 폼 기본값 — 폼·안내 표시가 같은 값을 쓰도록
   function vMClass(id) {
     const c = cls(id);
     if (!c || c.status === "closed") return vMBook();
@@ -1367,12 +1429,14 @@
         <div class="card"><b>${teacher(c.teacherId).name} 선생님과 일정 조율</b>
           <p class="muted small mt4">이 수업은 고정 시간표가 없어요. 희망 일시를 보내면 <b>선생님이 수락해야</b> 예약이 확정돼요.</p></div>
         ${g.ok ? `<div class="card">
-          <div class="field"><label>희망 날짜</label><input type="date" id="arr-date" value="2026-08-21" min="${DB.TODAY}"></div>
-          <div class="field"><label>희망 시간</label><input type="time" id="arr-time" value="11:00"></div>
+          <div class="field"><label>희망 날짜</label><input type="date" id="arr-date" value="${ARR_D0}" min="${DB.TODAY}" oninput="App.arrSync('${c.id}')">
+            <div class="hint" id="arr-day">${arrDayHtml(c, ARR_D0)}</div></div>
+          <div class="field"><label>희망 시간</label><input type="time" id="arr-time" value="${ARR_T0}" oninput="App.arrSync('${c.id}')"></div>
           <div class="field"><label>메모 (선택)</label><input type="text" id="arr-note" placeholder="예: 오전이면 좋아요"></div>
           <div class="divider"></div>
           ${(() => { const key = `c:${c.id}`; const cds = eligiblePasses(c, DB.me.member); const up = chosenPass(key, cds);
             return up ? passPickRow(key, up, cds.length) : ""; })()}
+          <div id="arr-ov">${arrOvHtml(c, ARR_D0, ARR_T0)}</div>
           <button class="btn primary mt12" onclick="App.requestArrange('${c.id}')">조율 요청 보내기</button>
         </div>
         <p class="muted small">선생님이 수락하면 예약이 자동 등록되고 알림을 보내드려요. 거절하면 사유를 알려드려요.</p>`
@@ -1468,7 +1532,7 @@
       return `<div class="slot"><span class="grow"><span class="t">${c.title}</span>
         <div class="muted small">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="muted small">${bp ? `${["confirmed", "forfeited", "noshow_final"].includes(b.status) ? "차감" : "사용"} 수업권: ${bp.name}` : "수업권 미연결"}</div>${subHtml(bd)}</span>
-        <span class="badge ${bd.badge}">${bd.label}</span>
+        ${mOverlapBadge(b)}<span class="badge ${bd.badge}">${bd.label}</span>
         ${withCancel && ["booked", "waitlisted"].includes(b.status) ? `<button class="btn sm ghost" onclick="App.askCancel('${b.id}')">취소</button>` : ""}
         ${b.status === "confirm_wait" ? `<button class="btn sm primary" onclick="location.hash='#/m/confirm/${b.id}'">확인</button>` : ""}
         ${["noshow_wait"].includes(b.status) ? `<button class="btn sm ghost" onclick="App.askDispute('${b.id}')">이의제기</button>` : ""}
@@ -3171,10 +3235,16 @@
       if (seatCount(slotId) >= c.capacity) { toast("정원이 마감됐어요."); render(); return; }
       // v2.25 ③: 회원이 «변경»으로 고른 수업권이 있으면 그것으로, 없으면 만료 임박 순 자동 선택
       const up = chosenPass(`s:${slotId}`, eligiblePasses(c, DB.me.member)) || g.pass;
-      // S-3: 취소규정을 예약 시점에 스냅샷
-      DB.bookings.push({ id: nid("bk"), slotId, memberId: DB.me.member, passId: up.id, status: "booked", policySnap: snapPolicy() });
-      toast(`예약 완료! «${up.name}»에서 차감돼요. 취소 기한 조건은 지금 시점 기준으로 보존돼요.`);
-      location.hash = "#/m/bookings";
+      const finish = () => {
+        // S-3: 취소규정을 예약 시점에 스냅샷
+        DB.bookings.push({ id: nid("bk"), slotId, memberId: DB.me.member, passId: up.id, status: "booked", policySnap: snapPolicy() });
+        toast(`예약 완료! «${up.name}»에서 차감돼요. 취소 기한 조건은 지금 시점 기준으로 보존돼요.`);
+        location.hash = "#/m/bookings";
+      };
+      // v2.33 D-2(b): 회원 본인 일정이 겹치면 경고만 — 차단하지 않는다.
+      const mh = memberBusyAt(DB.me.member, s.date, s.time, c.duration, []);
+      if (mh.length) { overlapAsk([], finish, { mHits: mh, anon: true }); return; }
+      finish();
     },
     joinWaitlist(slotId) {
       const s = slot(slotId);
@@ -3195,16 +3265,23 @@
       const c = cls(classId);
       const g = bookGuard(c, DB.me.member);
       if (!g.ok) { toast(g.msg); return; }
-      const d = document.getElementById("arr-date").value || "2026-08-21";
-      const t = document.getElementById("arr-time").value || "11:00";
+      const d = document.getElementById("arr-date").value || ARR_D0;
+      const t = document.getElementById("arr-time").value || ARR_T0;
       if (new Date(`${d}T${t}:00+09:00`) <= NOW) { toast("지난 일시로는 요청할 수 없어요."); return; }
       if (DB.arranges.some((a) => a.classId === classId && a.memberId === DB.me.member && a.status === "pending" && a.date === d && a.time === t)) { toast("같은 일시로 보낸 요청이 이미 있어요."); return; }
       const note = (document.getElementById("arr-note") || { value: "" }).value.trim();
       const up = chosenPass(`c:${classId}`, eligiblePasses(c, DB.me.member)) || g.pass;
-      DB.negos.push({ id: nid("ar"), initiator: "member", kind: "request", classId, teacherId: c.teacherId,
-        memberId: DB.me.member, passId: up.id, date: d, time: t, status: "pending", note, at: nowStamp });
-      toast(`${teacher(c.teacherId).name} 선생님에게 조율 요청을 보냈어요. 수락하면 예약이 확정돼요.`);
-      location.hash = "#/m/bookings";
+      const send = () => {
+        DB.negos.push({ id: nid("ar"), initiator: "member", kind: "request", classId, teacherId: c.teacherId,
+          memberId: DB.me.member, passId: up.id, date: d, time: t, status: "pending", note, at: nowStamp });
+        toast(`${teacher(c.teacherId).name} 선생님에게 조율 요청을 보냈어요. 수락하면 예약이 확정돼요.`);
+        location.hash = "#/m/bookings";
+      };
+      // v2.33 B-4·D-2(a): 선생님 겹침·회원 본인 겹침을 한 모달에 모아 확인만 받는다 — 차단 아님.
+      const hits = overlapSlots(c.teacherId, d, t, c.duration, []);
+      const mh = memberBusyAt(DB.me.member, d, t, c.duration, []);
+      if (hits.length || mh.length) { overlapAsk(hits, send, { mHits: mh, anon: true }); return; }
+      send();
     },
     arrangeCancel(arId) {
       const a = DB.arranges.find((x) => x.id === arId);
@@ -3231,8 +3308,10 @@
         closeModal(true); render();
         toast(`수락했어요. ${memberName(a.memberId)} 회원에게 확정 알림이 갔어요.${es.reused ? " 같은 시간에 이미 있던 회차에 합류시켰어요." : ""}`);
       };
+      // v2.33 D-2(c): 수락 시점 재검사 — 회원이 그 사이 다른 예약을 잡았을 수 있다. 모달은 하나로 합친다.
       const hits = overlapSlots(c.teacherId, a.date, a.time, c.duration, []);
-      if (hits.length) { overlapAsk(hits, accept); return; }
+      const mh = memberBusyAt(a.memberId, a.date, a.time, c.duration, []);
+      if (hits.length || mh.length) { overlapAsk(hits, accept, { mHits: mh }); return; }
       accept();
     },
     // v2.29 §B8-3 (U8): 대안 제안은 요청 카드의 독립 버튼으로 꺼냈다 — 거절 모달은 «순수 거절»(사유만).
@@ -3398,24 +3477,36 @@
         if (!b || b.status !== "booked" || !s0 || s0.status !== "scheduled") {
           p.status = "canceled"; p.canceledBy = "system"; render(); toast("원래 예약이 취소되거나 바뀌어서 이 제안은 처리할 수 없어요."); return;
         }
-        const es = ensureSlot(c, p.date, p.time); // v2.30 C6
-        if (!es.ok) { toast(es.msg); return; }
-        b.slotId = es.slot.id; b.fromNego = p.id;
-        p.status = "accepted"; p.slotId = es.slot.id;
-        promoteWaitlist(s0.id); cleanupSlot(s0);
-        render();
-        toast(`예약이 ${dlabel(p.date)} ${p.time}로 변경됐어요. 선생님에게 알림이 갔어요.`);
+        const move = () => {
+          const es = ensureSlot(c, p.date, p.time); // v2.30 C6
+          if (!es.ok) { toast(es.msg); return; }
+          b.slotId = es.slot.id; b.fromNego = p.id;
+          p.status = "accepted"; p.slotId = es.slot.id;
+          promoteWaitlist(s0.id); cleanupSlot(s0);
+          render();
+          toast(`예약이 ${dlabel(p.date)} ${p.time}로 변경됐어요. 선생님에게 알림이 갔어요.`);
+        };
+        // v2.33 D-2(d): 옮겨 갈 시간에 회원 본인 다른 예약이 있으면 경고 — 옮기는 예약 자신은 제외.
+        const mhC = memberBusyAt(DB.me.member, p.date, p.time, c.duration, [b.id]);
+        if (mhC.length) { overlapAsk([], move, { mHits: mhC, anon: true }); return; }
+        move();
         return;
       }
       const g = bookGuard(c, DB.me.member);
       if (!g.ok) { toast(g.msg); return; }
       if (DB.bookings.some((x) => { const s = slot(x.slotId); return x.memberId === DB.me.member && ACTIVE.includes(x.status) && s && s.status !== "canceled" && s.date === p.date && s.time === p.time; })) { toast("같은 일시에 이미 예약이 있어요."); return; }
-      const es = ensureSlot(c, p.date, p.time); // v2.30 C6
-      if (!es.ok) { toast(es.msg); return; }
-      DB.bookings.push({ id: nid("bk"), slotId: es.slot.id, memberId: DB.me.member, passId: g.pass.id, status: "booked", policySnap: snapPolicy(), fromNego: p.id });
-      p.status = "accepted"; p.slotId = es.slot.id;
-      render();
-      toast(`수락했어요! ${dlabel(p.date)} ${p.time} 예약이 확정됐어요.`);
+      const take = () => {
+        const es = ensureSlot(c, p.date, p.time); // v2.30 C6
+        if (!es.ok) { toast(es.msg); return; }
+        DB.bookings.push({ id: nid("bk"), slotId: es.slot.id, memberId: DB.me.member, passId: g.pass.id, status: "booked", policySnap: snapPolicy(), fromNego: p.id });
+        p.status = "accepted"; p.slotId = es.slot.id;
+        render();
+        toast(`수락했어요! ${dlabel(p.date)} ${p.time} 예약이 확정됐어요.`);
+      };
+      // v2.33 D-2(d): 같은 일시 중복은 위에서 이미 막았고, 여기선 «구간이 겹치는» 본인 예약을 경고만 한다.
+      const mhP = memberBusyAt(DB.me.member, p.date, p.time, c.duration, []);
+      if (mhP.length) { overlapAsk([], take, { mHits: mhP, anon: true }); return; }
+      take();
     },
     propDeclineAsk(ppId) {
       const p = DB.proposals.find((x) => x.id === ppId);
@@ -3847,6 +3938,17 @@
       sl.holds = (sl.holds || []).filter((h) => h.memberId !== n.memberId);
       render();
       toast(`${memberName(n.memberId)} 회원 ${dlabel(sl.date)} ${sl.time} 예약을 확정했어요. 회원에게 알림을 보냈어요.`);
+    },
+    // v2.33 B-2·B-3: 날짜·시간 입력이 바뀔 때 안내만 갱신 — 전체 render()를 부르면 입력 포커스가 날아간다.
+    arrSync(classId) {
+      const c = cls(classId);
+      if (!c) return;
+      const d = (document.getElementById("arr-date") || {}).value || "";
+      const t = (document.getElementById("arr-time") || {}).value || "";
+      const dn = document.getElementById("arr-day");
+      if (dn) dn.innerHTML = arrDayHtml(c, d);
+      const on = document.getElementById("arr-ov");
+      if (on) on.innerHTML = arrOvHtml(c, d, t);
     },
     // v2.25 ②: 겹침 확인 모달 — [그래도 진행]은 보류해 둔 동작을 그대로 실행(차단하지 않음)
     overlapGo() {
