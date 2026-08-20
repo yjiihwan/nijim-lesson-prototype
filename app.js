@@ -76,6 +76,10 @@
    ③ 수정·폐강 = «일정» 탭 하위 뷰 [주간 일정 | 내 수업]으로 흡수(선생님) / 센터는 «수업» 탭 유지
    ④ 구 라우트는 리다이렉트(#/t/quick→#/t/create, #/c/quick→#/c/create, #/t/classes→#/t/schedule «내 수업»)
    ⑤ 통합 전 잔재 용어(«바로 확정»의 옛 이름) 전면 제거 — UI·토스트·안내문·정책 화면·주석. QA v226 57/57.
+   v2.31 (2026-08-20 감사 2차 §D 형 확정 추가분): ① D-2=B안 — 겹친 회차를 선생님·센터 «해야 할 일»에
+   «문제»로 노출(«시간이 겹친 수업이 있어요 N건») + 겹침 쌍 목록 화면(#/t/overlaps·#/c/overlaps) +
+   «이 겹침은 의도한 거예요» 쌍 단위 무시(s.ovOk에 보관 — 배지·경고 모달·강행 허용은 그대로 유지).
+   ② D-4=A안 — 회원 화면 안내 이모지(ℹ️🚫🔒🔐⏳✅⌛🎟️🗓️💡⚠️) 15곳을 공용 라인 아이콘(IC)으로 교체.
    v2.30 (2026-08-20 감사 3차 — 스키마·구조 개편): 08 설계감사의 백엔드·구조 잔여 전건.
    A1 설계서(01 ERD·02·03)를 실코드 기준으로 동기화 / A2 정산 라인에 bookingId(멱등키)·slotId·lessonDate·
    lessonTime·classTitle·listUnitPrice 정식 컬럼 — desc는 표시 전용으로 강등하고 역파싱 3함수·연도 추정 폐기 /
@@ -243,6 +247,27 @@
   }
   const slotOverlaps = (s) => { const c = cls(s.classId); return c ? overlapSlots(c.teacherId, s.date, s.time, c.duration, [s.id]) : []; };
   const overlapBadge = (s) => (slotOverlaps(s).length ? `<span class="badge b-danger">시간 겹침</span>` : "");
+  // ── v2.31 §D-2 B안(형 확정) — 겹침을 «해야 할 일»에 올리되 «의도한 겹침»은 내린다 ──
+  // 강행 허용·«시간 겹침» 배지·경고 모달은 그대로 유지한다. 무시는 «해야 할 일» 노출에만 적용된다.
+  // 저장 위치 = 회차 데이터(s.ovOk = 상대 회차 id 배열). 양쪽에 기록해 어느 쪽에서 봐도 같은 판정이 나온다.
+  const ovIgnored = (a, b) => (a.ovOk || []).includes(b.id) || (b.ovOk || []).includes(a.id);
+  const slotOverlapsOpen = (s) => slotOverlaps(s).filter((o) => !ovIgnored(s, o));
+  const ovScope = (role) => DB.slots.filter((s) => s.status === "scheduled" && !isPast(s)
+    && (role !== "t" || ((cls(s.classId) || {}).teacherId === DB.me.teacher)));
+  const ovOpenSlots = (role) => ovScope(role).filter((s) => slotOverlapsOpen(s).length);
+  // 목록·무시 단위 = «겹침 쌍». 같은 쌍이 두 번 나오지 않게 id 정렬 키로 접는다.
+  function ovPairs(role, all) {
+    const seen = new Set(), out = [];
+    ovScope(role).forEach((s) => (all ? slotOverlaps(s) : slotOverlapsOpen(s)).forEach((o) => {
+      const k = [s.id, o.id].sort().join("|");
+      if (seen.has(k)) return;
+      seen.add(k);
+      // 카드 안 두 회차는 «이른 시각 먼저» — 키(정렬 안정용)는 id, 표시는 일시 순
+      const [a, b] = (s.date + s.time) <= (o.date + o.time) ? [s, o] : [o, s];
+      out.push({ key: k, a, b, ignored: ovIgnored(s, o) });
+    }));
+    return out.sort((x, y) => (x.a.date + x.a.time).localeCompare(y.a.date + y.a.time));
+  }
   // 겹침 확인 모달 — [취소] / [그래도 진행]. 진행을 누르면 보류해 둔 동작을 그대로 실행한다.
   let overlapPending = null;
   function overlapAsk(hits, onProceed) {
@@ -907,7 +932,6 @@
   const slotNeedsReport = (s) => isPast(s) && s.status !== "canceled" && DB.bookings.some((b) => b.slotId === s.id && b.status === "booked");
   const cAutoWarns = () => (DB.policy.autoConfirmHours > 0
     ? DB.teachers.map((t) => ({ t, ...autoStats(t.id) })).filter((x) => x.total && x.rate >= DB.policy.autoWarnRate) : []);
-  const cOverlapSlots = () => DB.slots.filter((s) => s.status === "scheduled" && !isPast(s) && slotOverlaps(s).length);
   function todoItems(role) {
     const out = [];
     const add = (o) => { if (o.n > 0) out.push(o); };
@@ -935,14 +959,17 @@
         text: "회원 확인을 기다리는 수업이 있어요", go: "#/t/report" });
       add({ n: tSlots().filter(slotNeedsReport).length, tier: "wait", rank: 4, icon: "today", key: "needrep",
         text: "완료 보고가 필요한 수업이 있어요", go: "#/t/report" });
+      // §D-2 B안(형 확정 08-20): 강행 허용은 유지하되 실수로 남은 겹침이 조용히 묻히지 않게 «문제»로 올린다
+      add({ n: ovOpenSlots("t").length, tier: "bad", rank: 3, icon: "clock", key: "overlap",
+        text: "시간이 겹친 수업이 있어요", go: "#/t/overlaps" });
     } else if (role === "c") {
       add({ n: DB.reports.filter((r) => r.status === "disputed").length, tier: "bad", rank: 1, icon: "alert", key: "disputes",
         text: "처리할 이의제기가 있어요", go: "#/c/confirms" });
       add({ n: recurHolds("c").length, tier: "bad", rank: 3, icon: "alert", key: "holds",
         text: "수업권이 모자라 <b>확정 보류</b>된 회차가 있어요", go: "#/c/holds" });
-      // §D-2 B안(디자인봇 권장·형 확정 대기): 겹침은 막지 않되 «해야 할 일»에 «문제»로 올려 눈에 띄게 한다
-      add({ n: cOverlapSlots().length, tier: "bad", rank: 3, icon: "clock", key: "overlap",
-        text: "선생님 시간이 겹치는 회차가 있어요", go: "#/c/bookings" });
+      // §D-2 B안(형 확정 08-20): 겹침은 막지 않되 «해야 할 일»에 «문제»로 올려 눈에 띄게 한다
+      add({ n: ovOpenSlots("c").length, tier: "bad", rank: 3, icon: "clock", key: "overlap",
+        text: "시간이 겹친 수업이 있어요", go: "#/c/overlaps" });
       add({ n: DB.arranges.filter((a) => a.status === "pending").length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
         text: "선생님 수락을 기다리는 조율 요청이 있어요", go: "#/c/bookings" });
       add({ n: cAutoWarns().length, tier: "wait", rank: 5, icon: "clock", key: "autowarn",
@@ -1045,7 +1072,7 @@
       <div class="mp-sec">멤버십 상세정보</div>
       <div id="mp-detail">${mpDetail(cur)}</div>
       <a class="mp-btn" href="#/m/history">${MP_IC.list}이용 내역 보기</a>`
-      : `<div class="card flat mb-empty"><div class="em">🎟️</div><p class="muted mt8">보유한 멤버십이 없어요.</p></div>`}
+      : `<div class="card flat mb-empty"><div class="em">${IC.ticket}</div><p class="muted mt8">보유한 멤버십이 없어요.</p></div>`}
       <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>`, { center: true });
   }
   // v2.24 U2: «다가오는 예약»은 일시 오름차순 — 목록의 존재 이유가 "다음 수업이 언제냐"라서.
@@ -1135,9 +1162,9 @@
       <div class="shop-notice">${notice}</div>`;
     return shell("m", "수업 멤버십 구매", `<div class="shop">
       ${section("개인수업", DB.products.filter((p) => p.kind === "private"),
-        "💡 횟수제 수업권이에요. 유효기간이 지나거나 횟수를 다 쓰면 만료돼요")}
+        `${ici("info")}횟수제 수업권이에요. 유효기간이 지나거나 횟수를 다 쓰면 만료돼요`)}
       ${section("그룹수업", DB.products.filter((p) => p.kind === "group"),
-        "💡 (무기한) 수업권은 기간 제한 없이 횟수만 차감돼요")}
+        `${ici("info")}(무기한) 수업권은 기간 제한 없이 횟수만 차감돼요`)}
     </div>`, { back: true });
   }
   function vMShopDetail(id) {
@@ -1313,7 +1340,7 @@
       </div>
       <div class="sec-title">${dlabel(sel)} 수업</div>
       ${list.length ? `<div class="card flat">${list.map(item).join("")}</div>`
-        : `<div class="card flat mb-empty"><div class="em">🗓️</div>
+        : `<div class="card flat mb-empty"><div class="em">${IC.empty}</div>
             <p class="muted mt8">이 날은 예약할 수 있는 수업이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.mbDay('${near}')">가장 가까운 수업일 ${dlabel(near)}로 이동</button>` : ""}</div>`}
       <div class="sec-title">수시 조율 수업 <span class="muted small" style="font-weight:600">— 날짜와 무관하게 신청해요</span></div>
@@ -1346,7 +1373,7 @@
           <button class="btn primary mt12" onclick="App.requestArrange('${c.id}')">조율 요청 보내기</button>
         </div>
         <p class="muted small">선생님이 수락하면 예약이 자동 등록되고 알림을 보내드려요. 거절하면 사유를 알려드려요.</p>`
-        : `<div class="banner warn"><span class="ic">🚫</span><span>${g.msg}</span></div>
+        : `<div class="banner warn">${icb("ban")}<span>${g.msg}</span></div>
            <a class="btn primary" href="#/m/shop">수업권 구매하러 가기</a>`}
         ${myArrs.length ? `<div class="sec-title">보낸 요청</div><div class="card flat">${myArrs.map((a) => `
           <div class="slot"><span class="grow"><b>${dlabel(a.date)} ${a.time}</b><div class="muted small">선생님 수락을 기다리는 중</div></span>
@@ -1356,7 +1383,7 @@
     const slots = DB.slots.filter((s) => s.classId === id && s.status === "scheduled" && !isPast(s));
     return shell("m", c.title, `
       <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · 정원 ${c.capacity}명 · ${eligLabel(c)}</div></div>
-      ${g.ok ? "" : `<div class="banner warn"><span class="ic">🚫</span><span>${g.msg}</span></div>`}
+      ${g.ok ? "" : `<div class="banner warn">${icb("ban")}<span>${g.msg}</span></div>`}
       <div class="sec-title">예약 가능 회차</div>
       <div class="card flat">${slots.length ? slots.map((s) => {
         const n = seatCount(s.id); const w = waitBk(s.id).length;
@@ -1386,7 +1413,7 @@
       // v2.24 U17: 로즈(경고) 배너에 초록 ✅는 톤 충돌 — 금지 아이콘으로 교체.
       // v2.24 U3: 확정·대기 회차의 취소 입구를 여기에 노출(막다른 상세 화면 해소). 지난 회차는 취소 대신 안내.
       const canCancel = ["booked", "waitlisted"].includes(mine.status) && !isPast(s);
-      action = `<div class="banner"><span class="ic">🚫</span><span>이 회차에 이미 <b>${mine.status === "waitlisted" ? "예약 대기" : "예약"}</b>가 있어요. 중복 예약은 안 돼요.${bd.sub ? ` ${bd.sub}` : ""}</span></div>
+      action = `<div class="banner">${icb("ban")}<span>이 회차에 이미 <b>${mine.status === "waitlisted" ? "예약 대기" : "예약"}</b>가 있어요. 중복 예약은 안 돼요.${bd.sub ? ` ${bd.sub}` : ""}</span></div>
         ${canCancel ? `<button class="btn danger-ghost" onclick="App.askCancel('${mine.id}')">${mine.status === "waitlisted" ? "예약대기 취소" : "예약 취소"}</button>
         <a class="btn ghost mt8" href="#/m/bookings">내 예약 전체 보기</a>`
         : `<div class="card flat"><div class="muted small">${isPast(s) ? "수업 시각이 지나 취소할 수 없어요. 선생님 완료 보고 뒤 «수강 확인»으로 넘어가요." : "이 상태에서는 취소할 수 없어요."}</div></div>
@@ -1394,7 +1421,7 @@
     } else if (isPast(s)) {
       action = `<button class="btn primary" disabled>지난 회차는 예약할 수 없어요</button>`;
     } else if (!g.ok) {
-      action = `<div class="banner warn"><span class="ic">🚫</span><span>${g.msg}</span></div><a class="btn primary" href="#/m/shop">수업권 구매하러 가기</a>`;
+      action = `<div class="banner warn">${icb("ban")}<span>${g.msg}</span></div><a class="btn primary" href="#/m/shop">수업권 구매하러 가기</a>`;
     } else if (full) {
       // 하-4: 개인(1:1) 수업은 대기 없음
       action = c.kind === "private" ? `<button class="btn primary" disabled>정원 마감 (1:1 수업은 대기를 받지 않아요)</button>`
@@ -1418,7 +1445,7 @@
           : usePass ? passPickRow(pkey, usePass, cands.length) + `<div class="hint">이 수업권으로 들을 수 있는 수업: <b>${passScopeLabel(usePass)}</b></div>`
           : `<div class="row" style="justify-content:space-between"><span class="muted">사용 수업권</span><b>사용 가능한 수업권 없음</b></div>`}
       </div>
-      <div class="banner warn"><span class="ic">ℹ️</span><span>취소는 수업 <b>${DB.policy.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요. 이 조건은 <b>예약 시점 기준으로 보존</b>돼요.</span></div>
+      <div class="banner warn">${icb("info")}<span>취소는 수업 <b>${DB.policy.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요. 이 조건은 <b>예약 시점 기준으로 보존</b>돼요.</span></div>
       ${action}`, { back: true });
   }
   function vMBookings() {
@@ -1484,14 +1511,14 @@
     const s = slot(b.slotId); const c = cls(s.classId);
     if (b.status === "confirmed") {
       return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
-        <div style="font-size:40px">✅</div><b style="font-size:17px">확인 완료!</b>
+        <div class="em state-em">${IC.clip}</div><b style="font-size:17px">확인 완료!</b>
         <p class="muted mt8">${slotDesc(s)}<br>수업권 1회가 차감됐어요.</p></div>
         ${disputeOpen(b) ? `<button class="btn danger-ghost" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기 · ${DB.policy.disputeDays}일 내)</button>` : ""}
         <a class="btn ghost mt8" href="#/m/home">홈으로</a>`, { back: true });
     }
     if (b.status === "disputed") {
       return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
-        <div style="font-size:40px">⏳</div><b style="font-size:17px">이의제기 심사 중</b>
+        <div class="em state-em">${IC.clock}</div><b style="font-size:17px">이의제기 심사 중</b>
         <p class="muted mt8">${slotDesc(s)}<br>센터가 확인하고 있어요. 결과가 나오면 알려드릴게요.</p></div>
         <a class="btn ghost" href="#/m/bookings">내 예약으로</a>`, { back: true });
     }
@@ -1499,7 +1526,7 @@
     const rp = DB.reports.find((r) => r.bookingId === b.id && r.status === "pending");
     if (b.status !== "confirm_wait" || !rp) {
       return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
-        <div style="font-size:40px">🔒</div><b style="font-size:17px">아직 확인할 단계가 아니에요</b>
+        <div class="em state-em">${IC.lock}</div><b style="font-size:17px">아직 확인할 단계가 아니에요</b>
         <p class="muted mt8">${slotDesc(s)}<br>수업이 끝나고 선생님이 완료 보고를 하면<br>그때 수강 확인을 요청드려요.</p></div>
         <a class="btn ghost" href="#/m/bookings">내 예약으로</a>`, { back: true });
     }
@@ -1509,7 +1536,7 @@
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
         <p style="font-size:15px">수업을 이상 없이 받으셨나요?<br><span class="muted small">확인하면 수업권 1회가 차감되고, 이 기록으로 선생님 수업료가 정산돼요.</span></p></div>
-      <div class="banner"><span class="ic">🔒</span><span>확인은 <b>회원 본인 계정</b>에서만 가능해요 — 선생님·센터가 대신 확인할 수 없어요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
+      <div class="banner">${icb("lock")}<span>확인은 <b>회원 본인 계정</b>에서만 가능해요 — 선생님·센터가 대신 확인할 수 없어요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
       <button class="btn primary" onclick="App.confirmAttend('${b.id}')">받았어요 (수업 확인)</button>
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
   }
@@ -1533,7 +1560,7 @@
       }).join("")}
       <div class="muted small mt8" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>`
       : `<div class="card flat" style="text-align:center;padding:32px 16px">
-        <div style="font-size:40px">✅</div><b style="font-size:17px">모두 확인했어요</b>
+        <div class="em state-em">${IC.clip}</div><b style="font-size:17px">모두 확인했어요</b>
         <p class="muted mt8">확인을 기다리는 수업이 없어요.</p></div>
       <a class="btn ghost mt8" href="#/m/home">홈으로</a>`}`, { back: true });
   }
@@ -2398,6 +2425,37 @@
   }
   // 시정①: 센터·선생님 공용 수업 관리 — 선생님은 본인 수업 + classAuth(P2-2) 권한 필요.
   // v2.26: 선생님 목록은 «일정» 탭 하위 뷰로 이동 — 이 화면은 센터 «수업» 탭 전용.
+  // ══ v2.31 §D-2 B안 — «시간이 겹친 수업» 목록 (선생님·센터 공용) ══
+  // «해야 할 일» 행이 여는 화면. 무시는 «쌍» 단위라 여기서 처리한다 (§A1-2 요약 행 문법=1줄·단일 탭 타깃 보존).
+  function vOverlaps(role) {
+    const open = ovPairs(role), ignored = ovPairs(role, true).filter((p) => p.ignored);
+    const line = (s) => {
+      const c = cls(s.classId) || {};
+      const who = attendeeNames(s.id);
+      return `<button type="button" class="ov-line" onclick="location.hash='#/${role}/slot/${s.id}'">
+        <span class="grow"><span class="t"><b>${s.time}</b> ${c.title || "-"}</span>
+        <div class="muted small mt4">${c.duration || 50}분 · ${who.length ? `${who.join(", ")} 회원` : "예약자 없음"}</div></span>
+        <span class="chev" aria-hidden="true">›</span></button>`;
+    };
+    const card = (p) => {
+      const t = teacher((cls(p.a.classId) || {}).teacherId) || {};
+      return `<div class="card${p.ignored ? " flat" : ""}">
+        <div class="row"><span class="grow"><b>${dlabel(p.a.date)}</b> · ${t.name || "-"} 선생님</span>
+          <span class="badge ${p.ignored ? "b-gray" : "b-danger"}">${p.ignored ? "의도한 겹침" : "시간 겹침"}</span></div>
+        <div class="ov-pair">${line(p.a)}${line(p.b)}</div>
+        <div class="btn-row">${p.ignored
+          ? `<button class="btn sm ghost" onclick="App.ovIgnore('${p.a.id}','${p.b.id}','0')">«해야 할 일»에 다시 올리기</button>`
+          : `<button class="btn sm ghost" onclick="App.ovIgnore('${p.a.id}','${p.b.id}','1')">이 겹침은 의도한 거예요</button>`}</div></div>`;
+    };
+    return shell(role, "시간이 겹친 수업", `
+      <p class="muted" style="margin-bottom:12px">같은 선생님의 수업 시간이 서로 겹치는 회차예요. 겹쳐도 진행은 되지만, <b>실수로 만든 겹침</b>이면 시간을 바꿔 주세요.</p>
+      ${open.length ? open.map(card).join("") : `<div class="card flat mb-empty"><div class="em">${IC.clock}</div><p class="muted mt8">«해야 할 일»에 올라온 겹침이 없어요.</p></div>`}
+      ${ignored.length ? `<div class="sec-title">의도한 겹침 ${ignored.length}건</div>
+        <p class="muted small" style="margin-bottom:8px">«해야 할 일»에서는 내렸어요. 회차의 «시간 겹침» 배지는 그대로 남아 있어요.</p>
+        ${ignored.map(card).join("")}` : ""}
+      <div class="banner">${icb("info")}<span>«이 겹침은 의도한 거예요»를 누르면 그 <b>겹침 쌍</b>만 «해야 할 일»에서 내려가요. 배지·경고는 그대로라 나중에도 겹침인 걸 알 수 있어요.</span></div>`, { back: true });
+  }
+
   function vClasses(role) {
     return shell(role, role === "t" ? "내 수업" : "수업 관리", classListHtml(role), role === "t" ? { back: true } : {});
   }
@@ -2994,26 +3052,26 @@
   function vMQr(token) {
     const errCard = (em, title, desc, backTo) => shell("m", "QR 수강 확인", `
       <div class="card" style="text-align:center;padding:32px 16px">
-        <div style="font-size:40px">${em}</div><b style="font-size:17px">${title}</b>
+        <div class="em state-em">${em}</div><b style="font-size:17px">${title}</b>
         <p class="muted mt8">${desc}</p></div>
       <a class="btn ghost" href="${backTo || "#/m/home"}">돌아가기</a>`, { back: true });
     const t = qrTokens[token];
-    if (!t) return errCard("⌛", "유효하지 않은 QR이에요", "만료됐거나 잘못된 코드예요.<br>선생님 화면에서 QR을 새로 띄워 주세요.");
-    if (t.used) return errCard("🔒", "이미 사용된 QR이에요", "QR은 일회용이라 확인이 끝나면 바로 만료돼요.<br>다시 쓸 수 없어요.");
+    if (!t) return errCard(IC.clock, "유효하지 않은 QR이에요", "만료됐거나 잘못된 코드예요.<br>선생님 화면에서 QR을 새로 띄워 주세요.");
+    if (t.used) return errCard(IC.lock, "이미 사용된 QR이에요", "QR은 일회용이라 확인이 끝나면 바로 만료돼요.<br>다시 쓸 수 없어요.");
     const r = DB.reports.find((x) => x.id === t.rpId);
     const b = r && r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
     if (!r || !b || r.status !== "pending" || b.status !== "confirm_wait")
-      return errCard("✅", "이미 처리된 수업이에요", "이 수업 건은 확인·처리가 끝났어요.<br>내 예약에서 상태를 확인해 주세요.", "#/m/bookings");
+      return errCard(IC.clip, "이미 처리된 수업이에요", "이 수업 건은 확인·처리가 끝났어요.<br>내 예약에서 상태를 확인해 주세요.", "#/m/bookings");
     // 확인 권한=회원 본인 계정 귀속 — 타 회원·타 수업 유용 불가
     if (b.memberId !== DB.me.member)
-      return errCard("🚫", "내 수업의 QR이 아니에요", `이 QR은 <b>${r.member}</b> 회원의 해당 수업 1건 전용이에요.<br>다른 회원·다른 수업에는 쓸 수 없어요.`);
+      return errCard(IC.ban, "내 수업의 QR이 아니에요", `이 QR은 <b>${r.member}</b> 회원의 해당 수업 1건 전용이에요.<br>다른 회원·다른 수업에는 쓸 수 없어요.`);
     const s = slot(b.slotId); const c = cls(s.classId);
     return shell("m", "QR 수강 확인", `
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
         <p style="font-size:15px">현장에서 QR로 확인 중이에요.<br><span class="muted small">확인하면 수업권 1회가 차감되고, 이 기록으로 선생님 수업료가 정산돼요.</span></p></div>
-      <div class="banner"><span class="ic">🔐</span><span>이 QR은 <b>이 수업 1건 전용</b>이에요 · 발급 후 <b>5분 만료</b> · 확인이 끝나면 바로 만료돼 다시 쓸 수 없어요. 확인은 <b>회원 본인 계정</b>에서만 할 수 있어요.</span></div>
+      <div class="banner">${icb("lock")}<span>이 QR은 <b>이 수업 1건 전용</b>이에요 · 발급 후 <b>5분 만료</b> · 확인이 끝나면 바로 만료돼 다시 쓸 수 없어요. 확인은 <b>회원 본인 계정</b>에서만 할 수 있어요.</span></div>
       <button class="btn primary" onclick="App.qrConfirm('${token}')">받았어요 (수업 확인)</button>
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
   }
@@ -3394,7 +3452,7 @@
           <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">아니요</button>
           <button class="btn primary" onclick="App.doCancel('${bkId}', false)">무료 취소</button></div>`);
       } else {
-        modal(`<h3>⚠️ 지금 취소하면 1회 차감돼요</h3><p>${slotDesc(s)}<br>예약 당시 취소 기한(수업 ${snap.cancelHours}시간 전)이 지났어요. 지금 취소하면 <b style="color:var(--danger)">횟수 환불 없이 1회가 차감</b>돼요.</p>
+        modal(`<h3>${ici("alert")}지금 취소하면 1회 차감돼요</h3><p>${slotDesc(s)}<br>예약 당시 취소 기한(수업 ${snap.cancelHours}시간 전)이 지났어요. 지금 취소하면 <b style="color:var(--danger)">횟수 환불 없이 1회가 차감</b>돼요.</p>
           <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">그냥 둘게요</button>
           <button class="btn danger-ghost" onclick="App.doCancel('${bkId}', true)">차감하고 취소</button></div>`);
       }
@@ -3792,6 +3850,17 @@
       const fn = overlapPending; overlapPending = null;
       closeModal(true);
       if (fn) fn();
+    },
+    // v2.31 §D-2 B안: 겹침 «쌍» 무시 토글. 배지·모달엔 영향 없고 «해야 할 일» 노출만 바뀐다.
+    ovIgnore(aId, bId, on) {
+      const a = slot(aId), b = slot(bId);
+      if (!a || !b) return;
+      const yes = on === "1";
+      const set = (x, y) => { x.ovOk = (x.ovOk || []).filter((id) => id !== y.id); if (yes) x.ovOk.push(y.id); };
+      set(a, b); set(b, a);
+      render();
+      toast(yes ? "의도한 겹침으로 표시했어요 — «해야 할 일»에서 내렸어요. 회차 배지는 그대로예요."
+        : "«해야 할 일»에 다시 올렸어요.");
     },
     overlapCancel() {
       overlapPending = null;
@@ -4211,6 +4280,7 @@
     [/^#\/t\/create$/, () => vCreate("t")],
     [/^#\/t\/class\/(.+)$/, (id) => vClassManage("t", id)],
     [/^#\/t\/holds$/, () => vHolds("t")],
+    [/^#\/t\/overlaps$/, () => vOverlaps("t")],
     [/^#\/t\/report$/, vTReport],
     [/^#\/t\/earnings$/, vTEarnings],
     [/^#\/c\/home$/, vCHome],
@@ -4221,6 +4291,7 @@
     [/^#\/c\/slot\/(.+)$/, vCSlot],
     [/^#\/c\/create$/, () => vCreate("c")],
     [/^#\/c\/holds$/, () => vHolds("c")],
+    [/^#\/c\/overlaps$/, () => vOverlaps("c")],
     [/^#\/c\/confirms$/, vCConfirms],
     [/^#\/c\/settlement$/, vCSettlement],
     [/^#\/c\/policy$/, vCPolicy],

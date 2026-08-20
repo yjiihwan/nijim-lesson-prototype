@@ -333,7 +333,9 @@ button.stat:active { transform: scale(.97); }
 .banner .ic svg { width: 19px; height: 19px; display: block; }
 .ic-inline { display: inline-flex; align-items: center; justify-content: center; vertical-align: -3px; margin-right: 6px; }
 .ic-inline svg { width: 16px; height: 16px; display: block; }
-.mb-empty .em svg { width: 32px; height: 32px; stroke: var(--text-disabled); }
+.mb-empty .em svg, .state-em svg { width: 32px; height: 32px; stroke: var(--text-disabled); }
+/* v2.31 §D-4: 결과·차단 화면의 대형 안내 이모지 → 공용 라인 아이콘 (mb-empty와 같은 규격) */
+.state-em { display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
 .stat .v .ic-inline svg { width: 17px; height: 17px; }
 
 /* v2.25 ③ 사용 수업권 블록 — 라벨/«변경»을 한 줄, 값은 아래로 (라벨 줄바꿈·버튼 잘림 방지) */
@@ -610,3 +612,17 @@ button.stat:active { transform: scale(.97); }
 .fold-head:active { transform: scale(.99); background: var(--surface-sunken); }
 .fold-head .chev { margin-left: auto; font-size: 17px; font-weight: 700; color: var(--text-disabled); line-height: 1; transition: transform .2s var(--ease-out); }
 .fold-head.on .chev { transform: rotate(90deg); }
+
+/* v2.31 §D-2 B안: «시간이 겹친 수업» 목록 — 겹침 쌍 1장, 안의 회차 2행 */
+.ov-pair { margin-top: 8px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.ov-line {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 12px; background: transparent; color: var(--text);
+  border-bottom: 1px solid var(--border);
+  transition: background .15s ease;
+}
+.ov-line:last-child { border-bottom: 0; }
+.ov-line:active { background: var(--surface-sunken); }
+.ov-line .grow { min-width: 0; }
+.ov-line .t { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.ov-line .chev { flex-shrink: 0; font-size: 17px; font-weight: 700; color: var(--text-disabled); line-height: 1; }
