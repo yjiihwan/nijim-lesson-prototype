@@ -93,6 +93,11 @@ window.DB = {
     { id: "c3", title: "새벽 버닝 크로스핏", teacherId: "t1", kind: "group", capacity: 4,
       schedule: "fixed", scheduleLabel: "매주 화·금 06:30", duration: 60,
       eligibility: "both", eligibleProductIds: ["pr3", "pr4"], memberIds: ["m2", "m7"], status: "active" },
+    // v2.34 대체 경로 데모 — «전용 반복»은 ②자리 열어두고 신청 받기 + «예약 가능 회원 = 회원 지정»으로 만든다.
+    // 지정 회원(m6)에게만 회차가 보이고 그 회원만 신청 가능 = 사실상 전용 슬롯. 수업권 검사는 예약 누르는 순간 bookGuard가 처리.
+    { id: "c6", title: "고정 PT (화 19:00)", teacherId: "t1", kind: "private", capacity: 1,
+      schedule: "fixed", scheduleLabel: "매주 화 19:00", duration: 50,
+      eligibility: "list", eligibleProductIds: [], memberIds: ["m6"], status: "active" },
   ],
 
   // 회차 — 좌석·대기 수는 bookings에서 파생 (저장 안 함). adhoc=조율/«수업 만들기»로 생성
@@ -203,20 +208,23 @@ window.DB = {
     },
   },
 
-  // v2.28 «매주 반복 수업 자동 개설» (형 확정 2026-08-19)
+  // v2.28 «매주 반복 수업 자동 개설» (형 확정 2026-08-19) / v2.34 «자리 열어두고 신청 받기» 전용화 (형 확정 2026-08-20)
   // 반복 «규칙»은 원본 1건, 회차는 규칙에서 파생 생성(롤링 8주). 회차를 지워도 규칙은 남는다.
-  // fill: open(자리 열어두고 신청 받기 · 기본형) | assign(회원 지정해서 바로 확정)
+  // 반복은 항상 «자리를 여는» 동작만 한다 — 예약은 회원이 «수업 예약»에서 직접 넣는다(fill·memberIds 필드 폐기).
   // endMode: until(중단할 때까지) | date(종료일 지정, endDate까지)
   // skips: «이번만 건너뛰기»한 날짜 — 재생성 때 다시 만들지 않는다(공휴일·휴무 예외).
   recurs: [
-    { id: "rc1", classId: "c1", weekdays: [1, 3], time: "10:00", fill: "open", memberIds: [],
+    { id: "rc1", classId: "c1", weekdays: [1, 3], time: "10:00",
       startDate: "2026-08-17", endMode: "until", endDate: null, active: true, skips: [], createdAt: "2026-08-17 12:00" },
-    // 지정 확정 반복 데모 — 한소라(m6)는 ps10 잔여 4회에 기존 예약 3건이라 남는 여유가 1회뿐.
-    // 첫 회차만 확정되고 나머지는 «확정 보류 + 선생님·센터 알림»으로 떨어진다(형 확정 ③).
-    { id: "rc2", classId: "c3", weekdays: [2, 5], time: "06:30", fill: "assign", memberIds: ["m6"],
+    // 종료일 지정 데모 — 2026-09-05까지만 회차를 만든다.
+    { id: "rc2", classId: "c3", weekdays: [2, 5], time: "06:30",
       startDate: "2026-08-17", endMode: "date", endDate: "2026-09-05", active: true, skips: [], createdAt: "2026-08-17 12:00" },
+    // v2.34 대체 경로 데모 — c6(예약 가능 회원=한소라 지정)의 «전용 반복». 예약 시드는 없다:
+    // 회원이 «수업 예약»에서 직접 신청해 채워지는 흐름이 이 시드의 요점.
+    { id: "rc3", classId: "c6", weekdays: [2], time: "19:00",
+      startDate: "2026-08-17", endMode: "until", endDate: null, active: true, skips: [], createdAt: "2026-08-17 12:00" },
   ],
-  // 반복 확정 보류 알림 (선생님·센터 공용) — 회차×회원 1건
+  // v2.34: «확정 보류» 폐기로 현재 쓰는 kind가 없다. 배열 자체 제거는 형 판단 대기 — 알림 확장 여지가 있어 남겨 둔다.
   notices: [],
   // 롤링 기준일 — 실서비스는 «오늘». 프로토타입은 데모 버튼으로 한 주씩 밀어 롤링을 눈으로 확인한다.
   rollAnchor: "2026-08-17",
