@@ -6,7 +6,7 @@
 // 회원 원장은 실서비스에선 호스트 앱(니짐내짐 CRM) 참조 — 여기선 더미로 대체(06 문서).
 // v2.18 (형 지시 08-18): UI가 지원하는 전 상태를 QA로 훑을 수 있게 케이스 시드 확장 — 파일 맨 끝 seedCases() 참조.
 //   수업권: 이용 정지·횟수 소진 / 예약: 노쇼 확정·이의 인정 복원·기한 위반·센터 취소·본인 취소·폐강 취소·대기 승격 /
-//   조율: 수락·거절·요청 취소 / 보고: 노쇼 이의 중재 대기·이의 인정 2종 / 상품: 이벤트 할인가(salePrice) / 폐강 수업.
+//   일정 요청: 수락·거절·요청 취소 / 보고: 노쇼 이의 중재 대기·이의 인정 2종 / 상품: 이벤트 할인가(salePrice) / 폐강 수업.
 window.DB = {
   TODAY: "2026-08-17",
   center: { id: "ct1", name: "엔짐 개봉점" },
@@ -88,7 +88,7 @@ window.DB = {
       schedule: "fixed", scheduleLabel: "매주 월·수 10:00", duration: 50,
       eligibility: "pass", eligibleProductIds: ["pr3", "pr4"], memberIds: [], status: "active" },
     { id: "c2", title: "PT 1:1", teacherId: "t1", kind: "private", capacity: 1,
-      schedule: "arranged", scheduleLabel: "선생님과 조율", duration: 50,
+      schedule: "arranged", scheduleLabel: "회원과 일정 맞춤", duration: 50,
       eligibility: "list", eligibleProductIds: ["pr1", "pr2"], memberIds: ["m1", "m2", "m3", "m4"], status: "active" },
     { id: "c3", title: "새벽 버닝 크로스핏", teacherId: "t1", kind: "group", capacity: 4,
       schedule: "fixed", scheduleLabel: "매주 화·금 06:30", duration: 60,
@@ -100,7 +100,7 @@ window.DB = {
       eligibility: "list", eligibleProductIds: [], memberIds: ["m6"], status: "active" },
   ],
 
-  // 회차 — 좌석·대기 수는 bookings에서 파생 (저장 안 함). adhoc=조율/«수업 만들기»로 생성
+  // 회차 — 좌석·대기 수는 bookings에서 파생 (저장 안 함). adhoc=일정 요청/«수업 만들기»로 생성
   slots: [
     { id: "s1", classId: "c1", date: "2026-08-17", time: "10:00", status: "done" },
     { id: "s2", classId: "c1", date: "2026-08-19", time: "10:00", status: "scheduled" },
@@ -151,7 +151,7 @@ window.DB = {
   ],
 
   // ── v2.30 A5: 일정 협상 단일 엔티티 (ERD schedule_negotiations) ──
-  // 회원발 «조율 요청»과 선생님발 «제안»은 같은 «일정 협상» 개념이라 한 테이블로 합쳤다.
+  // 회원발 «일정 요청»과 선생님발 «제안»은 같은 «일정 협상» 개념이라 한 테이블로 합쳤다.
   //   initiator: member | teacher · kind: request(회원 희망) | change(예약 변경) | slot(새 수업) | alt(대안)
   //   parentId: alt → 원 요청 · status: pending|accepted|declined|canceled (+ canceledBy로 행위자 구분)
   //   만료는 저장하지 않고 공통 파생(negoState) — 확정 전엔 회차·예약 미생성 (ERD 원칙, 전 kind 공통).
@@ -424,7 +424,7 @@ window.DB = {
     { id: "bkB9", slotId: "s19", memberId: "m1", passId: "ps2", status: "booked", promoted: true, policySnap: SNAP }, // 예약 확정 (대기 승격)
   );
 
-  // 조율 요청(m1·PT 1:1): 대기 · 수락 · 거절(사유) · 요청 취소 — 회원 화면에서 4상태 전부
+  // 일정 요청(m1·PT 1:1): 대기 · 수락 · 거절(사유) · 요청 취소 — 회원 화면에서 4상태 전부
   // v2.30 A5: 협상 단일 엔티티 — kind/teacherId 명시, 거절 사유는 declineReason(제안과 같은 어휘), 철회는 canceledBy
   D.arranges.push(
     { id: "ar5", kind: "request", classId: "c2", teacherId: "t1", memberId: "m1", passId: "ps1", date: "2026-08-20", time: "18:00",
@@ -510,7 +510,7 @@ window.DB = {
     // ② 빈 시간 새 수업 제안 — 회원 수락 시 예약 생성
     { id: "pp2", kind: "slot", teacherId: "t1", memberId: "m1", classId: "c2",
       date: "2026-08-21", time: "16:00", note: "이 시간이 비어 있어요. 어떠세요?", status: "pending", at: "2026-08-16 21:20" },
-    // ③ 조율 거절 + 대안 역제안 — ar3(8/19 07:00 희망 거절) 건의 대안 13:00
+    // ③ 일정 요청 거절 + 대안 역제안 — ar3(8/19 07:00 희망 거절) 건의 대안 13:00
     { id: "pp3", kind: "alt", teacherId: "t1", memberId: "m1", classId: "c2", parentId: "ar3",
       date: "2026-08-19", time: "13:00", note: "이른 시간은 어렵고, 점심시간은 가능해요", status: "pending", at: "2026-08-14 18:41" },
     // 거절된 변경 제안 (회원 사유 회신) — 회원·선생님 «처리됨» 표시용
@@ -558,7 +558,7 @@ window.DB = {
 
 // ── v2.25 ② 선생님 시간 겹침 검증 프리셋 (형 확정 B: 경고 후 강행 허용) ──
 // ?case=overlap 으로 열면 t1(박코치)의 8/18 11:00 PT(s6)와 겹치는 그룹 회차 1건을 추가한다.
-// 겹침 «표시»(선생님·센터 화면 뱃지·배너) 검증용 — 확인 모달은 회차 생성·조율 수락·제안 보내기에서 재현한다.
+// 겹침 «표시»(선생님·센터 화면 뱃지·배너) 검증용 — 확인 모달은 회차 생성·일정 요청 수락·제안 보내기에서 재현한다.
 // ⚠️ LCG 시드 뒤 append 원칙 동일. 기본(파라미터 없음) 시드는 전혀 건드리지 않는다.
 (function seedOverlap() {
   if (new URLSearchParams(location.search).get("case") !== "overlap") return;

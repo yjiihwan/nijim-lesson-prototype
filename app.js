@@ -76,6 +76,16 @@
    ③ 수정·폐강 = «일정» 탭 하위 뷰 [주간 일정 | 내 수업]으로 흡수(선생님) / 센터는 «수업» 탭 유지
    ④ 구 라우트는 리다이렉트(#/t/quick→#/t/create, #/c/quick→#/c/create, #/t/classes→#/t/schedule «내 수업»)
    ⑤ 통합 전 잔재 용어(«바로 확정»의 옛 이름) 전면 제거 — UI·토스트·안내문·정책 화면·주석. QA v226 57/57.
+   v2.35 (2026-08-20 형 확정 A안 — 용어 정리: «조율» → «일정 요청»): 시간표 없는 수업의 시간을 처음
+   잡는 행위(회원 희망 일시 → 선생님 수락 → 예약 생성)는 «옮기는 것»이 아니라 «새로 잡는 것»이라
+   «조율»이 어긋난다. ① 회원 8곳(수시 일정 수업 섹션·수업 상세 «선생님께 일정 요청»·CTA «일정 요청
+   보내기»·내 예약 목록 헤더·전송/취소 토스트·홈 알림) ② 선생님 6곳(역할 선택 설명·shell 타이틀
+   «일정 요청함»·받은 일정 요청 대기중/처리됨·홈 알림·지난 일시 거부 토스트) ③ 센터 5곳(해야 할 일·
+   예약 캘린더 «일정 요청(선생님 수락 대기)»·«이 날을 희망한 일정 요청»·셀 aria-label·범례) ④ 수업
+   «일정 방식» 속성은 요청 행위와 섞이지 않게 별도 어휘 «일정 맞춤»(세그 버튼 «회원과 일정 맞춤»·
+   세그 힌트·scheduleLabel app.js/data.js·센터 수업 목록 배지). 순수 문구 작업 — 코드 식별자·DB 키·
+   라우트(schedule:"arranged"·adhoc·requestArrange·arrangeAccept·#/t/inbox)는 전부 그대로.
+   ⚠️ 확정 수업 시간 변경 축(PROP_KIND.change «일정 변경 제안»)은 형 지시로 미접촉 — 이번 범위 아님.
    v2.34 (2026-08-20 형 확정 — 매주 반복 = «자리 열어두고 신청 받기» 전용화): 08-19 «수업 만들기 통합»
    ×«매주 반복»이 곱해져 생긴 ①«회원 지정해서 바로 확정 × 반복» 조합을 폐기한다. 요청받은 범위는
    «반복 회차 자동 개설»까지지 «회원 예약 자동 확정»이 아니었다. ① ccRepOk에 fill==="open" 게이트 —
@@ -362,7 +372,7 @@
   }
 
   // ── v2.25 ③ 예약 화면 «사용 수업권 (변경)» — 기본=만료 임박 순 자동, 회원이 직접 다른 권으로 교체 ──
-  // key: "s:<slotId>"(회차 예약) | "c:<classId>"(조율 요청). 선택은 화면 이탈 시 초기화 → 다시 기본값.
+  // key: "s:<slotId>"(회차 예약) | "c:<classId>"(일정 요청). 선택은 화면 이탈 시 초기화 → 다시 기본값.
   let bookPass = {};
   const passCtxClass = (key) => (key.slice(0, 2) === "s:" ? cls((slot(key.slice(2)) || {}).classId) : cls(key.slice(2)));
   function chosenPass(key, list) {
@@ -534,7 +544,7 @@
       if (!q.length) break;
       const first = q[0];
       // v2.30 B5: 승격도 예약과 같은 자격 검사를 다시 통과해야 한다 — 대기 등록 뒤 수업권이 만료·소진·정지됐을 수 있다.
-      // (예약·조율·제안·수업 만들기는 전부 bookGuard를 타는데 승격만 무가드였다.) 탈락자는 대기 종료 후 다음 순번으로.
+      // (예약·일정 요청·제안·수업 만들기는 전부 bookGuard를 타는데 승격만 무가드였다.) 탈락자는 대기 종료 후 다음 순번으로.
       const g = bookGuard(c, first.memberId);
       delete first.pos;
       if (!g.ok) {
@@ -551,7 +561,7 @@
     }
   }
   // ══ v2.30 C6: 회차 생성 공통 함수 — 같은 수업·같은 일시 회차가 있으면 재사용 ══
-  // 조율 수락·제안 수락이 각자 무조건 새 adhoc 회차를 만들어, 같은 수업·같은 시간에 회차가 복수로 생겼다
+  // 일정 요청 수락·제안 수락이 각자 무조건 새 adhoc 회차를 만들어, 같은 수업·같은 시간에 회차가 복수로 생겼다
   // (1:1에선 두 번째 수락이 사실상 더블부킹). 그룹=기존 회차 합류(정원 여유 시), 1:1=거부.
   function ensureSlot(c, date, time) {
     const found = DB.slots.find((x) => x.classId === c.id && x.date === date && x.time === time && x.status === "scheduled");
@@ -565,7 +575,7 @@
     return { ok: true, slot: s, reused: false };
   }
 
-  // 하-5: 조율·«수업 만들기»로 만든 회차가 비면 정리 (유령 슬롯 방지)
+  // 하-5: 일정 요청·«수업 만들기»로 만든 회차가 비면 정리 (유령 슬롯 방지)
   // v2.28: 반복 생성 회차는 «자리를 비워 두는 것»이 정상이라 이 정리에서 제외한다.
   function cleanupSlot(s) {
     if (s && s.adhoc && !s.recurId && s.status === "scheduled" && seatCount(s.id) === 0 && waitBk(s.id).length === 0) s.status = "canceled";
@@ -797,7 +807,7 @@
   };
   const cancelSub = (b) => CANCEL_REASON[b.cancelReason] || (b.cancelBy === "center" ? CANCEL_REASON.center_cancel : "직접 취소했어요 · 차감 없음");
 
-  // 조율 요청(회원발) — §C: 상태 표현으로서의 «조율 대기»·«선생님 확인 중»은 폐기, «수락 대기»로 통일
+  // 일정 요청(회원발) — §C: 상태 표현으로서의 «조율 대기»·«선생님 확인 중»은 폐기, «수락 대기»로 통일
   function arrBadge(a) {
     const st = negoState(a); // v2.30 A5: 만료는 제안과 같은 공통 파생 규칙
     if (st === "accepted") return st4("ok", "선생님이 수락했어요");
@@ -837,9 +847,9 @@
   }
 
   // ══ v2.30 A5: 일정 협상 단일 모델 (schedule_negotiations) ══
-  // 회원발 «조율 요청»(initiator=member·kind=request)과 선생님발 «제안»(initiator=teacher·kind=change/slot/alt)은
+  // 회원발 «일정 요청»(initiator=member·kind=request)과 선생님발 «제안»(initiator=teacher·kind=change/slot/alt)은
   // 같은 개념이라 DB.negos 한 테이블에 있다. DB.arranges/DB.proposals는 initiator로 나눈 호환 뷰(data.js).
-  //   ① 만료 = 저장값이 아니라 공통 파생 — 조율에만 만료가 없어 지난 희망일이 영원히 인박스에 남던 비대칭 해소.
+  //   ① 만료 = 저장값이 아니라 공통 파생 — 일정 요청에만 만료가 없어 지난 희망일이 영원히 인박스에 남던 비대칭 해소.
   //   ② canceled는 canceledBy로 행위자를 구분 — 같은 값이 «회원 취소»·«선생님 철회»를 뜻하던 어휘 충돌 해소.
   //   ③ 거절 사유 필드도 declineReason 하나로 통일(옛 arranges.reason 폐기).
   //   ④ 폐강 cleanup은 negoCloseClass 한 곳에서 양쪽을 함께 처리.
@@ -847,7 +857,7 @@
   const negoState = (n) => (n.status === "pending" && negoAt(n) <= NOW ? "expired" : n.status);
   const negoParent = (n) => (n.parentId ? DB.negos.find((x) => x.id === n.parentId) : null);
   const negoPendingOfClass = (cid) => DB.negos.filter((n) => n.classId === cid && negoState(n) === "pending");
-  // 폐강 시 대기 중인 협상 전건 자동 거절 (04 문서) — 예전엔 조율만 처리하고 제안은 pending으로 남았다.
+  // 폐강 시 대기 중인 협상 전건 자동 거절 (04 문서) — 예전엔 일정 요청만 처리하고 제안은 pending으로 남았다.
   function negoCloseClass(cid, reason) {
     // 저장 상태 기준 — 만료로 파생 표시되던 잔재까지 함께 종결시킨다(스위퍼가 없는 프로토타입 대응).
     DB.negos.filter((n) => n.classId === cid && n.status === "pending")
@@ -861,7 +871,7 @@
   const myPendingProps = () => myProps().filter((p) => propState(p) === "pending");
   const tSentProps = () => DB.proposals.filter((p) => p.teacherId === DB.me.teacher);
   const pendingChangeFor = (bkId) => DB.proposals.some((p) => p.bookingId === bkId && p.kind === "change" && propState(p) === "pending");
-  // 인박스 공통 아이템 — side: "m"(회원 받은 제안) | "t"(선생님 보낸 제안). 구성·스타일=조율 인박스(tl-item)와 통일.
+  // 인박스 공통 아이템 — side: "m"(회원 받은 제안) | "t"(선생님 보낸 제안). 구성·스타일=일정 요청함(tl-item)과 통일.
   function propItemHtml(p, side) {
     const c = cls(p.classId);
     const st = propState(p);
@@ -954,7 +964,7 @@
   // 문법의 요약 행이다. 배너를 항목마다 다른 색·아이콘으로 쌓던 것이 U1·U21의 원인이었다.
   // 탭바 홈 배지 = 이 블록의 N (§A1-4).
   // 우선순위(§A1-3): 1 마감 임박한 «문제» / 2 수강 확인 대기 / 3 기타 «문제» / 4 내 답변이 필요한 «대기» / 5 나머지
-  // 회원 조율 답변(수락·거절) 도착 알림 — «내 예약»·«예약 내역»을 열면 확인 처리된다
+  // 회원 일정 요청 답변(수락·거절) 도착 알림 — «내 예약»·«예약 내역»을 열면 확인 처리된다
   const mArrAnswered = () => DB.arranges.filter((a) => a.memberId === DB.me.member && !a.seen && ["accepted", "declined"].includes(a.status));
   const markArrSeen = () => mArrAnswered().forEach((a) => (a.seen = true));
   // 완료 보고가 필요한 종료 회차 — 시각이 지났고 아직 보고 안 된 좌석이 남아 있는 회차 (U20)
@@ -978,10 +988,10 @@
       add({ n: myPendingProps().length, tier: "wait", rank: 4, icon: "mail", key: "props",
         text: "선생님이 보낸 일정 제안이 있어요", go: "#/m/proposals" });
       add({ n: mArrAnswered().length, tier: "wait", rank: 4, icon: "cal", key: "arrans",
-        text: "조율 요청 결과가 도착했어요", go: "#/m/book" });
+        text: "일정 요청 결과가 도착했어요", go: "#/m/book" });
     } else if (role === "t") {
       add({ n: tPendingArrs().length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
-        text: "회원 조율 요청이 왔어요", go: "#/t/inbox" });
+        text: "회원 일정 요청이 왔어요", go: "#/t/inbox" });
       add({ n: DB.reports.filter((r) => r.status === "pending").length, tier: "wait", rank: 4, icon: "clip", key: "pending",
         text: "회원 확인을 기다리는 수업이 있어요", go: "#/t/report" });
       add({ n: tSlots().filter(slotNeedsReport).length, tier: "wait", rank: 4, icon: "today", key: "needrep",
@@ -996,7 +1006,7 @@
       add({ n: ovOpenSlots("c").length, tier: "bad", rank: 3, icon: "clock", key: "overlap",
         text: "시간이 겹친 수업이 있어요", go: "#/c/overlaps" });
       add({ n: DB.arranges.filter((a) => a.status === "pending").length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
-        text: "선생님 수락을 기다리는 조율 요청이 있어요", go: "#/c/bookings" });
+        text: "선생님 수락을 기다리는 일정 요청이 있어요", go: "#/c/bookings" });
       add({ n: cAutoWarns().length, tier: "wait", rank: 5, icon: "clock", key: "autowarn",
         text: "자동확정 비율이 임계를 넘은 선생님이 있어요", go: "#/c/confirms" });
     }
@@ -1028,7 +1038,7 @@
       <button class="role-card" onclick="location.hash='#/m/home'">
         <span class="em">🙋</span><span><span class="rt">회원</span><span class="rd">수업권 구매 · 예약 · 대기 · 취소 · 수강확인</span></span><span class="arrow">›</span></button>
       <button class="role-card" onclick="location.hash='#/t/home'">
-        <span class="em">💪</span><span><span class="rt">선생님</span><span class="rd">수업 개설·관리 · 조율 인박스 · 완료 보고 · 정산</span></span><span class="arrow">›</span></button>
+        <span class="em">💪</span><span><span class="rt">선생님</span><span class="rd">수업 개설·관리 · 일정 요청함 · 완료 보고 · 정산</span></span><span class="arrow">›</span></button>
       <button class="role-card" onclick="location.hash='#/c/home'">
         <span class="em">🏢</span><span><span class="rt">센터 (사장·관리자)</span><span class="rd">상품·수업 개설 · 폐강 · 정책 · 예약 · 정산</span></span><span class="arrow">›</span></button>
     </main>`;
@@ -1212,7 +1222,7 @@
       <p class="muted small mt8" style="text-align:center">프로토타입 — 실제 결제는 일어나지 않아요.</p>`, { back: true });
   }
   // v2.11 (형 지시 08-18): 회원 «수업 예약» — 주간 캘린더 스트립 + 날짜별 회차 리스트 혼합.
-  // 조율(arranged) 수업은 날짜 필터에 묻히지 않게 캘린더 아래 상시 섹션.
+  // 일정 요청(arranged) 수업은 날짜 필터에 묻히지 않게 캘린더 아래 상시 섹션.
   let mBookSel = null; // 선택 날짜 — 화면 이탈 시 초기화(render)
   const MB_MINE = ["booked", "waitlisted", "confirm_wait"]; // 캘린더 «내 예약» 점 판정
   function mbWeekStart(d) { const dt = new Date(d + "T12:00:00+09:00"); return addDays(d, -((dt.getDay() + 6) % 7)); }
@@ -1220,7 +1230,7 @@
   // 대체 경로(②신청받기 + 회원 지정)로 만든 «전용 반복»이 남의 캘린더에 뜨면 전용 슬롯이 아니게 된다.
   // bookGuard는 «예약»만 막지 «보이는 것»은 막지 않아서 여기서 한 겹 더 거른다. list 외 모드(pass·both)는 종전대로.
   const mbElig = (c) => c.eligibility !== "list" || (c.memberIds || []).includes(DB.me.member);
-  // 그날 회원에게 보이는 회차 — 고정 스케줄은 자격 범위 안의 것, 조율(adhoc) 회차는 내 예약분만 (남의 1:1 일정 비공개)
+  // 그날 회원에게 보이는 회차 — 고정 스케줄은 자격 범위 안의 것, 일정 요청(adhoc) 회차는 내 예약분만 (남의 1:1 일정 비공개)
   function mbSlotsOn(date) {
     return DB.slots.filter((s) => {
       if (s.date !== date || s.status === "canceled") return false;
@@ -1372,7 +1382,7 @@
         : `<div class="card flat mb-empty"><div class="em">${IC.empty}</div>
             <p class="muted mt8">이 날은 예약할 수 있는 수업이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.mbDay('${near}')">가장 가까운 수업일 ${dlabel(near)}로 이동</button>` : ""}</div>`}
-      <div class="sec-title">수시 조율 수업 <span class="muted small" style="font-weight:600">— 날짜와 무관하게 신청해요</span></div>
+      <div class="sec-title">수시 일정 수업 <span class="muted small" style="font-weight:600">— 날짜와 무관하게 신청해요</span></div>
       ${arranged.length ? arranged.map((c) => {
         const pend = DB.arranges.filter((a) => a.memberId === DB.me.member && a.classId === c.id && a.status === "pending").length;
         return `<button class="card card-tap" onclick="location.hash='#/m/class/${c.id}'">
@@ -1381,7 +1391,7 @@
           <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span>
           <span class="badge b-gray">${eligLabel(c)}</span>${pend ? `<span class="badge b-warn">수락 대기 ${pend}건</span>` : ""}</div></span>
         <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`;
-      }).join("") : `<div class="card flat"><p class="muted">수시 조율로 진행하는 수업이 없어요.</p></div>`}`);
+      }).join("") : `<div class="card flat"><p class="muted">수시 일정으로 진행하는 수업이 없어요.</p></div>`}`);
   }
   // v2.33 B-2: 조율 신청 화면의 «그 날 선생님 일정» — 시간 구간만 적는다.
   // 다른 회원 이름·수업명은 절대 노출하지 않고, 아직 수락 안 된 조율 요청도 넣지 않는다(확정 일정이 아님).
@@ -1397,7 +1407,7 @@
     return overlapSlots(c.teacherId, d, t, c.duration, []).length
       ? `<div class="banner warn">${icb("info")}<span>${ARR_OV_MSG}</span></div>` : "";
   }
-  const ARR_D0 = "2026-08-21", ARR_T0 = "11:00"; // 조율 신청 폼 기본값 — 폼·안내 표시가 같은 값을 쓰도록
+  const ARR_D0 = "2026-08-21", ARR_T0 = "11:00"; // 일정 요청 폼 기본값 — 폼·안내 표시가 같은 값을 쓰도록
   function vMClass(id) {
     const c = cls(id);
     if (!c || c.status === "closed") return vMBook();
@@ -1405,7 +1415,7 @@
     if (c.schedule === "arranged") {
       const myArrs = DB.arranges.filter((a) => a.memberId === DB.me.member && a.classId === id && a.status === "pending");
       return shell("m", c.title, `
-        <div class="card"><b>${teacher(c.teacherId).name} 선생님과 일정 조율</b>
+        <div class="card"><b>${teacher(c.teacherId).name} 선생님께 일정 요청</b>
           <p class="muted small mt4">이 수업은 고정 시간표가 없어요. 희망 일시를 보내면 <b>선생님이 수락해야</b> 예약이 확정돼요.</p></div>
         ${g.ok ? `<div class="card">
           <div class="field"><label>희망 날짜</label><input type="date" id="arr-date" value="${ARR_D0}" min="${DB.TODAY}" oninput="App.arrSync('${c.id}')">
@@ -1416,7 +1426,7 @@
           ${(() => { const key = `c:${c.id}`; const cds = eligiblePasses(c, DB.me.member); const up = chosenPass(key, cds);
             return up ? passPickRow(key, up, cds.length) : ""; })()}
           <div id="arr-ov">${arrOvHtml(c, ARR_D0, ARR_T0)}</div>
-          <button class="btn primary mt12" onclick="App.requestArrange('${c.id}')">조율 요청 보내기</button>
+          <button class="btn primary mt12" onclick="App.requestArrange('${c.id}')">일정 요청 보내기</button>
         </div>
         <p class="muted small">선생님이 수락하면 예약이 자동 등록되고 알림을 보내드려요. 거절하면 사유를 알려드려요.</p>`
         : `<div class="banner warn">${icb("ban")}<span>${g.msg}</span></div>
@@ -1536,7 +1546,7 @@
       ${ended.length ? `<div class="sec-title">수업 종료 · 보고 대기</div>
       <div class="card flat">${ended.map((b) => item(b, false, true)).join("")}
         <p class="muted small mt8">수업 시각이 지난 회차예요. 선생님이 완료 보고를 하면 «수강 확인 대기»로 넘어가요. 이미 받은 수업이라 취소는 할 수 없어요.</p></div>` : ""}
-      ${arrs.length ? `<div class="sec-title">조율 요청</div><div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
+      ${arrs.length ? `<div class="sec-title">일정 요청</div><div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
       ${need.length ? `<div class="sec-title">확인 필요</div><div class="card flat">${need.map((b) => item(b, false)).join("")}</div>` : ""}
       ${past.length ? `<div class="sec-title">지난 예약</div><div class="card flat">${past.map((b) => item(b, false)).join("")}</div>` : ""}`, { back: true });
   }
@@ -1568,7 +1578,7 @@
         <p class="muted mt8">${slotDesc(s)}<br>센터가 확인하고 있어요. 결과가 나오면 알려드릴게요.</p></div>
         <a class="btn ghost" href="#/m/bookings">내 예약으로</a>`, { back: true });
     }
-    // S-1: 완료 보고(pending)가 실존하는 confirm_wait만 확인 가능 — 미래·대기·조율 회차 직접 진입 차단
+    // S-1: 완료 보고(pending)가 실존하는 confirm_wait만 확인 가능 — 미래·대기·일정 요청 회차 직접 진입 차단
     const rp = DB.reports.find((r) => r.bookingId === b.id && r.status === "pending");
     if (b.status !== "confirm_wait" || !rp) {
       return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
@@ -1696,7 +1706,7 @@
           ${overlapBadge(sl)}${slotNeedsReport(sl) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
       }).join("") : `<p class="muted">이 날은 잡힌 수업이 없어요.</p>`}</div>`);
   }
-  // B4: 조율 요청 인박스
+  // B4: 일정 요청함
   // v2.29 §B8 (U7): 발신 입구 3곳 분산 → 화면 상단 고정 «＋ 시간 제안하기» 단일 진입 → [새 시간 / 기존 예약 변경] 분기.
   //   («일정 → 수업 상세»의 «변경 제안» 버튼은 맥락 지름길로 남긴다 — 없애려는 건 «입구가 어디인지 모르는 상태».)
   // v2.29 §B8-3 (U8): 요청 카드에 «수락 / 다른 시간 제안 / 거절» 3버튼 — 대안 제안이 거절 모달 안에 숨어 있던 것을 꺼낸다.
@@ -1722,12 +1732,12 @@
     const sent = tSentProps();
     const sentPend = sent.filter((p) => propState(p) === "pending");
     const sentDone = sent.filter((p) => propState(p) !== "pending");
-    return shell("t", "조율 인박스", `
+    return shell("t", "일정 요청함", `
       <p class="muted" style="margin-bottom:12px">수락해야 회차·예약이 만들어져요. 수락 전엔 일정에 잡히지 않아요.</p>
       <div class="sticky-cta"><button class="btn primary" onclick="App.proposeEntry()">${ici("plus")}시간 제안하기</button></div>
-      <div class="sec-title">받은 조율 요청 · 대기 중 (${pending.length})</div>
+      <div class="sec-title">받은 일정 요청 · 대기 중 (${pending.length})</div>
       <div class="card flat">${pending.length ? pending.map(item).join("") : `<p class="muted">대기 중인 요청이 없어요.</p>`}</div>
-      ${done.length ? `<div class="sec-title">받은 조율 요청 · 처리됨</div><div class="card flat">${done.map(item).join("")}</div>` : ""}
+      ${done.length ? `<div class="sec-title">받은 일정 요청 · 처리됨</div><div class="card flat">${done.map(item).join("")}</div>` : ""}
       <div class="sec-title">보낸 제안 · 답변 대기 (${sentPend.length})</div>
       <div class="card flat">${sentPend.length ? sentPend.map((p) => propItemHtml(p, "t")).join("") : `<p class="muted">답변을 기다리는 제안이 없어요.</p>`}</div>
       ${sentDone.length ? `<div class="sec-title">보낸 제안 · 처리됨</div><div class="card flat">${sentDone.map((p) => propItemHtml(p, "t")).join("")}</div>` : ""}`);
@@ -1909,8 +1919,8 @@
         ${U.kind === "group" ? `<div class="field"><label>정원</label><input type="number" id="nc-cap" value="${U.cap}" min="1"></div>` : ""}
         <div class="field"><label>일정 방식</label><div class="seg" id="nc-sched">
           <button class="${U.sched === "fixed" ? "on" : ""}" data-v="fixed" onclick="App.ccSeg('${r}',this,'sched')">매주 고정</button>
-          <button class="${U.sched === "arranged" ? "on" : ""}" data-v="arranged" onclick="App.ccSeg('${r}',this,'sched')">선생님과 조율</button></div>
-          <div class="hint">보통 그룹=고정, 개인=조율이지만 자유롭게 선택할 수 있어요.</div></div>` : ""}
+          <button class="${U.sched === "arranged" ? "on" : ""}" data-v="arranged" onclick="App.ccSeg('${r}',this,'sched')">회원과 일정 맞춤</button></div>
+          <div class="hint">보통 그룹=고정, 개인=일정 맞춤이지만 자유롭게 선택할 수 있어요.</div></div>` : ""}
         ${U.fill === "assign" && c ? `<div class="field"><label>회차</label><select id="qk-slot" onchange="App.ccSlot('${r}', this.value)">
           ${opt("new", "새 일시로 만들기", U.slotSel === "new")}
           ${joinable.map((x) => opt(x.id, `${dlabel(x.date)} ${x.time} 기존 회차 합류 (${seatCount(x.id)}/${c.capacity}명)`, x.id === U.slotSel)).join("")}</select>
@@ -1981,7 +1991,7 @@
       if (bad.length) { toast(`내 «지정 가능 회원 범위» 밖 회원이에요: ${bad.map(memberName).join(", ")} — 센터에 범위 확대를 요청해 주세요.`); return null; }
     }
     return { id: nid("c"), title: (U.title || "").trim() || "새 수업", teacherId, kind, capacity,
-      schedule: U.sched, scheduleLabel: U.sched === "fixed" ? "매주 고정 (시간표 설정)" : "선생님과 조율", duration: 50,
+      schedule: U.sched, scheduleLabel: U.sched === "fixed" ? "매주 고정 (시간표 설정)" : "회원과 일정 맞춤", duration: 50,
       eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" };
   }
   const ccPastAsk = () => modal(`<h3>지난 일시로는 만들 수 없어요</h3><p>수업은 앞으로의 일시로만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 감사 기록에 남아요.</p>
@@ -2435,7 +2445,7 @@
         <div class="muted small mt4">${teacher(c.teacherId).name} · ${c.scheduleLabel}</div>
         <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 ${c.capacity}명`}</span>
         <span class="badge b-gray">${eligLabel(c)}</span>
-        <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "조율형"}</span></div>
+        <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "일정 맞춤"}</span></div>
         ${c.status === "closed" ? `<div class="muted small mt4">사유: ${c.closedReason}</div>` : ""}</span>
         ${auth.ok ? `<span class="arrow" style="color:var(--text-disabled)">›</span>` : ""}</div></${auth.ok ? "button" : "div"}>`;
     return `
@@ -2517,7 +2527,7 @@
       </div>`, { back: true });
   }
   // v2.20 (형 지시 08-18): 센터 «예약 현황» — 월간 캘린더+선택 날짜 리스트 혼합(회원 예약 캘린더와 같은 문법).
-  // 날짜 셀=수업 수+상태 점(예정·정원 마감·지난 수업), 조율 요청 희망일=주황 표식. 선생님·수업 필터 공통 적용.
+  // 날짜 셀=수업 수+상태 점(예정·정원 마감·지난 수업), 일정 요청 희망일=주황 표식. 선생님·수업 필터 공통 적용.
   let cbUI = { sel: null, teacher: "all", cls: "all" };
   function cbSlots() {
     return DB.slots.filter((s) => {
@@ -2553,7 +2563,7 @@
       if (!d) return `<span class="cb-day blank"></span>`;
       const ss = byDate[d] || [];
       const st = new Set(ss.map((s) => (s.status === "done" || isPast(s)) ? "pd" : seatCount(s.id) >= cls(s.classId).capacity ? "fl" : "av"));
-      return `<button type="button" class="cb-day${d === sel ? " on" : ""}${d === DB.TODAY ? " today" : ""}${d < DB.TODAY ? " past" : ""}" onclick="App.cbDay('${d}')" aria-label="${dlabel(d)}${ss.length ? ` · 수업 ${ss.length}건` : ""}${arrDates.has(d) ? " · 조율 확인 필요" : ""}">
+      return `<button type="button" class="cb-day${d === sel ? " on" : ""}${d === DB.TODAY ? " today" : ""}${d < DB.TODAY ? " past" : ""}" onclick="App.cbDay('${d}')" aria-label="${dlabel(d)}${ss.length ? ` · 수업 ${ss.length}건` : ""}${arrDates.has(d) ? " · 일정 요청 확인 필요" : ""}">
         <span class="dn">${Number(d.slice(8))}</span>
         <span class="mb-dots">${["av", "fl", "pd"].filter((k) => st.has(k)).map((k) => `<i class="${k}"></i>`).join("")}${arrDates.has(d) ? `<i class="ar"></i>` : ""}</span>
         <span class="cnt">${ss.length ? `${ss.length}건` : ""}</span></button>`;
@@ -2584,7 +2594,7 @@
     const near = list.length ? null : nearestDate(all.map((s) => s.date), sel); // v2.30 C1
     return shell("c", "예약 현황", `
       <a class="btn ghost" href="#/c/create" style="margin-bottom:14px">${ici("plus")}수업 만들기</a>
-      ${arrs.length ? `<div class="sec-title">조율 요청 (선생님 수락 대기) <span class="badge b-warn">${arrs.length}건</span></div>
+      ${arrs.length ? `<div class="sec-title">일정 요청 (선생님 수락 대기) <span class="badge b-warn">${arrs.length}건</span></div>
       <div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
       <div class="cb-filters">
         <div class="cb-frow"><span class="cb-flabel">선생님</span>${fchip("전체", cbUI.teacher === "all", "App.cbTeacher('all')")}${teachers.map((t) => fchip(`${t.name} 선생님`, cbUI.teacher === t.id, `App.cbTeacher('${t.id}')`)).join("")}</div>
@@ -2598,14 +2608,14 @@
         </div>
         <div class="cb-dow">${["월", "화", "수", "목", "금", "토", "일"].map((w) => `<span>${w}</span>`).join("")}</div>
         <div class="cb-grid">${cells.map(cell).join("")}</div>
-        <div class="mb-legend cb-legend"><span><i class="av"></i>예정</span><span><i class="fl"></i>정원 마감</span><span><i class="pd"></i>지난 수업</span><span><i class="ar"></i>조율 확인 필요</span></div>
+        <div class="mb-legend cb-legend"><span><i class="av"></i>예정</span><span><i class="fl"></i>정원 마감</span><span><i class="pd"></i>지난 수업</span><span><i class="ar"></i>일정 요청 확인 필요</span></div>
       </div>
       <div class="sec-title">${dlabel(sel)} 수업${sel === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}</div>
       ${list.length ? `<div class="card flat">${list.map(item).join("")}</div>`
         : `<div class="card flat mb-empty"><div class="em">${IC.empty}</div>
             <p class="muted mt8">이 날은 수업이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.cbDay('${near}')">수업이 있는 가장 가까운 날 ${dlabel(near)}로 이동</button>` : ""}</div>`}
-      ${dayArrs.length ? `<div class="sec-title">이 날을 희망한 조율 요청</div><div class="card flat">${dayArrs.map(arrItem).join("")}</div>` : ""}`);
+      ${dayArrs.length ? `<div class="sec-title">이 날을 희망한 일정 요청</div><div class="card flat">${dayArrs.map(arrItem).join("")}</div>` : ""}`);
   }
   function vCSlot(id) {
     const s = slot(id);
@@ -3218,7 +3228,7 @@
       toast(`대기 ${pos}번으로 등록됐어요. 자리가 나면 알려드릴게요!`);
       location.hash = "#/m/bookings";
     },
-    // M-2/B4: 조율 요청 — 회차·예약을 만들지 않고 선생님 인박스로
+    // M-2/B4: 일정 요청 — 회차·예약을 만들지 않고 선생님 인박스로
     requestArrange(classId) {
       const c = cls(classId);
       const g = bookGuard(c, DB.me.member);
@@ -3232,7 +3242,7 @@
       const send = () => {
         DB.negos.push({ id: nid("ar"), initiator: "member", kind: "request", classId, teacherId: c.teacherId,
           memberId: DB.me.member, passId: up.id, date: d, time: t, status: "pending", note, at: nowStamp });
-        toast(`${teacher(c.teacherId).name} 선생님에게 조율 요청을 보냈어요. 수락하면 예약이 확정돼요.`);
+        toast(`${teacher(c.teacherId).name} 선생님에게 일정 요청을 보냈어요. 수락하면 예약이 확정돼요.`);
         location.hash = "#/m/bookings";
       };
       // v2.33 B-4·D-2(a): 선생님 겹침·회원 본인 겹침을 한 모달에 모아 확인만 받는다 — 차단 아님.
@@ -3246,14 +3256,14 @@
       if (!a || negoState(a) !== "pending") return;
       a.status = "canceled"; a.canceledBy = "member"; // v2.30 A5: 같은 canceled라도 «누가 접었는지»를 남긴다
       render();
-      toast("조율 요청을 취소했어요.");
+      toast("일정 요청을 취소했어요.");
     },
     arrangeAccept(arId) {
       const a = DB.arranges.find((x) => x.id === arId);
       if (!a || a.status !== "pending") return;
       const c = cls(a.classId);
       if (c.status === "closed") { a.status = "declined"; a.declineReason = "폐강된 수업"; render(); toast("폐강된 수업이라 자동 거절 처리했어요."); return; }
-      if (new Date(`${a.date}T${a.time}:00+09:00`) <= NOW) { toast("이미 지난 일시라 수락할 수 없어요. 거절 후 다시 조율해 주세요."); return; }
+      if (new Date(`${a.date}T${a.time}:00+09:00`) <= NOW) { toast("이미 지난 일시라 수락할 수 없어요. 거절 후 다시 요청받아 주세요."); return; }
       let p = a.passId ? pass(a.passId) : null;
       if (!p || !passUsable(p)) p = eligiblePass(c, a.memberId);
       if (!p) { toast("회원 수업권이 만료·소진돼 수락할 수 없어요. 회원에게 안내해 주세요."); return; }
@@ -3420,7 +3430,7 @@
       render();
       toast("제안을 철회했어요. 회원에게 알림이 가요.");
     },
-    // 회원: 수락 — change=예약 이동, slot·alt=예약 생성 (조율 수락과 동일 검증)
+    // 회원: 수락 — change=예약 이동, slot·alt=예약 생성 (일정 요청 수락과 동일 검증)
     propAccept(ppId) {
       const p = DB.proposals.find((x) => x.id === ppId);
       if (!p || p.memberId !== DB.me.member || p.status !== "pending") return;
