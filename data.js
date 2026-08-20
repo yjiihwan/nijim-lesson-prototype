@@ -436,6 +436,12 @@ window.DB = {
       status: "declined", seen: true, declineReason: "이른 시간엔 다른 수업이 있어요", at: "2026-08-14 18:40" },
     { id: "ar4", kind: "request", classId: "c2", teacherId: "t1", memberId: "m1", passId: "ps1", date: "2026-08-13", time: "20:00",
       status: "canceled", canceledBy: "member", at: "2026-08-12 21:00" },
+    // v2.36 §3 데모 — 회원발 «일정 변경 요청»(1:1 전용). 최민아(m4)가 확정 예약 bkA19(8/20 19:00 PT)를
+    // 옮겨 달라고 희망 일시 2개를 보낸 상태. 수락하면 예약이 «이동»할 뿐 회차·횟수는 새로 만들어지지 않는다.
+    { id: "mc1", kind: "change", classId: "c2", teacherId: "t1", memberId: "m4", bookingId: "bkA19",
+      origDesc: "8/20 (목) 19:00", date: "2026-08-21", time: "19:00",
+      opts: [{ date: "2026-08-21", time: "19:00" }, { date: "2026-08-22", time: "14:00" }],
+      status: "pending", note: "그날 야근이 잡혔어요. 하루만 미룰 수 있을까요?", at: "2026-08-16 22:40" },
   );
 
   // 보고·수강확인: 노쇼 이의 중재 대기 / 이의 인정 2종(횟수 복원·노쇼 취소) / m1 노쇼 확정·이의기간

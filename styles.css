@@ -348,6 +348,9 @@ button.stat:active { transform: scale(.97); }
 
 /* v2.25 ⑤ 회원 «예약» 탭 상단 세그먼트 (캘린더 | 내 예약) */
 .book-seg { margin-bottom: 14px; }
+/* v2.36 §1: 세그먼트 «요청» 칸의 답변 대기 배지 — 0이면 아예 렌더하지 않는다(탭 배지와 같은 규칙) */
+.seg-n { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 5px; margin-left: 3px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 800; font-style: normal; line-height: 1; vertical-align: 1px; }
+.seg button.on .seg-n { background: var(--danger); }
 
 /* ══ v2.11 회원 «수업 예약» — 주간 캘린더 스트립 + 날짜별 회차 리스트 (role-m 팔레트 상속) ══ */
 .mb-cal { padding: 12px 12px 10px; }
@@ -527,6 +530,13 @@ button.stat:active { transform: scale(.97); }
 .slot.tapable { cursor: pointer; border-radius: 10px; transition: background .15s ease, transform .12s var(--ease-out); }
 .slot.tapable:active { transform: scale(.985); background: var(--surface-alt, rgba(0,0,0,.03)); }
 .slot .chev { flex-shrink: 0; font-size: 17px; font-weight: 700; color: var(--text-disabled); line-height: 1; }
+/* v2.36: 한 행에 버튼이 2개(변경 요청·취소) 붙는 카드 — 좁은 화면에선 액션을 아랫줄로 내려 본문 칸을 지킨다 */
+@media (max-width: 430px) {
+  .slot.slot2 { flex-wrap: wrap; }
+  .slot.slot2 > .grow { flex: 1 1 100%; }
+  .slot.slot2 > .badge, .slot.slot2 > .btn { margin-top: 8px; }
+  .slot.slot2 > .btn { flex: 0 0 auto; width: auto; }
+}
 
 /* v2.26 «수업 만들기» — 회원 채우는 방식 선택(라디오 카드).
    세그먼트가 아니라 카드형인 이유: 각 선택지에 «무슨 일이 벌어지는지» 한 줄 설명이 필요해서. */
