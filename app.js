@@ -76,6 +76,9 @@
    ③ 수정·폐강 = «일정» 탭 하위 뷰 [주간 일정 | 내 수업]으로 흡수(선생님) / 센터는 «수업» 탭 유지
    ④ 구 라우트는 리다이렉트(#/t/quick→#/t/create, #/c/quick→#/c/create, #/t/classes→#/t/schedule «내 수업»)
    ⑤ 통합 전 잔재 용어(«바로 확정»의 옛 이름) 전면 제거 — UI·토스트·안내문·정책 화면·주석. QA v226 57/57.
+   v2.32 (2026-08-20 형 확정 — 회원 화면 정산 문구 정리): 정산·수업료·급여는 센터↔선생님의 일이라
+   회원 화면에서 걷어내고 회원에게 의미 있는 표현(횟수 차감·수업 기록·센터 심사)으로 교체. 4곳 문구만
+   교체하고 내부 동작(confirmTx 차감·정산라인 생성, 이의 시 line.status="held")은 그대로 둔다.
    v2.31 (2026-08-20 감사 2차 §D 형 확정 추가분): ① D-2=B안 — 겹친 회차를 선생님·센터 «해야 할 일»에
    «문제»로 노출(«시간이 겹친 수업이 있어요 N건») + 겹침 쌍 목록 화면(#/t/overlaps·#/c/overlaps) +
    «이 겹침은 의도한 거예요» 쌍 단위 무시(s.ovOk에 보관 — 배지·경고 모달·강행 허용은 그대로 유지).
@@ -1535,7 +1538,7 @@
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
-        <p style="font-size:15px">수업을 이상 없이 받으셨나요?<br><span class="muted small">확인하면 수업권 1회가 차감되고, 이 기록으로 선생님 수업료가 정산돼요.</span></p></div>
+        <p style="font-size:15px">수업을 이상 없이 받으셨나요?<br><span class="muted small">확인하면 수업권 1회가 차감되고 수업 기록이 남아요.</span></p></div>
       <div class="banner">${icb("lock")}<span>확인은 <b>회원 본인 계정</b>에서만 가능해요 — 선생님·센터가 대신 확인할 수 없어요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
       <button class="btn primary" onclick="App.confirmAttend('${b.id}')">받았어요 (수업 확인)</button>
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
@@ -3070,7 +3073,7 @@
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
-        <p style="font-size:15px">현장에서 QR로 확인 중이에요.<br><span class="muted small">확인하면 수업권 1회가 차감되고, 이 기록으로 선생님 수업료가 정산돼요.</span></p></div>
+        <p style="font-size:15px">현장에서 QR로 확인 중이에요.<br><span class="muted small">확인하면 수업권 1회가 차감되고 수업 기록이 남아요.</span></p></div>
       <div class="banner">${icb("lock")}<span>이 QR은 <b>이 수업 1건 전용</b>이에요 · 발급 후 <b>5분 만료</b> · 확인이 끝나면 바로 만료돼 다시 쓸 수 없어요. 확인은 <b>회원 본인 계정</b>에서만 할 수 있어요.</span></div>
       <button class="btn primary" onclick="App.qrConfirm('${token}')">받았어요 (수업 확인)</button>
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
@@ -3510,7 +3513,7 @@
     askDispute(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
       const pre = b && ["confirm_wait", "noshow_wait"].includes(b.status);
-      modal(`<h3>어떤 문제가 있었나요?</h3><p class="mt4">${pre ? "이의제기가 접수되면 확인·차감 없이 센터가 심사해요." : "이미 차감된 회차예요. 접수되면 정산이 보류되고, 이의가 인정되면 횟수가 복원돼요."}</p>
+      modal(`<h3>어떤 문제가 있었나요?</h3><p class="mt4">${pre ? "이의제기가 접수되면 확인·차감 없이 센터가 심사해요." : "이미 차감된 회차예요. 접수되면 센터가 심사하고, 이의가 인정되면 횟수가 복원돼요."}</p>
         <div class="field mt12"><textarea id="dp-reason" rows="3" placeholder="예: 이 수업을 받은 적이 없어요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.doDispute('${bkId}')">이의제기 접수</button></div>`);
@@ -3532,7 +3535,7 @@
       }
       closeModal();
       location.hash = "#/m/bookings";
-      toast(pre ? "접수됐어요. 확인·차감 없이 센터가 심사해요." : "접수됐어요. 차감은 유지된 채 정산이 보류돼요 — 이의가 인정되면 복원돼요.");
+      toast(pre ? "접수됐어요. 확인·차감 없이 센터가 심사해요." : "접수됐어요. 심사 중에는 차감이 유지되고, 이의가 인정되면 횟수가 복원돼요.");
     },
     // 선생님 완료 보고 — 회원별 참석/노쇼 (M-11), 수강확인 필수 정책 분기 (M-6)
     reportAsk(slotId) {
