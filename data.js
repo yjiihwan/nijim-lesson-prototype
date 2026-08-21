@@ -227,7 +227,6 @@ window.DB = {
   // v2.34: «확정 보류» 폐기로 현재 쓰는 kind가 없다. 배열 자체 제거는 형 판단 대기 — 알림 확장 여지가 있어 남겨 둔다.
   notices: [],
   // 롤링 기준일 — 실서비스는 «오늘». 프로토타입은 데모 버튼으로 한 주씩 밀어 롤링을 눈으로 확인한다.
-  rollAnchor: "2026-08-17",
 
   // 정산 라인 (8월) — 수강확인 성립 tx마다 1행. status: eligible|held(이의 보류)|removed(인용·무효화)
   // v2.30 A2: bookingId(멱등키)·slotId·lessonDate·lessonTime·classTitle·listPrice가 정식 컬럼 (desc는 표시 전용).

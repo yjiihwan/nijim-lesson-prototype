@@ -144,6 +144,12 @@
    버튼이 완전 중복이었다. 화면(vMPass)·멤버십 상세정보(mpDetail: 멤버십 정보·센터정보)까지 전부 제거
    (형 시정: «상세정보까지 그냥 다 지워»). 탭바 회원 3칸(홈·예약·내역), 홈 «전체 보기 ›» 링크 제거,
    #/m/pass는 홈 리다이렉트(v2.37 #/m/bookings와 같은 처리). 홈 카드 캐러셀·«수업 멤버십 구매»는 유지.
+   v2.42 (2026-08-21 형 확정 B안): 센터 «수업 관리» 최상단 «🔁 반복 수업 설정» 블록을 «설정» 탭으로 이관
+   (#/c/policy/recur 신설, POL_SECTIONS.recur). «수업 관리»엔 한 줄 요약 진입점만 남긴다 — 문법은 같은
+   화면의 «수업상품 관리 ›»(btn ghost) 행 재사용, 켜짐 건수·다음 회차는 실제 상태에서 계산(0건이면
+   «반복 수업 없음»). 수업 카드에 🔁 반복 배지(clsRecurBadge, 기존 b-rc 문법). 데모 장치 «한 주 지나가기»
+   완전 삭제(App.recurRoll·DB.rollAnchor 제거, recurAnchor=DB.TODAY 고정) — 형 지시. 선생님 «내 수업»은
+   설정 탭이 없어 기존 인라인 패널 유지(범위 밖). 반복 기능·옵션·기본값은 무변경 — 위치 이동만.
 */
 (function () {
   const DB = window.DB;
@@ -608,10 +614,12 @@
   const recur = (id) => DB.recurs.find((r) => r.id === id);
   const recurOf = (s) => (s && s.recurId ? recur(s.recurId) : null);
   const recurBadge = (s) => (s && s.recurId ? `<span class="badge b-rc">🔁 반복</span>` : "");
+  // v2.42: 수업 카드용 — 이 수업에 켜져 있는 반복 규칙이 있으면 «반복 설정으로 회차가 저절로 생기는 수업»이라는 뜻
+  const clsRecurBadge = (c) => (c && DB.recurs.some((r) => r.classId === c.id && r.active) ? `<span class="badge b-rc">🔁 반복</span>` : "");
   const recurDowLabel = (r) => r.weekdays.slice().sort().map((d) => DOW[d]).join("·");
   const recurLabel = (r) => `매주 ${recurDowLabel(r)} ${r.time}`;
   const recurEndLabel = (r) => (r.endMode === "date" && r.endDate ? `${r.endDate.replaceAll("-", ".")}까지` : "중단할 때까지");
-  const recurAnchor = () => DB.rollAnchor || DB.TODAY;
+  const recurAnchor = () => DB.TODAY; // v2.42: 데모 «한 주 지나가기»(rollAnchor) 폐지 — 기준일=오늘
   const recurHorizon = () => addDays(recurAnchor(), ROLL_WEEKS * 7);
   function recurDates(r, from, to) {
     const out = [];
@@ -2617,12 +2625,14 @@
     if (!c || c.status === "closed") return false;
     return role !== "t" || c.teacherId === DB.me.teacher;
   });
-  function recurPanelHtml(role) {
+  // v2.42: 센터는 «설정» 탭 하위 화면(bare)에서, 선생님은 «내 수업» 인라인에서 같은 패널을 쓴다.
+  function recurPanelHtml(role, bare) {
     const rows = recurRows(role);
     const on = rows.filter((r) => r.active).length;
     return `
-      <div class="sec-title">🔁 반복 수업 설정 <span class="muted small" style="font-weight:600">— 매주 자동 개설</span></div>
+      ${bare ? "" : `<div class="sec-title">🔁 반복 수업 설정 <span class="muted small" style="font-weight:600">— 매주 자동 개설</span></div>`}
       <div class="card flat">
+        ${bare ? `<p class="muted small" style="margin:0 0 10px">🔁 매주 자동 개설</p>` : ""}
         ${rows.length ? `
         <div class="rc-top"><span class="muted small">켜짐 <b>${on}</b> / 전체 ${rows.length}건 · 앞으로 <b>${ROLL_WEEKS}주치</b>를 미리 만들어 둬요</span>
           <span class="rc-allbtns"><button class="btn sm ghost" onclick="App.recurAllAsk('${role}','1')">전체 켜기</button>
@@ -2637,12 +2647,23 @@
             <div class="td">${r.active ? `앞으로 ${cnt}회차 · 다음 ${nx ? `${dlabel(nx.date)} ${nx.time}` : "없음"}` : "중단됨 — 새 회차를 만들지 않아요"}${(r.skips || []).length ? ` · 건너뛴 날 ${r.skips.length}일` : ""}</div></span>
             <button class="sw${r.active ? " on" : ""}" onclick="App.recurToggle('${r.id}','${role}')" aria-label="${c.title} 반복" aria-pressed="${r.active}"></button></div>`;
         }).join("")}
-        <div class="demo-box"><span class="demo-cap">프로토타입 데모</span>
-          <span class="muted small grow">기준일 ${recurAnchor().replaceAll("-", ".")} · 8주 뒤 ${recurHorizon().replaceAll("-", ".")}까지 채워져 있어요.</span>
-          <button class="btn sm demo" onclick="App.recurRoll()">${ici("fwd")}한 주 지나가기</button></div>`
+        `
         : `<p class="muted">아직 반복 수업이 없어요. «수업 만들기»에서 <b>매주 반복</b>을 켜면 여기에 나타나요.</p>`}
       </div>`;
   }
+  // v2.42 B안: «수업 관리» 상단은 한 줄 요약 진입점만 — 실제 설정은 «설정» 탭(#/c/policy/recur).
+  // 문법은 같은 화면의 «수업상품 관리 ›»(btn ghost) 행을 그대로 재사용한다 — 새 진입점 문법을 만들지 않는다.
+  function recurSummary(role) {
+    const rows = recurRows(role);
+    const act = rows.filter((r) => r.active);
+    const nx = act.map((r) => recurNext(r)).filter(Boolean)
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0];
+    if (!rows.length) return { text: "반복 수업 없음", on: 0, total: 0 };
+    if (!act.length) return { text: `반복 수업 ${rows.length}건 · 모두 꺼짐`, on: 0, total: rows.length };
+    return { text: `반복 수업 ${act.length}건 켜짐${nx ? ` · 다음 ${dlabel(nx.date)} ${nx.time}` : ""}`, on: act.length, total: rows.length };
+  }
+  const recurEntryHtml = (role) => `<a class="btn ghost" href="#/c/policy/recur" style="margin-bottom:14px" id="recur-entry">🔁 ${recurSummary(role).text} ›</a>`;
+
   // v2.28 ④⑤: 반복 회차의 예외 처리 블록 — 회차 상세(선생님·센터 공용)
   function recurSlotHtml(sl, role) {
     const r = recurOf(sl);
@@ -2656,7 +2677,7 @@
         ${editable ? `<div class="btn-row mt8">
           <button class="btn sm ghost" onclick="App.recurSkipAsk('${sl.id}')">이번만 건너뛰기</button>
           <button class="btn sm ghost" onclick="App.slotEditAsk('${sl.id}')">회차 시간 수정</button>
-          <a class="btn sm ghost" href="#/${role === "t" ? "t/schedule" : "c/classes"}">반복 설정</a></div>
+          <a class="btn sm ghost" href="#/${role === "t" ? "t/schedule" : "c/policy/recur"}">반복 설정</a></div>
           <div class="hint mt8">공휴일·휴무면 «이번만 건너뛰기»로 이 회차만 빼요. 시간을 바꿀 땐 «이 회차만 / 앞으로 전부»를 고를 수 있어요.</div>` : ""}
       </div>`;
   }
@@ -2675,7 +2696,7 @@
         <div class="muted small mt4">${teacher(c.teacherId).name} · ${c.scheduleLabel}</div>
         <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 ${c.capacity}명`}</span>
         <span class="badge b-gray">${eligLabel(c)}</span>
-        <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "일정 맞춤"}</span></div>
+        <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "일정 맞춤"}</span>${clsRecurBadge(c)}</div>
         ${c.status === "closed" ? `<div class="muted small mt4">사유: ${c.closedReason}</div>` : ""}</span>
         ${auth.ok ? `<span class="arrow" style="color:var(--text-disabled)">›</span>` : ""}</div></${auth.ok ? "button" : "div"}>`;
     return `
@@ -2684,7 +2705,7 @@
         : `<div class="banner warn" style="margin-bottom:14px">${icb("lock")}<span><b>수업 만들기·관리 권한이 없어요.</b> 센터관리자에게 수업 개설 권한을 요청해야 해요.</span></div>`)
         : `<a class="btn ghost" href="#/c/products" style="margin-bottom:14px">${ici("ticket")}수업상품 관리 ›</a>`}
       ${auth.ok ? `<a class="btn primary" href="#/${role}/create" style="margin-bottom:14px">${ici("plus")}수업 만들기</a>` : ""}
-      ${auth.ok ? recurPanelHtml(role) : ""}
+      ${auth.ok ? (isT ? recurPanelHtml(role) : recurEntryHtml(role)) : ""}
       <div class="sec-title">${isT ? "내 수업" : "수업 목록"} <span class="muted small" style="font-weight:600">— 눌러서 수정·폐강</span></div>
       ${fltHtml(role + "-classes", { cats: [{ k: "all", label: isT ? "내 수업" : "수업 목록",
           empty: isT ? "담당 수업이 없어요. «수업 만들기»로 첫 수업을 만들어 보세요." : "등록된 수업이 없어요.",
@@ -3300,8 +3321,15 @@
       </div>`;
       },
     },
+    // v2.42 B안(형 확정 08-21): «수업 관리» 최상단을 먹던 반복 설정 블록을 여기로 이관. 기능·상태·데이터 무변경 — 위치만 이동.
+    recur: {
+      title: "반복 수업 설정",
+      sum: () => recurSummary("c").text,
+      body: () => recurPanelHtml("c", true),
+      foot: "",  // 정책 전용 안내문은 반복 설정엔 맞지 않고, 끄기 설명은 카드 안 hint와 중복된다
+    },
   };
-  const POL_ORDER = ["booking", "cancel", "confirm", "authority", "scope", "settlement"];
+  const POL_ORDER = ["booking", "cancel", "confirm", "authority", "scope", "settlement", "recur"];
   function vCPolicy() {
     return shell("c", "정책 설정", `
       <div class="card flat">${POL_ORDER.map((k) => {
@@ -3316,7 +3344,7 @@
     const sec = POL_SECTIONS[key];
     if (!sec) return vCPolicy();
     return shell("c", sec.title, `${sec.body()}
-      <p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 멤버십에는 적용되지 않아요 — 취소 조건은 예약할 때 기준으로 보존돼요.</p>
+      ${sec.foot === undefined ? `<p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 멤버십에는 적용되지 않아요 — 취소 조건은 예약할 때 기준으로 보존돼요.</p>` : sec.foot}
       <button class="btn ghost" onclick="location.hash='#/c/policy'">‹ 정책 설정으로 돌아가기</button>`, { back: true });
   }
   // v2.7: P2-2b 범위 편집 상세 화면 — 리스트 행 탭으로 진입 (인라인 전체 펼침 제거, 기능은 v2.3 그대로)
@@ -4286,13 +4314,6 @@
       closeModal(); render();
       toast(want ? `반복 ${list.length}건을 모두 켰어요 · 회차 ${made}개 생성.`
                  : `반복 ${off || list.length}건을 모두 껐어요. 만들어 둔 회차는 그대로 뒀어요.`);
-    },
-    // 프로토타입 데모 — 기준일을 한 주 밀어 «한 주 지나면 뒤에 한 주가 붙는» 롤링을 눈으로 확인
-    recurRoll() {
-      DB.rollAnchor = addDays(recurAnchor(), 7);
-      const x = recurRollAll();
-      render();
-      toast(`한 주가 지난 것처럼 기준일을 ${DB.rollAnchor.replaceAll("-", ".")}로 옮겼어요 — 뒤에 회차 ${x.made}개가 자동으로 붙었어요.`);
     },
     // ── v2.28 회차 예외: «이번만 건너뛰기» ──
     recurSkipAsk(slotId) {
