@@ -311,6 +311,71 @@ window.DB = {
   }
 })();
 
+// ══ v2.40: 지난 달 정산 시드 (2026-06·07) ══
+// 왜: 정산 화면에 월 이동을 붙여도 데이터가 8월 한 달뿐이면 «이동은 되는데 늘 빈 화면»이라 검증이 불가능하다.
+//   ① 07월 = 전액 샐리 전송 완료 → 다시 열었을 때 «전송 완료» 표시·버튼 없음을 확인하는 달
+//   ② 06월 = 일부만 전송 → «추가 N회 보내기» + 이전 전송 이력 경고를 확인하는 달 (보류 1건 포함)
+//   ③ 05월 = 데이터 없음 → 빈 상태 문구를 확인하는 달
+// 주의: autoStats(자동확정 비율 경고)는 전 기간 집계다. 시드가 비율을 흔들면 센터 홈 배너가 조용히 사라진다.
+//   t1은 임계 30%를 겨우 넘는 31%라, 지난 달분도 같은 비율(자동확정 3/9·2/6)로 맞춰 배너를 보존한다.
+(function seedPastSettlement() {
+  const DB = window.DB, L = DB.slines;
+  const DOWK = ["일", "월", "화", "수", "목", "금", "토"];
+  const passOf = (pid) => DB.passes.find((p) => p.id === pid);
+  const mkp = (id, tid, mid, name, pid, date, time, title, method, auto, status, pushId) => {
+    const p = passOf(pid);
+    const d = new Date(date + "T12:00:00+09:00");
+    L.push({ id, bookingId: null, slotId: null, lessonDate: date, lessonTime: time, classTitle: title,
+      teacherId: tid, memberId: mid, member: name, passId: pid, passName: p.name,
+      desc: `${d.getMonth() + 1}/${d.getDate()} (${DOWK[d.getDay()]})${time ? ` ${time}` : ""} ${title}`,
+      unitPrice: p.unitPrice, listPrice: p.listPrice != null ? p.listPrice : null,
+      listUnitPrice: p.listPrice != null ? Math.floor(p.listPrice / p.total) : null,
+      method, auto, status, pushed: !!pushId, pushId: pushId || null });
+  };
+  let n = 0;
+  const id = () => "slp" + ++n;
+
+  // ── 2026-07 · 전액 전송 완료 ──
+  const P7T1 = "sly_t1_202607_1", P7T2 = "sly_t2_202607_1";
+  [["m2", "박서준", "ps4", "2026-07-02", "19:00", "app", false],
+   ["m3", "이하늘", "ps6", "2026-07-03", "18:00", "app", false],
+   ["m1", "김지은", "ps1", "2026-07-07", "", "qr", false],
+   ["m2", "박서준", "ps4", "2026-07-09", "19:00", "auto", true],
+   ["m3", "이하늘", "ps6", "2026-07-14", "18:00", "app", false],
+   ["m1", "김지은", "ps1", "2026-07-16", "", "app", false],
+   ["m2", "박서준", "ps4", "2026-07-21", "19:00", "auto", true],
+   ["m3", "이하늘", "ps6", "2026-07-23", "18:00", "auto", true],
+   ["m1", "김지은", "ps1", "2026-07-28", "", "qr", false],
+  ].forEach(([mid, nm, pid, date, time, method, auto]) =>
+    mkp(id(), "t1", mid, nm, pid, date, time, "PT", method, auto, "eligible", P7T1));
+
+  const R7 = [["m1", "김지은", "ps2"], ["m2", "박서준", "ps5"], ["m3", "이하늘", "ps7"],
+    ["m4", "최민아", "ps8"], ["m5", "정우람", "ps9"], ["m6", "한소라", "ps10"]];
+  [6, 8, 10, 13, 15, 17, 20, 22, 24, 27, 29].forEach((day, i) => {
+    const [mid, nm, pid] = R7[i % 6];
+    mkp(id(), "t2", mid, nm, pid, `2026-07-${String(day).padStart(2, "0")}`, "07:00", "필라테스 기구 초급",
+      i === 3 || i === 8 ? "auto" : "app", i === 3 || i === 8, "eligible", P7T2);
+  });
+
+  // ── 2026-06 · 일부만 전송 (앞 4회 전송 완료, 뒤 2회 미전송) + 보류 1건 ──
+  const P6T1 = "sly_t1_202606_1";
+  [["m2", "박서준", "ps4", "2026-06-03", "19:00", "app", false, P6T1],
+   ["m3", "이하늘", "ps6", "2026-06-05", "18:00", "auto", true, P6T1],
+   ["m1", "김지은", "ps1", "2026-06-10", "", "qr", false, P6T1],
+   ["m2", "박서준", "ps4", "2026-06-12", "19:00", "app", false, P6T1],
+   ["m3", "이하늘", "ps6", "2026-06-24", "18:00", "auto", true, null],
+   ["m1", "김지은", "ps1", "2026-06-26", "", "app", false, null],
+  ].forEach(([mid, nm, pid, date, time, method, auto, pid2]) =>
+    mkp(id(), "t1", mid, nm, pid, date, time, "PT", method, auto, "eligible", pid2));
+  mkp(id(), "t1", "m4", "최민아", "ps8", "2026-06-17", "06:30", "크로스핏", "app", false, "held", null);
+
+  [4, 9, 16, 18, 25].forEach((day, i) => {
+    const [mid, nm, pid] = R7[i % 6];
+    mkp(id(), "t2", mid, nm, pid, `2026-06-${String(day).padStart(2, "0")}`, "07:00", "필라테스 기구 초급",
+      i === 2 ? "auto" : "app", i === 2, "eligible", null);
+  });
+})();
+
 // v2.4 대규모 회원 시드 — 총 3,000명 (형 지적 08-17: 수천 명 센터에서 칩 전체 나열 UI 불가 → 검색 기반 선택 UI 검증용).
 // 기명 데모 회원(m1~m10)·시나리오는 그대로 유지. LCG 결정적 생성 — 새로고침·테스트 간 동일 데이터.
 (function seedScaleMembers() {

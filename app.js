@@ -1331,15 +1331,52 @@
     return cells;
   }
   // v2.20: 월 이동 시트 — 회원(mbGoto)·센터(cbGoto)·정산(csGoto) 캘린더 공용. 회차가 있는 달+다음 달 노출
-  function monthSheet(cur, gotoFn) {
-    const months = [...new Set([...DB.slots.map((s) => s.date.slice(0, 7)), DB.TODAY.slice(0, 7)])].sort();
-    const [ly, lm] = months[months.length - 1].split("-").map(Number);
-    months.push(`${lm === 12 ? ly + 1 : ly}-${String((lm % 12) + 1).padStart(2, "0")}`);
-    modal(`<h3>월 이동</h3>${months.map((ym) => {
+  // v2.40: opts.months=목록 직접 지정(정산은 회차가 아니라 «정산 내역»이 있는 달), opts.maxYm=상한.
+  //   상한이 있으면 «다음 달» 한 칸을 덧붙이지 않는다 — 정산에 미래 달은 존재할 수 없다.
+  function monthSheet(cur, gotoFn, opts) {
+    const o = opts || {};
+    const months = [...new Set([...(o.months || DB.slots.map((s) => s.date.slice(0, 7))), DB.TODAY.slice(0, 7)])].sort();
+    if (!o.maxYm) {
+      const [ly, lm] = months[months.length - 1].split("-").map(Number);
+      months.push(`${lm === 12 ? ly + 1 : ly}-${String((lm % 12) + 1).padStart(2, "0")}`);
+    }
+    const list = o.maxYm ? months.filter((ym) => ym <= o.maxYm) : months;
+    modal(`<h3>월 이동</h3>${list.map((ym) => {
       const [y, m] = ym.split("-").map(Number);
       const target = ym === DB.TODAY.slice(0, 7) ? DB.TODAY : `${ym}-01`;
-      return `<button class="btn ${ym === cur ? "primary" : "ghost"} mt8" onclick="App.${gotoFn}('${target}')">${y}년 ${m}월</button>`;
+      return `<button class="btn ${ym === cur ? "primary" : "ghost"} mt8" onclick="App.${gotoFn}('${target}')">${y}년 ${m}월${ym === DB.TODAY.slice(0, 7) ? ' <span class="mn-now">이번 달</span>' : ""}</button>`;
     }).join("")}`);
+  }
+  // ══ v2.40: 정산 계열 월 이동 — 센터 «정산»과 선생님 «내 정산»이 같은 컨트롤을 쓴다 ══
+  // 새 문법을 만들지 않는다: 선생님 «내 정산»(v2.30 C5)이 이미 쓰던 .mb-cal/.mb-head 헤더를 그대로 뽑아
+  // 두 화면이 한 함수를 호출하게 한다. 한쪽만 고쳐지는 드리프트(C1과 같은 복붙 문제)를 막는다.
+  // 예약 캘린더와 다른 점은 «미래 달 상한» 하나뿐 — 정산은 지난 달 조회용이라 이번 달을 넘지 못한다.
+  const capYm = () => DB.TODAY.slice(0, 7);
+  const monthSelCapped = (cur, delta) => {
+    const ym = shiftMonth(cur.slice(0, 7), delta);
+    if (ym > capYm()) return cur;  // 미래 달 차단 — 선택을 그대로 유지
+    return ym === DB.TODAY.slice(0, 7) ? DB.TODAY : `${ym}-01`;
+  };
+  // 정산 내역(라인·노쇼 보상)이 실제로 있는 달 — 없는 달만 늘어놓지 않게. teacherId 지정 시 그 선생님 기준.
+  function settleMonths(teacherId) {
+    const tOk = (tid) => !teacherId || tid === teacherId;
+    const ds = [
+      ...DB.slines.filter((l) => l.status !== "removed" && tOk(l.teacherId)).map(slineDate),
+      ...DB.reports.filter((r) => r.status === "noshow_final" && tOk(noshowTeacher(r))).map(rpDate),
+    ];
+    return [...new Set(ds.filter(Boolean).map((d) => d.slice(0, 7)))].filter((ym) => ym <= capYm());
+  }
+  // 월 이동 헤더 (센터 정산 · 선생님 내 정산 공용)
+  function monthNav(sel, prefix) {
+    const ym = sel.slice(0, 7);
+    const [y, m] = ym.split("-").map(Number);
+    const atMax = ym >= capYm();
+    const isNow = ym === DB.TODAY.slice(0, 7);
+    return `<div class="card mb-cal te-cal"><div class="mb-head">
+      <button class="mb-nav" onclick="App.${prefix}Month(-1)" aria-label="이전 달">‹</button>
+      <button class="mb-month" onclick="App.${prefix}MonthSheet()">${y}년 ${m}월${isNow ? ' <span class="mn-now">이번 달</span>' : ""} <span class="car">▾</span></button>
+      <button class="mb-nav" onclick="App.${prefix}Month(1)" aria-label="다음 달"${atMax ? ' disabled aria-disabled="true" title="이번 달까지만 볼 수 있어요"' : ""}>›</button>
+    </div></div>`;
   }
   // v2.25 ⑤ (형 확정 A): 예약 탭 최상단 [캘린더 | 내 예약] 세그먼트.
   // v2.37 (형 확정 A안): «내 예약» = 옛 「예약 내역」과 같은 렌더(mBookingsBody) — 4섹션·액션 버튼 그대로.
@@ -2306,10 +2343,7 @@
     const ns = noshowFinals(DB.me.teacher).filter((r) => inYm(rpDate(r)));
     const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowAmt(r), 0) : 0;
     return shell("t", "내 정산", `
-      <div class="card mb-cal te-cal"><div class="mb-head">
-        <button class="mb-nav" onclick="App.teMonth(-1)" aria-label="이전 달">‹</button>
-        <button class="mb-month" onclick="App.teMonthSheet()">${y}년 ${m}월 <span class="car">▾</span></button>
-        <button class="mb-nav" onclick="App.teMonth(1)" aria-label="다음 달">›</button></div></div>
+      ${monthNav(sel, "te")}
       <div class="card"><div class="muted small">${y}년 ${m}월 · 수강확인 완료분</div>
         <div class="big mt4">${won(amount + nsAmt)}</div>
         <div class="muted small mt4">확정 ${elig.length}회 × 회당 단가 (멤버십 구매가 기준)${nsAmt ? ` + 노쇼 보상` : ""}</div>
@@ -2321,6 +2355,7 @@
         ${auto ? `<div class="hint">«검토 대상» = 회원이 직접 누르지 않고 무응답으로 자동확정된 회차예요. 금액엔 포함되지만 센터가 정산 전에 다시 볼 수 있어요.</div>` : ""}
         ${held.length ? `<div class="hint">«정산 제외 중» = 이의 심사가 끝날 때까지 집계·전송에서 빠져요. 이의가 기각되면 다시 들어와요.</div>` : ""}
         ${linesDetailHtml(elig, held)}
+        ${!lines.length && !ns.length ? `<div class="hint">${y}년 ${m}월에는 정산 내역이 없어요. 회원 수강확인이 끝난 회차만 집계돼요.</div>` : ""}
       </div>
       <div class="banner">${icb("info")}<span>여기는 <b>정산 대상 금액</b>까지만 보여요. 배분율·공제·실지급액은 급여 시스템(샐리)에서 계산돼요.</span></div>`);
   }
@@ -3022,6 +3057,25 @@
     rows.push(["합계", `수강 확인 ${cnt}회${nsCnt ? ` + 노쇼 보상 ${nsCnt}건` : ""}${heldN ? ` · 이의 심사 중 ${heldN}건은 제외` : ""}`, "", "", "", "", "", total]);
     return { rows, total, cnt, heldN, nsCnt, ym, teacherName: csUI.teacher === "all" ? null : teacher(csUI.teacher).name };
   }
+  // ══ v2.40 (버그): 샐리 전송이 «선택한 달»을 무시하고 전 기간을 보내고 있었다 ══
+  // sallyPush/Do가 teacherId로만 걸러서, 7월 화면에서 «샐리로 보내기»를 누르면 8월 미전송분까지 함께 나갔다.
+  // 지금까지는 월 이동 컨트롤이 접힘 안에 숨어 있어 드러나지 않았을 뿐이다(상단 노출과 함께 반드시 고쳐야 하는 짝).
+  // pushId의 "202608"도 하드코딩이었다 — 어느 달 전송인지 식별할 수 없었다.
+  // 화면 집계(vCSettlement)·엑셀(settlementExportRows)과 같은 «선택 월» 하나만 본다.
+  function pushScope(tid) {
+    const ym = (csUI.sel || DB.TODAY).slice(0, 7);
+    const inYm = (d) => (d || "").slice(0, 7) === ym;
+    const mine = DB.slines.filter((l) => l.teacherId === tid && inYm(slineDate(l)));
+    const elig = mine.filter((l) => l.status === "eligible");
+    return {
+      ym,
+      lines: elig.filter((l) => !l.pushed),
+      already: elig.filter((l) => l.pushed),
+      held: mine.filter((l) => l.status === "held").length,
+      rewards: rewardOn() && DB.policy.noshowRewardPush === "auto"
+        ? noshowFinals(tid).filter((r) => !r.rewardPushed && inYm(rpDate(r))) : [],
+    };
+  }
   // S-5: 정산 = 라인 동적 집계. held 제외·멱등 전송·전송 후 이의 경고
   // v2.21 (형 지시 08-18): 상단 월간 캘린더(날짜별 회차 수·상태 점) + 날짜 탭 시 그 날 내역 리스트.
   // 선생님 필터 칩은 캘린더·날짜 리스트·하단 선생님 카드에 공통 적용. 캘린더 문법=센터 예약(v2.20)·회원 캘린더 공용.
@@ -3049,7 +3103,8 @@
       // v2.7: 선생님 수십 명 규모 — 이번 달 내역(정산 라인·노쇼)이 있는 선생님만 표시
       .filter((x) => x.elig.length || x.held.length || x.ns.length);
     const hiddenN = DB.teachers.length - per.length;
-    const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status)).length;
+    // v2.40: 전 기간 집계였다 — 월 이동을 노출하는 순간 «7월 화면에 8월 노쇼 건수»가 섞여 보인다.
+    const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status) && inYm(rpDate(r))).length;
     const rewardLabel = !rewardOn() ? "보상 없음 (기본)"
       : `보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"} · ${DB.policy.noshowRewardPush === "auto" ? "샐리 자동 전송" : "샐리에서 수동 체크"}`;
     // ── 캘린더 집계 (removed 제외 · 선생님 필터 반영) ──
@@ -3072,8 +3127,11 @@
         <span class="cnt">${n ? `${n}회` : ""}</span></button>`;
     };
     const fchip = (label, on, fn) => `<button type="button" class="cb-chip${on ? " on" : ""}" onclick="${fn}">${label}</button>`;
-    const chipTeachers = DB.teachers.filter((t) => DB.slines.some((l) => l.status !== "removed" && l.teacherId === t.id)
-      || DB.reports.some((r) => r.status === "noshow_final" && noshowTeacher(r) === t.id));
+    // v2.40: 칩도 선택한 달 기준 (요구 2). 단 «지금 선택된 선생님»은 그 달 내역이 없어도 칩을 남긴다 —
+    //   칩이 사라지면 필터가 켜진 채 빈 화면만 보여 «고장»으로 읽힌다. 빈 상태 문구가 대신 설명한다.
+    const chipTeachers = DB.teachers.filter((t) => t.id === csUI.teacher
+      || DB.slines.some((l) => l.status !== "removed" && l.teacherId === t.id && inYm(slineDate(l)))
+      || DB.reports.some((r) => r.status === "noshow_final" && noshowTeacher(r) === t.id && inYm(rpDate(r))));
     // ── 선택 날짜 내역 리스트 ──
     const lineItem = (l) => {
       const held = l.status === "held";
@@ -3104,11 +3162,26 @@
     const sumHeld = per.reduce((a, x) => a + x.held.length, 0);
     const sumAmt = per.reduce((a, x) => a + x.amount + x.nsAmt, 0);
     const open = !!csUI.detail;
-    return shell("c", `정산 · ${y}년 ${m}월`, `
-      <p class="muted" style="margin-bottom:12px">회원 수강확인이 끝난 회차만 집계돼요. 이의제기 중인 회차는 자동으로 보류되고 전송에서 빠져요.</p>
-      <div class="card cs-sum"><div class="k">${m}월 합계${csUI.teacher === "all" ? "" : ` · ${teacher(csUI.teacher).name} 선생님`}</div>
+    // v2.40 (형 지적 08-21): 제목이 «정산 · 2026년 8월»로 고정이라 지난 달을 볼 방법이 없었다.
+    //   월은 제목이 아니라 «컨트롤»이 쥔다 — 선생님 «내 정산»과 같은 monthNav를 그대로 쓴다.
+    const sumPushed = per.reduce((a, x) => a + x.pushed.length, 0);
+    const sumUnpushed = per.reduce((a, x) => a + x.unpushed.length, 0);
+    const isNow = ym === DB.TODAY.slice(0, 7);
+    const monthWord = isNow ? "이번 달" : `${m}월`;
+    // 빈 달에서 «내역이 있는 달»로 한 번에 — 날짜 빈 상태의 nearestDate와 같은 규칙을 달 단위로 적용
+    const nearMonth = per.length ? null : (() => {
+      const ms = settleMonths(csUI.teacher === "all" ? null : csUI.teacher).sort();
+      return ms.find((x) => x > ym) || ms.slice().reverse().find((x) => x < ym) || null;
+    })();
+    return shell("c", "정산", `
+      ${monthNav(sel, "cs")}
+      <p class="muted" style="margin-bottom:12px">회원 수강확인이 끝난 회차만 집계돼요. 이의제기 중인 회차는 자동으로 보류되고 전송에서 빠져요.${isNow ? "" : " 지난 달은 조회·재확인용이에요."}</p>
+      <div class="card cs-sum"><div class="k">${y}년 ${m}월 합계${csUI.teacher === "all" ? "" : ` · ${teacher(csUI.teacher).name} 선생님`}</div>
         <div class="muted small mt4">확정 ${sumElig}회${sumHeld ? ` · <b style="color:var(--danger)">보류 ${sumHeld}건</b>` : ""}</div>
-        <div class="cs-total">${won(sumAmt)}</div></div>
+        <div class="cs-total">${won(sumAmt)}</div>
+        ${sumElig ? `<div class="cs-push">${sumUnpushed
+          ? `${sumPushed ? `${icb("link")}<span>샐리 전송 완료 <b>${sumPushed}회</b> · 아직 안 보낸 <b>${sumUnpushed}회</b>가 남았어요.</span>` : `${icb("clock")}<span>아직 샐리로 보내지 않았어요 — 확정 <b>${sumUnpushed}회</b>.</span>`}`
+          : `${icb("link")}<span><b>${monthWord} 확정분 ${sumPushed}회를 모두 샐리로 보냈어요.</b> 더 보낼 회차가 없어요.</span>`}</div>` : ""}</div>
       <div class="cb-filters">
         <div class="cb-frow"><span class="cb-flabel">선생님</span>${fchip("전체", csUI.teacher === "all", "App.csTeacher('all')")}${chipTeachers.map((t) => fchip(`${t.name} 선생님`, csUI.teacher === t.id, `App.csTeacher('${t.id}')`)).join("")}</div>
       </div>
@@ -3128,16 +3201,16 @@
             return x.pushed.length ? `추가 ${parts.join(" + ")} 보내기` : `샐리로 보내기 (${parts.join(" + ")})`;
           })()}</button>` : x.pushed.length ? "" : `<span class="muted small">보낼 확정 회차가 없어요.</span>`}
         </div></div>`).join("")}
-      ${per.length ? "" : `<div class="card flat"><div class="muted small">이 달에는 표시할 정산 내역이 없어요.</div></div>`}
-      ${csUI.teacher === "all" && per.length && hiddenN > 0 ? `<div class="card flat"><div class="muted small">이번 달 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
-      <button type="button" class="fold-head${open ? " on" : ""}" onclick="App.csDetail()" aria-expanded="${open}">날짜별 상세<span class="chev" aria-hidden="true">›</span></button>
-      ${open ? `
+      ${per.length ? "" : `<div class="card flat mb-empty"><div class="em">${IC.won}</div>
+        <p class="muted mt8"><b>${y}년 ${m}월</b>${csUI.teacher === "all" ? "" : ` · <b>${teacher(csUI.teacher).name} 선생님</b>`} 정산 내역이 없어요.<br>
+          ${csUI.teacher === "all" ? `이 달에는 수강확인이 끝난 회차가 없어요. 위 월 이동으로 다른 달을 볼 수 있어요.` : `이 선생님은 이 달에 확정된 회차가 없어요.`}</p>
+        ${csUI.teacher === "all" ? "" : `<button class="btn ghost mt12" onclick="App.csTeacher('all')">선생님 전체 보기</button>`}
+        ${nearMonth ? `<button class="btn ghost mt8" onclick="App.csGoto('${nearMonth}-01')">정산 내역이 있는 ${Number(nearMonth.slice(5))}월로 이동</button>` : ""}</div>`}
+      ${csUI.teacher === "all" && per.length && hiddenN > 0 ? `<div class="card flat"><div class="muted small">${y}년 ${m}월 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
+      ${per.length ? `<button type="button" class="fold-head${open ? " on" : ""}" onclick="App.csDetail()" aria-expanded="${open}">날짜별 상세<span class="chev" aria-hidden="true">›</span></button>` : ""}
+      ${open && per.length ? `
       <div class="card mb-cal">
-        <div class="mb-head">
-          <button class="mb-nav" onclick="App.csMonth(-1)" aria-label="이전 달">‹</button>
-          <button class="mb-month" onclick="App.csMonthSheet()">${y}년 ${m}월 <span class="car">▾</span></button>
-          <button class="mb-nav" onclick="App.csMonth(1)" aria-label="다음 달">›</button>
-        </div>
+        <div class="cs-calcap muted small">${y}년 ${m}월 · 날짜를 누르면 그 날 내역을 봐요</div>
         <div class="cb-dow">${["월", "화", "수", "목", "금", "토", "일"].map((w) => `<span>${w}</span>`).join("")}</div>
         <div class="cb-grid cs-grid">${cells.map(cell).join("")}</div>
         <div class="mb-legend cb-legend"><span><i class="cf"></i>확정</span><span><i class="au"></i>자동확정</span><span><i class="hd"></i>보류 (이의 심사 중)</span></div>
@@ -3148,9 +3221,9 @@
             <p class="muted mt8">이 날은 정산 내역이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.csDay('${near}')">정산 내역이 있는 가장 가까운 날 ${dlabel(near)}로 이동</button>` : ""}</div>`}` : ""}
       ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건은 수강확인이 안 돼 정산에 포함되지 않았어요. 노쇼 보상은 현재 <b>${rewardLabel}</b>이에요 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정에서 변경 ›</a></div></div>` : ""}
-      <div class="card"><div class="row" style="gap:12px"><span class="grow"><b>엑셀로 내려받기</b>
+      ${per.length ? `<div class="card"><div class="row" style="gap:12px"><span class="grow"><b>엑셀로 내려받기</b>
         <div class="muted small mt4">지금 화면 그대로 — <b>${y}년 ${m}월</b>${csUI.teacher === "all" ? "" : ` · <b>${teacher(csUI.teacher).name} 선생님</b>`} 정산 내역을 엑셀 파일로 저장해요. 이의 심사 중인 회차는 제외 표시가 붙고, 마지막 줄에 합계가 들어 있어요.</div></span>
-        <button class="btn sm" onclick="App.exportSettlement()">${ici("down")}내려받기</button></div></div>
+        <button class="btn sm" onclick="App.exportSettlement()">${ici("down")}내려받기</button></div></div>` : ""}
       <div class="banner">${icb("link")}<span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 확정된 회차만 넘겨요. 같은 회차는 여러 번 보내도 한 번만 반영되니 안심하고 누르세요.</span></div>`);
   }
   // ══ v2.29 §B14 (U12): 센터 «정책 설정» 2,707px 단일 스크롤 → 목록 → 상세 2단 ══
@@ -4621,13 +4694,14 @@
     },
     // v2.9: push 전 미리보기 모달 — 회차별 unitPrice(구매 시점 스냅샷)를 전송 페이로드 그대로 노출 (05 NormalizedSession)
     sallyPush(tid) {
-      const lines = DB.slines.filter((l) => l.teacherId === tid && l.status === "eligible" && !l.pushed);
-      const held = DB.slines.filter((l) => l.teacherId === tid && l.status === "held").length;
-      const rewards = rewardOn() && DB.policy.noshowRewardPush === "auto" ? noshowFinals(tid).filter((r) => !r.rewardPushed) : [];
+      const { ym, lines, held, rewards, already } = pushScope(tid);
       if (!lines.length && !rewards.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
       const groups = unitGroups(lines);
       const total = lines.reduce((a, l) => a + l.unitPrice, 0) + rewards.reduce((a, r) => a + noshowUnit(r), 0);
+      const [py, pm] = ym.split("-").map(Number);
       modal(`<h3>샐리 전송 미리보기 — ${teacher(tid).name} 선생님</h3>
+        <p class="ps-ym"><b>${py}년 ${pm}월</b> 정산분${ym === DB.TODAY.slice(0, 7) ? "" : " (지난 달)"}</p>
+        ${already.length ? `<div class="banner warn">${icb("alert")}<span>이 달은 이미 <b>${already.length}회</b>를 보냈어요 (${already[already.length - 1].pushId}). 지금 보내는 건 <b>그 뒤에 확정된 ${lines.length}회</b>뿐이고, 이미 보낸 회차는 다시 가지 않아요.</span></div>` : ""}
         <p>회차마다 <b>구매 시점의 회당 단가</b>가 그대로 전송돼요. 배분율·공제는 샐리가 계산해요.<br>같은 회차는 두 번 보내도 한 번만 반영돼요. 보낸 뒤 정정이 필요하면 샐리에서 처리해요.</p>
         <div class="pd-list">
           ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회</div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
@@ -4640,11 +4714,9 @@
     // 멱등 push — eligible & 미전송만, held 제외. P9-1 auto 모드면 노쇼 보상(rewardCodes)도 함께 전송
     sallyPushDo(tid) {
       closeModal(true);
-      const lines = DB.slines.filter((l) => l.teacherId === tid && l.status === "eligible" && !l.pushed);
-      const held = DB.slines.filter((l) => l.teacherId === tid && l.status === "held").length;
-      const rewards = rewardOn() && DB.policy.noshowRewardPush === "auto" ? noshowFinals(tid).filter((r) => !r.rewardPushed) : [];
+      const { ym, lines, held, rewards } = pushScope(tid);
       if (!lines.length && !rewards.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
-      const pid = "sly_" + tid + "_202608_" + seq++;
+      const pid = "sly_" + tid + "_" + ym.replace("-", "") + "_" + seq++;
       lines.forEach((l) => { l.pushed = true; l.pushId = pid; });
       // 전송 시점 금액 스냅샷 — 현재 정책 단가(noshowUnit: 고정 금액 또는 수업료 %·원 단위 반올림)로 확정
       rewards.forEach((r) => { r.rewardPushed = true; r.rewardPushId = pid; r.rewardAmount = noshowUnit(r); });
@@ -4653,7 +4725,7 @@
       const parts = [];
       if (lines.length) parts.push(`${lines.length}회`);
       if (rewards.length) parts.push(`노쇼 보상 ${rewards.length}건 · ${won(rewards.reduce((a, r) => a + r.rewardAmount, 0))}`);
-      toast(`${t.name} 선생님 ${parts.join(" + ")}를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. 같은 회차는 다시 보내도 중복 반영되지 않아요. (프로토타입 모의 전송)`);
+      toast(`${Number(ym.slice(5))}월 · ${t.name} 선생님 ${parts.join(" + ")}를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. 같은 회차는 다시 보내도 중복 반영되지 않아요. (프로토타입 모의 전송)`);
     },
     // v2.19: 정산 화면 «엑셀로 내려받기» — 화면 집계 그대로 .xlsx 저장, 마지막 행=합계
     exportSettlement() {
@@ -4743,14 +4815,14 @@
     cbTeacher(id) { cbUI.teacher = id; render(); },
     cbClass(id) { cbUI.cls = id; render(); },
     // v2.21: 정산 캘린더 — 날짜 선택·월 이동·월 시트·선생님 필터 (센터 예약 캘린더와 같은 문법)
-    teMonth(delta) { teUI.sel = monthSel(teUI.sel || DB.TODAY, delta); render(); }, // v2.30 C5
+    teMonth(delta) { teUI.sel = monthSelCapped(teUI.sel || DB.TODAY, delta); render(); }, // v2.30 C5 · v2.40 미래 달 상한
     teGoto(d) { teUI.sel = d; closeModal(); render(); },
-    teMonthSheet() { monthSheet((teUI.sel || DB.TODAY).slice(0, 7), "teGoto"); },
+    teMonthSheet() { monthSheet((teUI.sel || DB.TODAY).slice(0, 7), "teGoto", { months: settleMonths(DB.me.teacher), maxYm: capYm() }); },
     csDay(d) { csUI.sel = d; render(); },
-    csMonth(delta) { csUI.sel = monthSel(csUI.sel || DB.TODAY, delta); render(); }, // v2.30 C1
+    csMonth(delta) { csUI.sel = monthSelCapped(csUI.sel || DB.TODAY, delta); render(); }, // v2.30 C1 · v2.40 미래 달 상한
     csGoto(d) { csUI.sel = d; closeModal(); render(); },
     csDetail() { csUI.detail = !csUI.detail; render(); }, // §B13: «날짜별 상세» 접힘 섹션
-    csMonthSheet() { monthSheet((csUI.sel || DB.TODAY).slice(0, 7), "csGoto"); },
+    csMonthSheet() { monthSheet((csUI.sel || DB.TODAY).slice(0, 7), "csGoto", { months: settleMonths(csUI.teacher === "all" ? null : csUI.teacher), maxYm: capYm() }); },
     csTeacher(id) { csUI.teacher = id; render(); },
     scopeMember(tid, mid) {
       const S = (DB.policy.teacherScope || {})[tid];

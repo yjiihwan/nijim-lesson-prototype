@@ -657,3 +657,13 @@ button.stat:active { transform: scale(.97); }
 .flt-head { font-size: 13px; color: var(--text-muted); margin: 0 0 8px 2px; }
 .cfm-row { padding: 14px 4px; }
 .card.flat > .cfm-row + .cfm-row { border-top: 1px solid var(--border); }
+
+/* v2.40: 정산 월 이동 — 미래 달 상한(비활성) · 이번 달 표식 · 월 전송 상태 */
+.mb-nav[disabled] { opacity: .32; cursor: default; pointer-events: none; }
+.mn-now { font-size: 11px; font-weight: 700; color: var(--link); background: var(--surface-rose); border-radius: 6px; padding: 2px 6px; margin-left: 4px; vertical-align: 1px; }
+.te-cal .mb-head { margin-bottom: 0; }
+.cs-push { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+.cs-push .ic { flex-shrink: 0; margin-top: 1px; }
+.cs-push b { color: var(--text); }
+.cs-calcap { text-align: center; margin-bottom: 8px; font-weight: 700; }
+.ps-ym { margin: 0 0 8px; font-size: 14px; color: var(--text-muted); }
