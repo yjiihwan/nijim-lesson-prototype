@@ -140,6 +140,10 @@
    수업 개설·관리 권한은 «센터가 지정한 선생님»(classAuth.memberIds) 단일 경로만. policy.classAuth.productIds
    키·센터 설정 «자격 멤버십» UI·App.authProduct 삭제, 권한 없음 안내는 "센터관리자에게 수업 개설 권한을
    요청해야 해요"로 통일. ※ 수업별 «예약 자격(eligibility)»·«지정 가능 회원 범위(P2-2b)»는 별개 기능 — 유지.
+   v2.41 (2026-08-21 형 지시): 회원 «멤버십» 탭(#/m/pass) 삭제 — 홈 «내 멤버십» 섹션과 카드 캐러셀·구매
+   버튼이 완전 중복이었다. 화면(vMPass)·멤버십 상세정보(mpDetail: 멤버십 정보·센터정보)까지 전부 제거
+   (형 시정: «상세정보까지 그냥 다 지워»). 탭바 회원 3칸(홈·예약·내역), 홈 «전체 보기 ›» 링크 제거,
+   #/m/pass는 홈 리다이렉트(v2.37 #/m/bookings와 같은 처리). 홈 카드 캐러셀·«수업 멤버십 구매»는 유지.
 */
 (function () {
   const DB = window.DB;
@@ -984,14 +988,15 @@
   // ── 셸 렌더 ──
   const ROLE_LABEL = { m: "회원", t: "선생님", c: "센터" };
   const TABS = {
-    m: [["#/m/home", "홈"], ["#/m/book", "예약"], ["#/m/pass", "멤버십"], ["#/m/history", "내역"]],
+    // v2.41(형 지시 08-21): «멤버십» 탭 제거 — 홈 «내 멤버십» 섹션과 카드·구매 버튼이 완전 중복이었다.
+    m: [["#/m/home", "홈"], ["#/m/book", "예약"], ["#/m/history", "내역"]],
     // v2.36 §1(형 확정 08-20): «요청» 탭 제거 → «일정» 탭 안 세그먼트로 흡수. 모바일에서 5칸은 이미 빡빡했다.
     t: [["#/t/home", "오늘"], ["#/t/schedule", "일정"], ["#/t/report", "보고"], ["#/t/earnings", "정산"]],
     c: [["#/c/home", "홈"], ["#/c/classes", "수업"], ["#/c/bookings", "예약"], ["#/c/settlement", "정산"], ["#/c/policy", "설정"]],
   };
   // v2.10: 회원 탭 라인 아이콘 → v2.25 ④ 선생님·센터 탭도 같은 아이콘 체계로 통일(라벨 기준 공용 맵)
   const TAB_SVG = {
-    "홈": IC.home, "예약": IC.calCheck, "멤버십": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="5.5" width="18.4" height="13.5" rx="2.5"/><path d="M2.8 9.8h18.4M6.2 15h4.5"/></svg>`,
+    "홈": IC.home, "예약": IC.calCheck,   // v2.41: «멤버십» 탭 제거로 그 아이콘도 함께 삭제
     "내역": IC.receipt, "오늘": IC.today, "일정": IC.cal, "요청": IC.mail, "보고": IC.clip,
     "정산": IC.won, "수업": IC.bolt, "설정": IC.gear,   // v2.39 F10: users(사람)=회원 관리로 오독 → 세트 안 미사용 bolt로 교체
   };
@@ -1106,17 +1111,13 @@
   // v2.14: 실서비스 «내 멤버십» 카드 문법 — 시설명+핑크 원형 화살표 / 프로그램명 / 멤버십 라벨 /
   // 큰 잔여 숫자+작은 단위 / 회색 보조줄. 여러 장이면 페이징 캐러셀(이웃 카드 가장자리 노출).
   const myPasses = () => DB.passes.filter((p) => p.memberId === DB.me.member);
-  let mpIdx = 0; // 캐러셀 활성 카드 — 상세정보 동기용, «내 멤버십» 이탈 시 초기화(render)
   const mpDisc = (p) => p.listPrice != null && p.unitPrice < Math.floor(p.listPrice / p.total); // v2.9 구매 시점 스냅샷 기준 할인 판정
   const MP_ARROW = `<span class="mp-arrow" aria-hidden="true"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 1.6 6.8 5 3.2 8.4"/></svg></span>`;
+  // v2.41: cal·list는 «내 멤버십» 화면 전용이었다 — 화면 삭제로 함께 제거. 홈 구매 버튼의 ticket만 남는다.
   const MP_IC = {
-    cal: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 10h17M8 2.8v4M16 2.8v4"/></svg>`,
     ticket: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9V7a1.5 1.5 0 0 1 1.5-1.5h14A1.5 1.5 0 0 1 20.5 7v2a2.5 2.5 0 0 0 0 5v2a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 16v-2a2.5 2.5 0 0 0 0-5Z"/><path d="M14 6v2.4M14 11v2M14 15.6V18" stroke-dasharray="0.1 3.2"/></svg>`,
-    list: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5h14V20.5l-2.4-1.5-2.4 1.5-2.2-1.5-2.2 1.5-2.4-1.5L5 20.5Z"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.5"/></svg>`,
   };
   const mpStateLabel = (st) => ({ expired: "기간 만료", exhausted: "횟수 소진", frozen: "이용 정지" }[st] || null);
-  // 이 수업권으로 들을 수 있는 수업의 담당 선생님 (자격 상품 기준)
-  const mpTeachers = (p) => [...new Set(DB.classes.filter((c) => c.status !== "closed" && (c.eligibleProductIds || []).includes(p.productId)).map((c) => teacher(c.teacherId).name))];
   function mpCard(p) {
     const st = passState(p);
     const bad = mpStateLabel(st);
@@ -1132,41 +1133,7 @@
     </article>`;
   }
   function mpCarousel(ps) {
-    return `<div class="mp-carousel${ps.length === 1 ? " single" : ""}" onscroll="App.mpScroll(this)" onpointerdown="App.mpDrag(this, event)">${ps.map(mpCard).join("")}</div>`;
-  }
-  function mpDetail(p) {
-    if (!p) return "";
-    const bad = mpStateLabel(passState(p));
-    const dd = dday(p.expiresAt);
-    const ts = mpTeachers(p);
-    return `<div class="mp-info">
-      <b class="h">멤버십 정보</b>
-      <div class="l">멤버십명</div><div class="v">${p.name}</div>
-      <div class="l">수업 종류</div><div class="v">${p.kind === "private" ? "개인수업 1:1" : "그룹수업"}</div>
-      ${ts.length ? `<div class="l">담당 선생님</div><div class="v">${ts.join(" · ")} 선생님</div>` : ""}
-      <div class="l">잔여 횟수</div><div class="v">${p.remaining}회 / 총 ${p.total}회</div>
-      <div class="l">유효기간</div><div class="v">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")} 까지${dd != null && dd >= 0 ? ` (D-${dd})` : ""}` : "기간 제한 없음 · 횟수 소진 시까지"}</div>
-      <div class="l">회당 단가</div><div class="v">${won(p.unitPrice)}${mpDisc(p) ? ` — 할인 구매 (정가 회당 ${won(Math.floor(p.listPrice / p.total))})` : ""} · 구매 시점 기준</div>
-      ${p.purchasePrice != null ? `<div class="l">구매 금액</div><div class="v">${won(p.purchasePrice)}</div>` : ""}
-      <div class="l">이용 상태</div><div class="v">${bad ? `${bad} · 예약에 쓸 수 없어요` : "이용 가능"}</div>
-    </div>
-    <div class="mp-info">
-      <b class="h">센터정보</b>
-      <div class="l">센터명</div><div class="v">${DB.center.name}</div>
-      <div class="l">운영 상태</div><div class="v">정상 운영 중</div>
-    </div>`;
-  }
-  function vMPass() {
-    const ps = myPasses();
-    const cur = ps[Math.min(mpIdx, Math.max(0, ps.length - 1))];
-    return shell("m", "내 멤버십", `
-      ${ps.length ? `${mpCarousel(ps)}
-      <a class="mp-btn" href="#/m/book">${MP_IC.cal}수업 예약하기</a>
-      <div class="mp-sec">멤버십 상세정보</div>
-      <div id="mp-detail">${mpDetail(cur)}</div>
-      <a class="mp-btn" href="#/m/history">${MP_IC.list}이용 내역 보기</a>`
-      : `<div class="card flat mb-empty"><div class="em">${IC.ticket}</div><p class="muted mt8">보유한 멤버십이 없어요.</p></div>`}
-      <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>`, { center: true });
+    return `<div class="mp-carousel${ps.length === 1 ? " single" : ""}" onpointerdown="App.mpDrag(this, event)">${ps.map(mpCard).join("")}</div>`;
   }
   // v2.24 U2: «다가오는 예약»은 일시 오름차순 — 목록의 존재 이유가 "다음 수업이 언제냐"라서.
   // v2.24 U14: 이미 끝난 회차는 여기서 제외(myEnded로 분리) — 예정 목록에 취소 버튼을 달고 남으면 오조작 차감 분쟁.
@@ -1214,7 +1181,7 @@
     }).join("");
     return shell("m", "니짐내짐 레슨", `
       ${todoBlock("m", card)}
-      <div class="sec-title row">내 멤버십<a href="#/m/pass" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
+      <div class="sec-title row">내 멤버십</div>
       ${mpCarousel(myPasses())}
       <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>
       <div class="sec-title row">다가오는 예약<a href="#/m/book/mine" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
@@ -4830,19 +4797,6 @@
       S.memberIds = (S.memberIds || []).includes(mid) ? S.memberIds.filter((x) => x !== mid) : [...(S.memberIds || []), mid];
       render(); toast("지정 가능 회원 범위가 변경됐어요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.");
     },
-    // v2.14: 멤버십 캐러셀 — 스크롤 스냅 위치 → 활성 카드 판정, 상세정보 동기 (rAF 스로틀)
-    mpScroll(el) {
-      if (el._raf) return;
-      el._raf = requestAnimationFrame(() => {
-        el._raf = null;
-        const w = el.firstElementChild ? el.firstElementChild.offsetWidth + (parseFloat(getComputedStyle(el).columnGap) || 0) : 1;
-        const i = Math.max(0, Math.min(Math.round(el.scrollLeft / w), el.children.length - 1));
-        if (i === mpIdx) return;
-        mpIdx = i;
-        const d = document.getElementById("mp-detail");
-        if (d) d.innerHTML = mpDetail(myPasses()[i]);
-      });
-    },
     // v2.14: PC 마우스 드래그 스와이프 — 터치는 네이티브 스크롤(스냅)에 맡김
     mpDrag(el, e) {
       if (e.pointerType !== "mouse" || el.children.length < 2) return;
@@ -4867,7 +4821,6 @@
   const routes = [
     [/^#?\/?$/, vLanding],
     [/^#\/m\/home$/, vMHome],
-    [/^#\/m\/pass$/, vMPass],
     [/^#\/m\/shop$/, vMShop],
     [/^#\/m\/shop\/(.+)$/, vMShopDetail],
     // v2.37: 세그먼트는 해시에서 파생한다(#/m/book=캘린더 · #/m/book/mine=내 예약).
@@ -4918,7 +4871,6 @@
     { key: "cbUI", keepOn: (h) => h === "#/c/bookings" || h.startsWith("#/c/slot/"), reset: () => { cbUI = { sel: null, teacher: "all", cls: "all" }; } },
     { key: "csUI", keepOn: (h) => h === "#/c/settlement", reset: () => { csUI = { sel: null, teacher: "all", detail: false }; } },
     { key: "teUI", keepOn: (h) => h === "#/t/earnings", reset: () => { teUI = { sel: null }; } },
-    { key: "mpIdx", keepOn: (h) => h === "#/m/pass", reset: () => { mpIdx = 0; } },
     { key: "mcMore", keepOn: (h) => h.startsWith("#/m/class/"), reset: () => { mcMore = false; } }, // v2.39 F9
     { key: "bookPass", keepOn: () => false, reset: () => { bookPass = {}; } },
   ];
@@ -4927,8 +4879,10 @@
   // «내 수업 관리»는 일정 탭 하위 뷰로 흡수됐으므로 탭까지 맞춰서 보낸다.
   // v2.36: «요청» 탭·«받은 제안» 화면을 흡수했다. 알림 딥링크·즐겨찾기가 죽지 않게 라우트는 남기고 새 자리로 보낸다.
   // v2.37: 「예약 내역」(#/m/bookings) 화면도 예약 탭 «내 예약» 세그먼트(#/m/book/mine)로 흡수 — 옛 링크는 여기로.
+  // v2.41: «내 멤버십»(#/m/pass)도 홈으로 — 홈 «내 멤버십» 섹션이 그 자리를 그대로 대신한다.
   const REDIRECTS = { "#/t/quick": "#/t/create", "#/c/quick": "#/c/create", "#/t/classes": "#/t/schedule",
-    "#/t/inbox": "#/t/schedule", "#/m/proposals": "#/m/book/mine", "#/m/bookings": "#/m/book/mine" };
+    "#/t/inbox": "#/t/schedule", "#/m/proposals": "#/m/book/mine", "#/m/bookings": "#/m/book/mine",
+    "#/m/pass": "#/m/home" };
   function render() {
     const h0 = location.hash || "#/";
     if (REDIRECTS[h0]) {

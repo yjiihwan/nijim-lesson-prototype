@@ -427,11 +427,7 @@ button.stat:active { transform: scale(.97); }
 .mp-btn:active { transform: scale(.98); background: #e2e2e6; }
 .mp-btn svg { width: 21px; height: 21px; flex-shrink: 0; color: var(--cta); }
 .mp-status { text-align: center; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; margin: 22px 0 4px; }
-.mp-sec { font-size: 18px; font-weight: 800; letter-spacing: -0.015em; margin: 30px 0 12px; }
-.mp-info { background: var(--surface); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); margin-bottom: 12px; }
-.mp-info .h { display: block; font-size: 16px; font-weight: 800; }
-.mp-info .l { font-size: 13px; font-weight: 800; margin-top: 13px; }
-.mp-info .v { font-size: 14px; color: var(--text-muted); margin-top: 2px; }
+/* v2.41: .mp-sec/.mp-info(멤버십 상세정보)는 #/m/pass 삭제와 함께 제거 — 참조 0 */
 
 @media (min-width: 1024px) {
   body { padding: 32px 0; }
