@@ -636,3 +636,24 @@ button.stat:active { transform: scale(.97); }
 .ov-line .grow { min-width: 0; }
 .ov-line .t { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; }
 .ov-line .chev { flex-shrink: 0; font-size: 17px; font-weight: 700; color: var(--text-disabled); line-height: 1; }
+
+/* ══ v2.39 (형 지시 08-21): 데이터 누적 화면 공통 «검색 · 기간 필터» — 전 화면 동일 문법 ══ */
+/* 칩(카테고리)은 cb-chip 문법을, 검색·셀렉트는 pk-tools 문법을 그대로 따른다 — 새 모양을 만들지 않는다. */
+.flt { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+.flt-cats { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+.flt-cats::-webkit-scrollbar { display: none; }
+.flt-cat { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 8px 13px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); font-size: 13px; font-weight: 600; color: var(--text-muted); white-space: nowrap; transition: transform .12s var(--ease-out), background .15s ease, color .15s ease, border-color .15s ease; }
+.flt-cat:active { transform: scale(.95); }
+.flt-cat.on { background: var(--surface-rose); border-color: var(--cta); color: var(--cta); font-weight: 700; }
+.flt-cat i { font-style: normal; font-size: 11px; font-weight: 700; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--border); color: var(--text-muted); display: inline-flex; align-items: center; justify-content: center; }
+.flt-cat.on i { background: var(--cta); color: #fff; }
+.flt-tools { display: flex; gap: 8px; }
+.flt-tools input[type=search] { flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: 10px; padding: 10px 12px; background: var(--surface); font-size: 14px; color: var(--text); }
+.flt-tools select { width: 118px; flex-shrink: 0; border: 1px solid var(--border-strong); border-radius: 10px; padding: 10px 6px; background: var(--surface); font-size: 13px; color: var(--text); }
+.flt-range { display: flex; align-items: center; gap: 8px; }
+.flt-range input[type=date] { flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: 10px; padding: 9px 10px; background: var(--surface); font-size: 13px; color: var(--text); }
+.flt-range span { flex-shrink: 0; font-size: 13px; color: var(--text-muted); }
+.flt-cnt { font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin: 0 0 8px 2px; }
+.flt-head { font-size: 13px; color: var(--text-muted); margin: 0 0 8px 2px; }
+.cfm-row { padding: 14px 4px; }
+.card.flat > .cfm-row + .cfm-row { border-top: 1px solid var(--border); }
