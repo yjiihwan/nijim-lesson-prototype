@@ -165,6 +165,20 @@
    다가오는 예약의 상위집합이라, 거기에 또 얹으면 v2.29 «강조 블록 1개» 원칙이 깨진다(캘린더 세그에만 표시).
    홈 탭 배지(해야 할 일 N)도 예약 탭으로 이동(회원만 — 선생님·센터 홈 배지는 v2.29 §A1-4 그대로).
    섹션·카드·문구·데이터 전부 무변경 — 위치 이동만.
+   v2.46 (2026-08-23 형 피드백 «잘라서 때려박은 것 같다» → 시정: 구조는 하위카테고리 분할도 허용, 사용자
+   관점 최적화): 회원 예약 탭 재설계 — v2.44가 홈 블록(해야 할 일·다가오는 예약·수업 예약하기)을 캘린더 세그
+   위에 원형째 얹어 캘린더가 밀리고 «내 예약» 세그와 내용이 중복됐다. 세그가 각자 한 가지 일만 갖게 재배분:
+   ① 세그 [내 예약(기본) | 예약하기] — «내 예약»이 기본·첫번째(원지시 우선순위: 해야 할 일 > 다가오는 예약 >
+     탐색·예약). 탭 진입 = #/m/book/mine, 배지도 같은 곳. «다가오는 예약» 요약 블록은 삭제 — «내 예약»의
+     «확정 예약» 카테고리가 같은 데이터의 상위집합(액션 포함)이라 중복이었다. 랜딩: 답변 필요가 있으면 need,
+     없으면 act(=다가오는 예약)라 우선순위 ①②가 탭 한 번으로 충족된다.
+   ② 수강확인 카드(mConfirmCardHtml)는 «내 예약» 본문 최상단으로 — «강조 블록 1개»(v2.29) 위치. 카드가
+     대신하는 confirm_wait 행은 «답변 필요» 목록에서 제외(중복 금지). #/m/confirms(3건+ 건별 확인) 흐름 유지.
+   ③ «예약하기» 세그 = 순수 예약 퍼널(캘린더→그날 수업→수시 일정). 홈 잔재 없음. «수업 예약하기» 버튼 삭제 —
+     캘린더로 스크롤하는 게 일이었는데 이제 캘린더가 바로 아래라 할 일이 없다. 캘린더 «내 예약» 점은 유지 —
+     예약 중 내 일정 겹침 확인용 단일 표식(같은 화면의 목록 중복이 사라져 점의 존재 이유가 살아난다).
+     해야 할 일이 있으면 상단에 요약 1행(todo-row 문법)만 — 탭하면 «내 예약»으로.
+   ④ 화면 제목 «수업 예약»→«예약»(탭 라벨과 통일). todoItems("m")는 배지 집계·요약 행 계산에만 쓴다.
 */
 (function () {
   const DB = window.DB;
@@ -1012,7 +1026,8 @@
   const ROLE_LABEL = { m: "회원", t: "선생님", c: "센터" };
   const TABS = {
     // v2.41(형 지시 08-21): «멤버십» 탭 제거 — 홈 «내 멤버십» 섹션과 카드·구매 버튼이 완전 중복이었다.
-    m: [["#/m/home", "홈"], ["#/m/book", "예약"], ["#/m/history", "내역"]],
+    // v2.46: 예약 탭 진입 = «내 예약» 세그(#/m/book/mine) — 해야 할 일·다가오는 예약이 먼저 보인다.
+    m: [["#/m/home", "홈"], ["#/m/book/mine", "예약"], ["#/m/history", "내역"]],
     // v2.36 §1(형 확정 08-20): «요청» 탭 제거 → «일정» 탭 안 세그먼트로 흡수. 모바일에서 5칸은 이미 빡빡했다.
     t: [["#/t/home", "오늘"], ["#/t/schedule", "일정"], ["#/t/report", "보고"], ["#/t/earnings", "정산"]],
     // v2.43(형 확정 08-23): «예약» 탭 제거 → «수업» 탭 안 세그먼트로 흡수(선생님 v2.36과 같은 패턴). 5칸→4칸.
@@ -1032,7 +1047,7 @@
     // v2.29 §A1-4 (U11): 홈 탭 배지 = 그 역할 홈의 «해야 할 일» N. 다른 계산식 금지 — 3역할 공통.
     // v2.44: 회원만 예외 — «해야 할 일» 블록이 예약 탭으로 이사해서 배지도 같이 간다(배지=블록 위치, 계산식은 동일).
     const mAlerts = todoN(role);
-    const todoTab = role === "m" ? "#/m/book" : tabs.length ? tabs[0][0] : "";
+    const todoTab = role === "m" ? "#/m/book/mine" : tabs.length ? tabs[0][0] : "";
     // v2.36 §1: «요청»이 탭에서 사라진 대신, 선생님 «일정» 탭에 «답변 대기 건수»를 단다.
     // 홈 배지(전체 과업 N)만으로는 «답할 요청이 몇 건인지»를 탭바에서 알 수 없어졌기 때문 — 흡수의 대가를 여기서 메운다.
     const tabBadge = (h) => (h === todoTab ? mAlerts : role === "t" && h === "#/t/schedule" ? tPendingArrs().length : 0);
@@ -1176,10 +1191,10 @@
   function myEnded() {
     return upcomingBase().filter((b) => isPast(slot(b.slotId))).sort((a, b) => bkAt(b) - bkAt(a));
   }
-  // ── v2.44: 아래 두 조각은 홈에서 예약 탭(캘린더 세그)으로 이사했다 — 내용·문구 무변경, 위치만. ──
+  // ── v2.46: 수강확인 카드는 «내 예약» 세그 본문 최상단에 산다 — «강조 블록 1개»(v2.29) 자리. ──
   // S-1: 확인 카드는 pending 보고가 실존하는 confirm_wait 예약에만 (v2.13: 원탭 확인 카드)
-  // v2.29 §A1: 상단 알림 3종(확인 카드·노쇼 배너·제안 배너) → «해야 할 일» 블록 1개로 통합.
-  // 최우선 1건만 강조 카드로 남기고 나머지는 같은 문법의 요약 행. 3건+ 스태킹은 v2.23 문법 그대로(변경 금지).
+  // 카드가 대신하는 confirm_wait 행은 «답변 필요» 목록에서 뺀다(중복 금지, mBookingsBody).
+  // 3건+ 스태킹(#/m/confirms 건별 확인)은 v2.23 문법 그대로(변경 금지).
   function mConfirmCardHtml() {
     const confirmWait = myConfirmWait();
     const auto = DB.policy.autoConfirmHours;
@@ -1205,32 +1220,9 @@
       </div>`;
     }).join("");
   }
-  // «다가오는 예약» 요약 + «수업 예약하기» — 예약 탭 캘린더 세그 전용(«내 예약» 세그엔 «확정 예약»이 있어 중복 금지).
-  // 버튼은 같은 화면 아래 캘린더로 스크롤한다 — 홈에 있을 땐 예약 탭으로 보내는 링크였다.
-  function mUpcomingHtml() {
-    const upcoming = myUpcoming();
-    const arrs = mArrs().filter((a) => a.memberId === DB.me.member && a.status === "pending");
-    return `<div class="sec-title row">다가오는 예약<a href="#/m/book/mine" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
-      <div class="card flat">${(() => {
-        // v2.24 U2: 예약(확정·대기)과 조율 희망일을 한 시간축에 병합해 오름차순.
-        // v2.24 U3: 행 전체를 탭하면 그 회차 상세로 — 취소·변경 동선의 입구(조율 건은 «내 예약»으로).
-        const rows = upcoming.map((b) => {
-          const s = slot(b.slotId); const c = cls(s.classId); const bd = mBkBadge(b);
-          return { at: slotAt(s), html: `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/slot/${s.id}'"><span class="time">${s.time}</span>
-          <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(s.date)} · ${teacher(c.teacherId).name} 선생님</div>${subHtml(bd)}</span>
-          ${mOverlapBadge(b)}<span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>` };
-        }).concat(arrs.map((a) => {
-          const c = cls(a.classId); const bd = mArrBadge(a);
-          return { at: new Date(`${a.date}T${a.time}:00+09:00`), html: `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/m/book/mine'"><span class="time">${a.time}</span>
-          <span class="grow"><span class="t">${c.title}</span><div class="muted small">${dlabel(a.date)} 희망</div>${subHtml(bd)}</span>
-          <span class="badge ${bd.badge}">${bd.label}</span><span class="chev" aria-hidden="true">›</span></div>` };
-        })).sort((x, y) => x.at - y.at);
-        return rows.length ? rows.map((r) => r.html).join("") : `<p class="muted">예약이 없어요.</p>`;
-      })()}</div>
-      <button class="btn primary mt8" onclick="App.mbScrollCal()">수업 예약하기</button>`;
-  }
+  // v2.46: «다가오는 예약» 요약 블록(mUpcomingHtml)은 삭제 — «내 예약»의 «확정 예약» 카테고리가
+  // 같은 데이터의 상위집합(멤버십·취소·변경 액션 포함)이라 요약을 따로 두면 v2.44의 중복이 되살아난다.
   // v2.44(형 지시 08-23): 홈 = «내 멤버십»만 — 실서비스 «내 멤버십» 화면에 그대로 끼워넣는 구조.
-  // «해야 할 일»·«다가오는 예약»·«수업 예약하기»는 예약 탭으로 이사(mConfirmCardHtml·mUpcomingHtml).
   function vMHome() {
     return shell("m", "니짐내짐 레슨", `
       <div class="sec-title row">내 멤버십</div>
@@ -1379,18 +1371,27 @@
       <button class="mb-nav" onclick="App.${prefix}Month(1)" aria-label="다음 달"${atMax ? ' disabled aria-disabled="true" title="이번 달까지만 볼 수 있어요"' : ""}>›</button>
     </div></div>`;
   }
-  // v2.25 ⑤ (형 확정 A): 예약 탭 최상단 [캘린더 | 내 예약] 세그먼트.
-  // v2.37 (형 확정 A안): «내 예약» = 옛 「예약 내역」과 같은 렌더(mBookingsBody) — 4섹션·액션 버튼 그대로.
-  // 예약 목록 진입은 이 세그먼트 하나뿐이다. 축소판을 다시 만들면 중복이 되살아난다.
-  let mBookTab = "cal";
+  // v2.25 ⑤ (형 확정 A): 예약 탭 최상단 세그먼트. v2.37 (형 확정 A안): «내 예약» = 옛 「예약 내역」과
+  // 같은 렌더(mBookingsBody) — 4섹션·액션 버튼 그대로. 예약 목록 진입은 이 세그먼트 하나뿐이다.
+  // v2.46: [내 예약(기본) | 예약하기] — 라벨을 일 이름으로(«캘린더»는 위젯 이름이었다), 내 것이 먼저.
+  let mBookTab = "mine";
   function vMBookSeg() {
     return `<div class="seg book-seg" role="tablist">
-      <button role="tab" aria-selected="${mBookTab === "cal"}" class="${mBookTab === "cal" ? "on" : ""}" onclick="App.mbTab('cal')">캘린더</button>
       <button role="tab" aria-selected="${mBookTab === "mine"}" class="${mBookTab === "mine" ? "on" : ""}" onclick="App.mbTab('mine')">내 예약</button>
+      <button role="tab" aria-selected="${mBookTab === "cal"}" class="${mBookTab === "cal" ? "on" : ""}" onclick="App.mbTab('cal')">예약하기</button>
     </div>`;
   }
+  // «예약하기» 세그 상단 요약 1행 — 해야 할 일이 있을 때만. 전체 블록을 얹지 않는다(내용은 «내 예약»에 있다).
+  function mTodoHintHtml() {
+    const items = todoItems("m");
+    if (!items.length) return "";
+    const n = items.reduce((a, x) => a + x.n, 0);
+    const bad = items.some((x) => x.tier === "bad");
+    return `<div class="card flat todo-card"><button type="button" class="todo-row${bad ? " bad" : ""}" onclick="App.mbTab('mine')">
+      <span class="ic">${IC[bad ? "alert" : "clip"]}</span><span class="tr-t">확인이나 답변이 필요한 일이 있어요</span><span class="tr-n">${n}건</span><span class="chev" aria-hidden="true">›</span></button></div>`;
+  }
   function vMBook() {
-    if (mBookTab === "mine") return shell("m", "수업 예약", vMBookSeg() + mBookingsBody());
+    if (mBookTab === "mine") return shell("m", "예약", vMBookSeg() + mBookingsBody());
     const sel = mBookSel || (mBookSel = DB.TODAY);
     const days = Array.from({ length: 7 }, (_, i) => addDays(mbWeekStart(sel), i));
     const selDt = new Date(sel + "T12:00:00+09:00");
@@ -1414,10 +1415,9 @@
         </span>
         <span class="chev" aria-hidden="true">›</span></div>`;
     };
-    return shell("m", "수업 예약", `
+    return shell("m", "예약", `
       ${vMBookSeg()}
-      ${todoBlock("m", mConfirmCardHtml())}
-      ${mUpcomingHtml()}
+      ${mTodoHintHtml()}
       <div class="card mb-cal">
         <div class="mb-head">
           <button class="mb-nav" onclick="App.mbWeek(-1)" aria-label="이전 주">‹</button>
@@ -1593,7 +1593,10 @@
     const mine = myBk();
     const act = myUpcoming();
     const ended = myEnded();
-    const need = mine.filter((b) => ["confirm_wait", "noshow_wait"].includes(b.status));
+    // v2.46: 수강확인 대기(cw)는 최상단 강조 카드(mConfirmCardHtml)가 맡는다 — 목록엔 같은 건을 다시 넣지
+    // 않는다. pending 보고가 없는 confirm_wait 잔여 건만 행으로 남긴다(카드 조건 S-1에 안 걸리는 경우).
+    const cw = myConfirmWait();
+    const need = mine.filter((b) => ["confirm_wait", "noshow_wait"].includes(b.status) && !cw.includes(b));
     const waitCenter = mine.filter((b) => b.status === "disputed");
     const past = mine.filter((b) => ["canceled", "forfeited", "confirmed", "restored", "class_closed", "noshow_final"].includes(b.status) || (slot(b.slotId).status === "canceled" && b.status === "booked"));
     const props = myProps().filter((p) => negoState(p) === "pending");          // 선생님이 보낸 제안 — 내가 답할 것
@@ -1659,16 +1662,18 @@
     const cats = [
       { k: "need", label: "답변 필요", items: needItems, empty: "지금 답할 일이 없어요. 새 요청이나 제안이 오면 여기에 모여요." },
       { k: "act", label: "확정 예약", items: act.map((b) => bkIt(b, true)).sort(asc),
-        empty: "다가오는 예약이 없어요. 위 «캘린더»에서 수업을 골라 예약해 보세요." },
+        empty: "다가오는 예약이 없어요. 위 «예약하기»에서 수업을 골라 예약해 보세요." },
       { k: "sent", label: "보낸 요청", items: sent.map((a) => negoIt(a, sentItem(a))).sort(asc),
         empty: "선생님에게 보낸 요청이 없어요.",
         note: "선생님이 수락하면 알려드릴게요. 마음이 바뀌면 «요청 취소»를 누르면 돼요. 변경 요청은 거절돼도 원래 예약과 남은 횟수는 그대로예요." },
       { k: "past", label: "지난 예약", items: pastItems, empty: "지난 예약이 아직 없어요.",
         note: ended.length ? "수업 시각이 지난 회차는 선생님이 완료 보고를 하면 «답변 필요»로 올라와요." : "" },
     ];
+    // v2.46: 순서 = 강조 카드(있을 때) → 안내 한 줄 → 카테고리·검색. 시급한 액션이 항상 첫 화면이다.
     return `
-      <p class="muted" style="margin-bottom:12px">예약과 선생님과 주고받은 «시간 얘기»가 모두 여기 모여 있어요. 멤버십 증감 기록은 «내역» 탭에서 볼 수 있어요.</p>
       <div id="m-need"></div>
+      ${mConfirmCardHtml()}
+      <p class="muted" style="margin-bottom:12px">예약과 선생님과 주고받은 «시간 얘기»가 모두 여기 모여 있어요. 멤버십 증감 기록은 «내역» 탭에서 볼 수 있어요.</p>
       ${fltHtml("m-mine", { cats, ph: "수업명·선생님 검색", initial: () => (needCount ? "need" : "act") })}`;
   }
   function vMConfirm(id) {
@@ -4849,7 +4854,6 @@
     // v2.25 ⑤: 예약 탭 [캘린더 | 내 예약] 전환
     mbTab(k) { history.replaceState(null, "", k === "mine" ? "#/m/book/mine" : "#/m/book"); render(); },
     // v2.44: «수업 예약하기»(예약 탭 상단 요약 아래) — 같은 화면의 캘린더로 스크롤
-    mbScrollCal() { const el = document.querySelector(".mb-cal"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); },
     // v2.43: 센터 «수업» 탭 세그 — mbTab과 같은 해시 파생 문법
     cTab(k) { history.replaceState(null, "", k === "manage" ? "#/c/classes/manage" : "#/c/classes"); render(); },
     // v2.11: 회원 예약 캘린더 — 날짜 선택·주 이동·월 이동
