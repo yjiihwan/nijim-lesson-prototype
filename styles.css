@@ -663,3 +663,79 @@ button.stat:active { transform: scale(.97); }
 .cs-push b { color: var(--text); }
 .cs-calcap { text-align: center; margin-bottom: 8px; font-weight: 700; }
 .ps-ym { margin: 0 0 8px; font-size: 14px; color: var(--text-muted); }
+
+/* ══ v2.45 센터(role-c) 반응형 — 태블릿(≥768)·PC(≥1024·기준 1440) ══
+   회원(role-m)·선생님(role-t)은 모바일 전용이라 이 섹션의 모든 규칙은 .role-c 스코프.
+   전략: <768 모바일 1단(무변경) / 768~1023 콘텐츠 폭 768 1단+그리드 확장 /
+   ≥1024 좌측 사이드 내비+본문, 화면별 2단(cw2) / ≥1280 셸 1200·여백 확대. */
+
+/* cw2 = 화면별 2단 래퍼 — 모바일·태블릿에선 그냥 블록(시각 무변경), PC(≥1024)에서만 grid 2단 */
+.cw2 > div > .sec-title:first-child { margin-top: 22px; } /* 래핑으로 first-child가 되어도 모바일 간격 보존 */
+
+@media (min-width: 768px) {
+  .shell.role-c { max-width: 768px; }
+  .role-c .screen { padding: 20px 28px 32px; }
+  /* 스탯·바로가기: 2열 고정 → 칸 수 자동 (홈 지표 2장=2열, 바로가기 4장=4열) */
+  .role-c .stat-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  /* 넓은 화면에서 풀폭 버튼이 확대만 되지 않게 상한 — 2열 버튼(btn-row)은 균등분할 유지 */
+  .role-c .screen .btn { max-width: 420px; }
+  .role-c .screen .btn-row .btn, .role-c .screen .mb-empty .btn { max-width: none; }
+  .role-c .seg.book-seg { max-width: 420px; }
+  .role-c .flt-tools { max-width: 640px; }
+  .role-c .flt-tools select { width: 150px; }
+  /* 캘린더 셀 — 여유 폭만큼 시원하게 */
+  .role-c .cb-grid, .role-c .cb-dow { gap: 6px; }
+  .role-c .cb-day { padding: 9px 0 8px; }
+  .role-c .cb-day .dn { width: 30px; height: 30px; font-size: 15px; }
+  .role-c .modal { max-width: 560px; }
+  /* 수업·상품·겹침 카드 목록 = 자동 채움 그리드 (모바일에선 .cards가 그냥 블록) */
+  .role-c .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: stretch; }
+  .role-c .cards > .card { margin-bottom: 0; height: 100%; }
+}
+
+@media (min-width: 1024px) {
+  /* 앱형 풀폭 크롬 — 전역 1024 규칙(모바일 셸 목업 프레임)을 센터에선 해제 */
+  body:has(> .role-c) { padding: 0; }
+  .shell.role-c { max-width: 900px; border-radius: 0; min-height: 100vh; box-shadow: 0 0 0 1px var(--border); }
+  /* 탭바가 있는 메인 화면 = 좌측 내비 rail + 본문 그리드 */
+  .shell.role-c:has(> .tabbar) { max-width: 1120px; display: grid; grid-template-columns: 228px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .shell.role-c:has(> .tabbar) > .hd { grid-column: 2; grid-row: 1; }
+  .shell.role-c:has(> .tabbar) > .screen { grid-column: 2; grid-row: 2; }
+  .role-c .tabbar { grid-column: 1; grid-row: 1 / -1; position: sticky; top: 0; bottom: auto; align-self: start; height: 100vh;
+    margin: 0; width: 100%; max-width: none; display: flex; flex-direction: column; justify-content: flex-start; gap: 4px;
+    padding: 18px 14px; border-radius: 0; border: 0; border-right: 1px solid var(--border); box-shadow: none; background: rgba(255,255,255,.94); }
+  .role-c .tabbar::before { content: "센터 관리"; font-size: 12px; font-weight: 800; letter-spacing: .02em; color: var(--text-muted); padding: 4px 14px 10px; }
+  .role-c .tab { flex: 0 0 auto; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; font-size: 14.5px; }
+  .role-c .tab.on { background: var(--surface-rose); }
+  .role-c .tab .ic svg { width: 21px; height: 21px; }
+  .role-c .screen { padding: 24px 32px 40px; }
+  .role-c .hd-in { padding: 14px 32px; }
+  .role-c .hd-title { font-size: 19px; }
+  /* 모달: 바텀 시트 → 중앙 다이얼로그 (스프링 진입·드래그 디스미스는 그대로 동작).
+     전역 1024 규칙의 absolute는 긴 화면에서 문서 기준으로 밀려나므로 뷰포트 고정으로 복원 */
+  .role-c .modal-wrap { position: fixed; align-items: center; }
+  .role-c .modal { max-width: 560px; border-radius: 22px; padding-bottom: 24px; }
+  .role-c .modal::before { display: none; } /* 시트 오버슈트용 하단 스커트 — 다이얼로그에선 흰 꼬리로 보임 */
+  .role-c .toast { position: fixed; bottom: 48px; }
+  /* 화면별 2단 배치 */
+  .role-c .cw2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; align-items: start; }
+  .role-c .cw2.one { grid-template-columns: minmax(0, 1fr); } /* 한쪽 열이 빌 때(홈 «해야 할 일» 0건) */
+  .role-c .cw2 > div > .sec-title:first-child { margin-top: 4px; }
+  .role-c .cw2 > div > .fold-head:first-child { margin-top: 0; }
+  /* 예약 현황: 좌=필터+캘린더(고정폭) · 우=선택 날짜 리스트 */
+  .role-c .cw2.cw-cal { grid-template-columns: minmax(360px, 460px) minmax(0, 1fr); }
+  /* 넓은 본문에서 폼 요소·버튼열이 확대만 되지 않게 상한 (라벨·카드는 그대로) */
+  .role-c .field :is(input, select, textarea) { max-width: 640px; }
+  .role-c .field .seg { max-width: 640px; }
+  .role-c .screen .btn-row { max-width: 640px; }
+  /* 필터 칩: 가로 스크롤 대신 줄바꿈 — PC에선 잘린 칩이 «없는 옵션»으로 읽힌다 */
+  .role-c .cb-frow { flex-wrap: wrap; overflow: visible; }
+}
+
+@media (min-width: 1280px) {
+  .shell.role-c { max-width: 960px; }
+  .shell.role-c:has(> .tabbar) { max-width: 1200px; grid-template-columns: 240px minmax(0, 1fr); }
+  .role-c .screen { padding: 28px 40px 48px; }
+  .role-c .hd-in { padding: 14px 40px; }
+  .role-c .cw2 { gap: 0 32px; }
+}

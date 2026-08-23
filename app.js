@@ -2384,14 +2384,14 @@
         <div class="stat"><div class="k">오늘 수업</div><div class="v">${todaySlots.length}<small>회</small></div></div>
         <div class="stat"><div class="k">예약률 (예정 회차)</div><div class="v">${rate}<small>%</small></div></div>
       </div>
-      ${todoBlock("c")}
-      <div class="sec-title">바로가기</div>
+      <div class="cw2${todoBlock("c") ? "" : " one"}">${todoBlock("c") ? `<div>${todoBlock("c")}</div>` : ""}
+      <div><div class="sec-title">바로가기</div>
       <div class="stat-grid">
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/create'"><div class="k">수업</div><div class="v" style="font-size:15px">${ici("plus")}수업 만들기</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/confirms'"><div class="k">수강확인</div><div class="v" style="font-size:15px">${ici("clip")}수강확인 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/products'"><div class="k">판매</div><div class="v" style="font-size:15px">${ici("ticket")}수업상품 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/settlement'"><div class="k">월말</div><div class="v" style="font-size:15px">${ici("won")}정산·샐리 전송</div></button>
-      </div>`);
+      </div></div></div>`);
   }
   // v2.9: 실구매가 → 회당 단가 스냅샷 미리보기 문구 (판매·등록 폼과 App.sellPreview가 공유)
   function sellUnitText(p, price) {
@@ -2404,13 +2404,15 @@
   function vCProducts() {
     const p0 = DB.products[0];
     return shell("c", "수업상품 관리", `
+      <div class="cw2"><div>
       <div class="sec-title" style="margin-top:4px">판매 중인 멤버십 상품</div>
       ${fltHtml("c-products", { dated: false, ph: "상품명 검색",
-        cats: [{ k: "all", label: "멤버십 상품", empty: "등록된 상품이 없어요. 아래 «새 상품 개설»로 만들어 주세요.", wrap: (rows) => rows,
+        cats: [{ k: "all", label: "멤버십 상품", empty: "등록된 상품이 없어요. 아래 «새 상품 개설»로 만들어 주세요.", wrap: (rows) => `<div class="cards">${rows}</div>`,
           items: DB.products.map((p) => ({ txt: `${p.name} ${p.kind === "private" ? "개인" : "그룹"} ${p.sessions}회`, date: null,
             html: `<div class="card"><div class="row"><span class="grow"><b>${p.name}</b>
               <div class="muted small mt4">${p.kind === "private" ? "개인" : "그룹"} · ${p.sessions}회 · ${p.validityDays ? p.validityDays + "일" : "기간 제한 없음"}</div></span>
               <b>${won(p.price)}</b></div></div>` })) }] })}
+      </div><div>
       <div class="sec-title">멤버십 판매·등록</div>
       <div class="card">
         <div class="field"><label>회원</label>${pickerHtml("sell-mem", { multi: false, pool: DB.members.filter((m) => !m.staff) })}</div>
@@ -2435,7 +2437,8 @@
           <div class="hint">기간 없이 횟수만으로 운영하는 센터 방식도 지원해요.</div></div>
         <button class="btn primary" onclick="App.createProduct()">상품 개설</button>
       </div>
-      <p class="muted small">이미 판매된 멤버십은 구매한 시점의 조건 그대로 보존돼요. 환불·이용정지 처리는 호스트 앱(CRM) 결제·회원 관리와 연동돼요.</p>`, { back: true });
+      <p class="muted small">이미 판매된 멤버십은 구매한 시점의 조건 그대로 보존돼요. 환불·이용정지 처리는 호스트 앱(CRM) 결제·회원 관리와 연동돼요.</p>
+      </div></div>`, { back: true });
   }
   // ── v2.4: 대규모 회원 «검색 기반 선택» 공통 컴포넌트 (형 지적 08-17: 수천 명 센터 — 칩 전체 나열 금지) ──
   // 사용처: 수업 만들기·수정 «지정 회원»(nc-mems/ec-mems), «바로 확정» 회원(qk-member), P2-2b 개별 회원(scope-*).
@@ -2737,7 +2740,7 @@
       <div class="sec-title">${isT ? "내 수업" : "수업 목록"} <span class="muted small" style="font-weight:600">— 눌러서 수정·폐강</span></div>
       ${fltHtml(role + "-classes", { cats: [{ k: "all", label: isT ? "내 수업" : "수업 목록",
           empty: isT ? "담당 수업이 없어요. «수업 만들기»로 첫 수업을 만들어 보세요." : "등록된 수업이 없어요.",
-          wrap: (rows) => rows,   // 수업 카드는 카드 그 자체 — 감싸지 않는다
+          wrap: (rows) => `<div class="cards">${rows}</div>`,   // 수업 카드 목록 — 센터 넓은 화면에선 그리드(.cards), 모바일에선 시각 무변경
           items: list.map((c) => ({ txt: `${c.title} ${teacher(c.teacherId).name} ${c.scheduleLabel} ${eligLabel(c)} ${c.status === "closed" ? "폐강" : ""}`,
             date: clsNextDate(c), html: card(c) })) }],
         ph: "수업명·선생님 검색" })}`;
@@ -2775,8 +2778,8 @@
     return shell(role, "시간이 겹친 수업", `
       <p class="muted" style="margin-bottom:12px">같은 선생님의 수업 시간이 서로 겹치는 회차예요. 겹쳐도 진행은 되지만, <b>실수로 만든 겹침</b>이면 시간을 바꿔 주세요.</p>
       ${fltHtml(role + "-overlaps", { ph: "선생님·수업명 검색", initial: () => "open", cats: [
-        { k: "open", label: "처리 필요", items: open.map(pIt).sort(byDate), wrap: (rows) => rows, empty: "«해야 할 일»에 올라온 겹침이 없어요." },
-        { k: "ign", label: "의도한 겹침", items: ignored.map(pIt).sort(byDate), wrap: (rows) => rows, empty: "«의도한 겹침»으로 내려둔 건이 없어요.",
+        { k: "open", label: "처리 필요", items: open.map(pIt).sort(byDate), wrap: (rows) => `<div class="cards">${rows}</div>`, empty: "«해야 할 일»에 올라온 겹침이 없어요." },
+        { k: "ign", label: "의도한 겹침", items: ignored.map(pIt).sort(byDate), wrap: (rows) => `<div class="cards">${rows}</div>`, empty: "«의도한 겹침»으로 내려둔 건이 없어요.",
           note: "«해야 할 일»에서는 내렸어요. 회차의 «시간 겹침» 배지는 그대로 남아 있어요." },
       ] })}
       <div class="banner">${icb("info")}<span>«이 겹침은 의도한 거예요»를 누르면 그 <b>겹침 쌍</b>만 «해야 할 일»에서 내려가요. 배지·경고는 그대로라 나중에도 겹침인 걸 알 수 있어요.</span></div>`, { back: true });
@@ -2889,6 +2892,7 @@
     return `
       ${arrs.length ? `<div class="sec-title" style="margin-top:4px">일정 요청 (선생님 수락 대기) <span class="badge b-warn">${arrs.length}건</span></div>
       <div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
+      <div class="cw2 cw-cal"><div>
       <div class="cb-filters">
         <div class="cb-frow"><span class="cb-flabel">선생님</span>${fchip("전체", cbUI.teacher === "all", "App.cbTeacher('all')")}${teachers.map((t) => fchip(`${t.name} 선생님`, cbUI.teacher === t.id, `App.cbTeacher('${t.id}')`)).join("")}</div>
         <div class="cb-frow"><span class="cb-flabel">수업</span>${fchip("전체", cbUI.cls === "all", "App.cbClass('all')")}${DB.classes.filter((c) => c.status !== "closed").map((c) => fchip(c.title, cbUI.cls === c.id, `App.cbClass('${c.id}')`)).join("")}</div>
@@ -2902,13 +2906,13 @@
         <div class="cb-dow">${["월", "화", "수", "목", "금", "토", "일"].map((w) => `<span>${w}</span>`).join("")}</div>
         <div class="cb-grid">${cells.map(cell).join("")}</div>
         <div class="mb-legend cb-legend"><span><i class="av"></i>예정</span><span><i class="fl"></i>정원 마감</span><span><i class="pd"></i>지난 수업</span><span><i class="ar"></i>일정 요청 확인 필요</span></div>
-      </div>
+      </div></div><div>
       <div class="sec-title">${dlabel(sel)} 수업${sel === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}</div>
       ${list.length ? `<div class="card flat">${list.map(item).join("")}</div>`
         : `<div class="card flat mb-empty"><div class="em">${IC.empty}</div>
             <p class="muted mt8">이 날은 수업이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.cbDay('${near}')">수업이 있는 가장 가까운 날 ${dlabel(near)}로 이동</button>` : ""}</div>`}
-      ${dayArrs.length ? `<div class="sec-title">이 날을 희망한 일정 요청</div><div class="card flat">${dayArrs.map(arrItem).join("")}</div>` : ""}`;
+      ${dayArrs.length ? `<div class="sec-title">이 날을 희망한 일정 요청</div><div class="card flat">${dayArrs.map(arrItem).join("")}</div>` : ""}</div></div>`;
   }
   // ══ v2.43 (형 확정 08-23): 센터 «수업» 탭 = [예약 현황 | 수업 관리] 세그 통합 화면 ══
   // 세그는 해시에서 파생한다(#/c/classes=예약 현황 · #/c/classes/manage=수업 관리) — v2.37 회원 예약 탭과
@@ -3210,6 +3214,7 @@
     return shell("c", "정산", `
       ${monthNav(sel, "cs")}
       <p class="muted" style="margin-bottom:12px">회원 수강확인이 끝난 회차만 집계돼요. 이의제기 중인 회차는 자동으로 보류되고 전송에서 빠져요.${isNow ? "" : " 지난 달은 조회·재확인용이에요."}</p>
+      <div class="cw2"><div>
       <div class="card cs-sum"><div class="k">${y}년 ${m}월 합계${csUI.teacher === "all" ? "" : ` · ${teacher(csUI.teacher).name} 선생님`}</div>
         <div class="muted small mt4">확정 ${sumElig}회${sumHeld ? ` · <b style="color:var(--danger)">보류 ${sumHeld}건</b>` : ""}</div>
         <div class="cs-total">${won(sumAmt)}</div>
@@ -3241,6 +3246,7 @@
         ${csUI.teacher === "all" ? "" : `<button class="btn ghost mt12" onclick="App.csTeacher('all')">선생님 전체 보기</button>`}
         ${nearMonth ? `<button class="btn ghost mt8" onclick="App.csGoto('${nearMonth}-01')">정산 내역이 있는 ${Number(nearMonth.slice(5))}월로 이동</button>` : ""}</div>`}
       ${csUI.teacher === "all" && per.length && hiddenN > 0 ? `<div class="card flat"><div class="muted small">${y}년 ${m}월 정산 내역이 없는 선생님 <b>${hiddenN.toLocaleString("ko-KR")}명</b>은 표시하지 않아요.</div></div>` : ""}
+      </div><div>
       ${per.length ? `<button type="button" class="fold-head${open ? " on" : ""}" onclick="App.csDetail()" aria-expanded="${open}">날짜별 상세<span class="chev" aria-hidden="true">›</span></button>` : ""}
       ${open && per.length ? `
       <div class="card mb-cal">
@@ -3258,7 +3264,7 @@
       ${per.length ? `<div class="card"><div class="row" style="gap:12px"><span class="grow"><b>엑셀로 내려받기</b>
         <div class="muted small mt4">지금 화면 그대로 — <b>${y}년 ${m}월</b>${csUI.teacher === "all" ? "" : ` · <b>${teacher(csUI.teacher).name} 선생님</b>`} 정산 내역을 엑셀 파일로 저장해요. 이의 심사 중인 회차는 제외 표시가 붙고, 마지막 줄에 합계가 들어 있어요.</div></span>
         <button class="btn sm" onclick="App.exportSettlement()">${ici("down")}내려받기</button></div></div>` : ""}
-      <div class="banner">${icb("link")}<span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 확정된 회차만 넘겨요. 같은 회차는 여러 번 보내도 한 번만 반영되니 안심하고 누르세요.</span></div>`);
+      <div class="banner">${icb("link")}<span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 확정된 회차만 넘겨요. 같은 회차는 여러 번 보내도 한 번만 반영되니 안심하고 누르세요.</span></div></div></div>`);
   }
   // ══ v2.29 §B14 (U12): 센터 «정책 설정» 2,707px 단일 스크롤 → 목록 → 상세 2단 ══
   // 상세 화면 문법은 기존 «회원 범위 · 박코치»(#/c/policy/scope/:tid)를 그대로 복제한다 — 새 문법을 만들지 않는다.
