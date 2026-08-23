@@ -158,6 +158,13 @@
    #/c/classes=예약 현황 · #/c/classes/manage=수업 관리). #/c/bookings는 리다이렉트. «수업 만들기»는
    수업 관리 세그 1곳으로 정리(예약 현황 ghost 삭제), 일정 요청 대기 N은 세그 버튼 배지로 보전.
    설계: reports/27_센터탭통합_상품설정이관_v243_20260823.md. 센터 내비만 — 선생님·회원·정산·데이터 무변경.
+   v2.44 (2026-08-23 형 지시, 스크린샷 2장): 회원 홈 개편 — 홈은 «내 멤버십»만 남긴다(실서비스 «내 멤버십»
+   화면에 끼워넣기 좋은 구조가 목적). «해야 할 일»(수강확인 카드 포함)·«다가오는 예약»·«수업 예약하기»는
+   예약 탭 캘린더 세그로 이동, 중요도순: ① 해야 할 일 → ② 다가오는 예약+수업 예약하기(캘린더로 스크롤)
+   → ③ 기존 캘린더·수업 목록. «내 예약» 세그는 무변경 — «답변 필요»가 이미 최상단이고 «확정 예약»이
+   다가오는 예약의 상위집합이라, 거기에 또 얹으면 v2.29 «강조 블록 1개» 원칙이 깨진다(캘린더 세그에만 표시).
+   홈 탭 배지(해야 할 일 N)도 예약 탭으로 이동(회원만 — 선생님·센터 홈 배지는 v2.29 §A1-4 그대로).
+   섹션·카드·문구·데이터 전부 무변경 — 위치 이동만.
 */
 (function () {
   const DB = window.DB;
@@ -1023,10 +1030,12 @@
     const tabs = TABS[role] || [];
     const cur = location.hash.split("/").slice(0, 3).join("/");
     // v2.29 §A1-4 (U11): 홈 탭 배지 = 그 역할 홈의 «해야 할 일» N. 다른 계산식 금지 — 3역할 공통.
+    // v2.44: 회원만 예외 — «해야 할 일» 블록이 예약 탭으로 이사해서 배지도 같이 간다(배지=블록 위치, 계산식은 동일).
     const mAlerts = todoN(role);
+    const todoTab = role === "m" ? "#/m/book" : tabs.length ? tabs[0][0] : "";
     // v2.36 §1: «요청»이 탭에서 사라진 대신, 선생님 «일정» 탭에 «답변 대기 건수»를 단다.
     // 홈 배지(전체 과업 N)만으로는 «답할 요청이 몇 건인지»를 탭바에서 알 수 없어졌기 때문 — 흡수의 대가를 여기서 메운다.
-    const tabBadge = (h) => (h === tabs[0][0] ? mAlerts : role === "t" && h === "#/t/schedule" ? tPendingArrs().length : 0);
+    const tabBadge = (h) => (h === todoTab ? mAlerts : role === "t" && h === "#/t/schedule" ? tPendingArrs().length : 0);
     return `
       <header class="hd"><div class="hd-in">
         ${opts.back ? `<button class="hd-back" onclick="history.back()" aria-label="뒤로">‹</button>` : ""}
@@ -1035,7 +1044,7 @@
       </div></header>
       <main class="screen${tabs.length ? "" : " no-tab"}">${body}</main>
       ${tabs.length ? `<nav class="tabbar">${tabs.map(([h, l]) =>
-        `<a class="tab${h.startsWith(cur) && cur !== "#" ? " on" : ""}" href="${h}"><span class="ic">${TAB_SVG[l] || ""}${tabBadge(h) ? `<i class="tab-dot" aria-label="${h === tabs[0][0] ? "해야 할 일" : "답변 기다리는 요청"} ${tabBadge(h)}건">${tabBadge(h)}</i>` : ""}</span>${l}</a>`).join("")}</nav>` : ""}`;
+        `<a class="tab${h.startsWith(cur) && cur !== "#" ? " on" : ""}" href="${h}"><span class="ic">${TAB_SVG[l] || ""}${tabBadge(h) ? `<i class="tab-dot" aria-label="${h === todoTab ? "해야 할 일" : "답변 기다리는 요청"} ${tabBadge(h)}건">${tabBadge(h)}</i>` : ""}</span>${l}</a>`).join("")}</nav>` : ""}`;
   }
 
   // ══ v2.29 §A1 «해야 할 일» 블록 (감사 2차 U1·U11·U21) — 3역할 공통 컴포넌트 ══
@@ -1167,15 +1176,14 @@
   function myEnded() {
     return upcomingBase().filter((b) => isPast(slot(b.slotId))).sort((a, b) => bkAt(b) - bkAt(a));
   }
-  function vMHome() {
-    // S-1: 확인 카드는 pending 보고가 실존하는 confirm_wait 예약에만 (v2.13: 원탭 확인 카드)
+  // ── v2.44: 아래 두 조각은 홈에서 예약 탭(캘린더 세그)으로 이사했다 — 내용·문구 무변경, 위치만. ──
+  // S-1: 확인 카드는 pending 보고가 실존하는 confirm_wait 예약에만 (v2.13: 원탭 확인 카드)
+  // v2.29 §A1: 상단 알림 3종(확인 카드·노쇼 배너·제안 배너) → «해야 할 일» 블록 1개로 통합.
+  // 최우선 1건만 강조 카드로 남기고 나머지는 같은 문법의 요약 행. 3건+ 스태킹은 v2.23 문법 그대로(변경 금지).
+  function mConfirmCardHtml() {
     const confirmWait = myConfirmWait();
-    const upcoming = myUpcoming();
-    const arrs = mArrs().filter((a) => a.memberId === DB.me.member && a.status === "pending");
     const auto = DB.policy.autoConfirmHours;
-    // v2.29 §A1: 홈 상단 알림 3종(확인 카드·노쇼 배너·제안 배너) → «해야 할 일» 블록 1개로 통합.
-    // 최우선 1건만 강조 카드로 남기고 나머지는 같은 문법의 요약 행. 3건+ 스태킹은 v2.23 문법 그대로(변경 금지).
-    const card = !confirmWait.length ? "" : confirmWait.length >= 3 ? (() => {
+    return !confirmWait.length ? "" : confirmWait.length >= 3 ? (() => {
       const s0 = slot(confirmWait[0].slotId); const c0 = cls(s0.classId);
       return `<div class="card confirm-req" onclick="location.hash='#/m/confirms'" style="cursor:pointer">
         <div class="row"><span class="grow"><span class="badge b-rose">수강 확인 요청 ${confirmWait.length}건</span></span><span class="muted small">선생님 완료 보고</span></div>
@@ -1196,12 +1204,13 @@
         <div class="muted small mt4" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>
       </div>`;
     }).join("");
-    return shell("m", "니짐내짐 레슨", `
-      ${todoBlock("m", card)}
-      <div class="sec-title row">내 멤버십</div>
-      ${mpCarousel(myPasses())}
-      <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>
-      <div class="sec-title row">다가오는 예약<a href="#/m/book/mine" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
+  }
+  // «다가오는 예약» 요약 + «수업 예약하기» — 예약 탭 캘린더 세그 전용(«내 예약» 세그엔 «확정 예약»이 있어 중복 금지).
+  // 버튼은 같은 화면 아래 캘린더로 스크롤한다 — 홈에 있을 땐 예약 탭으로 보내는 링크였다.
+  function mUpcomingHtml() {
+    const upcoming = myUpcoming();
+    const arrs = mArrs().filter((a) => a.memberId === DB.me.member && a.status === "pending");
+    return `<div class="sec-title row">다가오는 예약<a href="#/m/book/mine" class="small" style="margin-left:auto;color:var(--text-muted);font-weight:600">전체 보기 ›</a></div>
       <div class="card flat">${(() => {
         // v2.24 U2: 예약(확정·대기)과 조율 희망일을 한 시간축에 병합해 오름차순.
         // v2.24 U3: 행 전체를 탭하면 그 회차 상세로 — 취소·변경 동선의 입구(조율 건은 «내 예약»으로).
@@ -1218,7 +1227,15 @@
         })).sort((x, y) => x.at - y.at);
         return rows.length ? rows.map((r) => r.html).join("") : `<p class="muted">예약이 없어요.</p>`;
       })()}</div>
-      <a class="btn primary mt8" href="#/m/book">수업 예약하기</a>`);
+      <button class="btn primary mt8" onclick="App.mbScrollCal()">수업 예약하기</button>`;
+  }
+  // v2.44(형 지시 08-23): 홈 = «내 멤버십»만 — 실서비스 «내 멤버십» 화면에 그대로 끼워넣는 구조.
+  // «해야 할 일»·«다가오는 예약»·«수업 예약하기»는 예약 탭으로 이사(mConfirmCardHtml·mUpcomingHtml).
+  function vMHome() {
+    return shell("m", "니짐내짐 레슨", `
+      <div class="sec-title row">내 멤버십</div>
+      ${mpCarousel(myPasses())}
+      <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>`);
   }
   // v2.16: 실서비스 «멤버십 구매» 카드 문법 전면 교체 (purchase_ui_spec.md v1 — 실측 레드 사용, 브랜드 팔레트 치환 금지)
   function shopCard(p) {
@@ -1399,6 +1416,8 @@
     };
     return shell("m", "수업 예약", `
       ${vMBookSeg()}
+      ${todoBlock("m", mConfirmCardHtml())}
+      ${mUpcomingHtml()}
       <div class="card mb-cal">
         <div class="mb-head">
           <button class="mb-nav" onclick="App.mbWeek(-1)" aria-label="이전 주">‹</button>
@@ -4823,6 +4842,8 @@
     tsMonthSheet() { monthSheet((tSchedDay || DB.TODAY).slice(0, 7), "tsGoto"); },
     // v2.25 ⑤: 예약 탭 [캘린더 | 내 예약] 전환
     mbTab(k) { history.replaceState(null, "", k === "mine" ? "#/m/book/mine" : "#/m/book"); render(); },
+    // v2.44: «수업 예약하기»(예약 탭 상단 요약 아래) — 같은 화면의 캘린더로 스크롤
+    mbScrollCal() { const el = document.querySelector(".mb-cal"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); },
     // v2.43: 센터 «수업» 탭 세그 — mbTab과 같은 해시 파생 문법
     cTab(k) { history.replaceState(null, "", k === "manage" ? "#/c/classes/manage" : "#/c/classes"); render(); },
     // v2.11: 회원 예약 캘린더 — 날짜 선택·주 이동·월 이동
