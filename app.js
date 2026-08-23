@@ -150,6 +150,14 @@
    «반복 수업 없음»). 수업 카드에 🔁 반복 배지(clsRecurBadge, 기존 b-rc 문법). 데모 장치 «한 주 지나가기»
    완전 삭제(App.recurRoll·DB.rollAnchor 제거, recurAnchor=DB.TODAY 고정) — 형 지시. 선생님 «내 수업»은
    설정 탭이 없어 기존 인라인 패널 유지(범위 밖). 반복 기능·옵션·기본값은 무변경 — 위치 이동만.
+   v2.43 (2026-08-23 형 확정, 스크린샷 2장): 센터 내비 개편 2건. ① «수업 관리» 최상단 «수업상품 관리 ›»
+   ghost를 «설정» 탭 「운영」 그룹으로 이관(#/c/products 라우트·화면 무변경, v2.42 반복 이관과 같은 패턴).
+   수업 만들기·수정 «사용 가능 멤버십» 힌트에 인라인 «상품 관리 ›»(센터만) — 플로우 단절 방지. 설정 화면
+   제목 «정책 설정»→«설정», 「운영」(상품·반복)/「정책」 2그룹. ② 센터 «수업»+«예약» 탭 통합(5칸→4칸,
+   v2.36 선생님 흡수와 같은 방식): «수업» 탭 = [예약 현황(기본) | 수업 관리] 세그, 해시 파생(v2.37 문법,
+   #/c/classes=예약 현황 · #/c/classes/manage=수업 관리). #/c/bookings는 리다이렉트. «수업 만들기»는
+   수업 관리 세그 1곳으로 정리(예약 현황 ghost 삭제), 일정 요청 대기 N은 세그 버튼 배지로 보전.
+   설계: reports/27_센터탭통합_상품설정이관_v243_20260823.md. 센터 내비만 — 선생님·회원·정산·데이터 무변경.
 */
 (function () {
   const DB = window.DB;
@@ -1000,7 +1008,8 @@
     m: [["#/m/home", "홈"], ["#/m/book", "예약"], ["#/m/history", "내역"]],
     // v2.36 §1(형 확정 08-20): «요청» 탭 제거 → «일정» 탭 안 세그먼트로 흡수. 모바일에서 5칸은 이미 빡빡했다.
     t: [["#/t/home", "오늘"], ["#/t/schedule", "일정"], ["#/t/report", "보고"], ["#/t/earnings", "정산"]],
-    c: [["#/c/home", "홈"], ["#/c/classes", "수업"], ["#/c/bookings", "예약"], ["#/c/settlement", "정산"], ["#/c/policy", "설정"]],
+    // v2.43(형 확정 08-23): «예약» 탭 제거 → «수업» 탭 안 세그먼트로 흡수(선생님 v2.36과 같은 패턴). 5칸→4칸.
+    c: [["#/c/home", "홈"], ["#/c/classes", "수업"], ["#/c/settlement", "정산"], ["#/c/policy", "설정"]],
   };
   // v2.10: 회원 탭 라인 아이콘 → v2.25 ④ 선생님·센터 탭도 같은 아이콘 체계로 통일(라벨 기준 공용 맵)
   const TAB_SVG = {
@@ -1077,7 +1086,7 @@
       add({ n: ovOpenSlots("c").length, tier: "bad", rank: 3, icon: "clock", key: "overlap",
         text: "시간이 겹친 수업이 있어요", go: "#/c/overlaps" });
       add({ n: mArrs().filter((a) => a.status === "pending").length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
-        text: "선생님 수락을 기다리는 일정 요청이 있어요", go: "#/c/bookings" });
+        text: "선생님 수락을 기다리는 일정 요청이 있어요", go: "#/c/classes" });
       add({ n: cAutoWarns().length, tier: "wait", rank: 5, icon: "clock", key: "autowarn",
         text: "자동확정 비율이 임계를 넘은 선생님이 있어요", go: "#/c/confirms" });
     }
@@ -2156,7 +2165,7 @@
     ccUI = null;
     closeModal(true);
     toast(msg);
-    location.hash = role === "c" ? "#/c/bookings" : "#/t/schedule";
+    location.hash = role === "c" ? "#/c/classes" : "#/t/schedule"; // v2.43: 예약 현황 세그(캘린더) — 새 회차를 바로 확인
   }
   // «회원 지정해서 바로 확정» — 통합 전 «바로 확정»과 동일 규칙: 자격은 회원별 검증, 전원 통과해야 확정(부분 확정 없음)
   function ccAssign(role, c, isNew) {
@@ -2614,7 +2623,7 @@
     return `
       <div class="field" id="${prefix}-prod-wrap"${mode === "list" ? ' style="display:none"' : ""}><label>사용 가능 멤버십 (예약자격)</label>
         <div class="chips" id="${prefix}-prods">${DB.products.map((p) => `<button class="chip${selP.includes(p.id) ? " on" : ""}" data-v="${p.id}" onclick="App.chip(this)">${p.name}</button>`).join("")}</div>
-        <div class="hint">고른 멤버십을 보유한 회원만 예약할 수 있어요.</div></div>
+        <div class="hint">고른 멤버십을 보유한 회원만 예약할 수 있어요.${role === "c" ? ` <a href="#/c/products" style="font-weight:700">상품 관리 ›</a>` : ""}</div></div>
       <div class="field" id="${prefix}-mem-wrap"${mode === "pass" ? ' style="display:none"' : ""}><label>지정 회원${scoped ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
         ${pickerHtml(prefix + "-mems", { multi: true, initial: selM, pool })}
         <div class="hint">${scoped ? `센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)}) 안의 회원만 보여요. 기존 지정 회원은 범위 밖이어도 유지돼요.` : "회원 목록은 니짐내짐(호스트 앱)의 회원 명단을 가져와요 — 프로토타입은 더미 데이터예요."}</div></div>`;
@@ -2703,7 +2712,7 @@
       ${isT ? (auth.ok
         ? `<div class="banner" style="margin-bottom:14px">${icb("unlock")}<span>수업 만들기·관리 권한: <b>${auth.via}</b> — 내 수업의 개설·수정·폐강이 가능해요.</span></div>`
         : `<div class="banner warn" style="margin-bottom:14px">${icb("lock")}<span><b>수업 만들기·관리 권한이 없어요.</b> 센터관리자에게 수업 개설 권한을 요청해야 해요.</span></div>`)
-        : `<a class="btn ghost" href="#/c/products" style="margin-bottom:14px">${ici("ticket")}수업상품 관리 ›</a>`}
+        : ""}
       ${auth.ok ? `<a class="btn primary" href="#/${role}/create" style="margin-bottom:14px">${ici("plus")}수업 만들기</a>` : ""}
       ${auth.ok ? (isT ? recurPanelHtml(role) : recurEntryHtml(role)) : ""}
       <div class="sec-title">${isT ? "내 수업" : "수업 목록"} <span class="muted small" style="font-weight:600">— 눌러서 수정·폐강</span></div>
@@ -2755,7 +2764,8 @@
   }
 
   function vClasses(role) {
-    return shell(role, role === "t" ? "내 수업" : "수업 관리", classListHtml(role), role === "t" ? { back: true } : {});
+    if (role === "c") { cClsTab = "manage"; return vCClasses(); } // v2.43: 센터 가드 폴백 — 수업 관리 세그로
+    return shell(role, "내 수업", classListHtml(role), { back: true });
   }
   // B1+시정①: 수업 수정·폐강 — 선생님은 본인 수업 + 권한 있을 때만
   function vClassManage(role, id) {
@@ -2812,7 +2822,9 @@
       return true;
     });
   }
-  function vCBookings() {
+  // v2.43: 구 «예약 현황» 화면(shell) → «수업» 탭 예약 현황 세그의 본문. 구성·문구·동작은 그대로 옮겨 왔고,
+  // 상단 «수업 만들기» ghost만 삭제 — 상시 진입점은 수업 관리 세그의 primary 1곳으로 정리(중복 제거).
+  function cBookingsBody() {
     const sel = cbUI.sel || (cbUI.sel = DB.TODAY);
     const ym = sel.slice(0, 7);
     const [y, m] = ym.split("-").map(Number);
@@ -2855,9 +2867,8 @@
     const list = (byDate[sel] || []).slice().sort((a, b) => a.time.localeCompare(b.time));
     const dayArrs = arrs.filter((a) => a.date === sel).sort((a, b) => a.time.localeCompare(b.time));
     const near = list.length ? null : nearestDate(all.map((s) => s.date), sel); // v2.30 C1
-    return shell("c", "예약 현황", `
-      <a class="btn ghost" href="#/c/create" style="margin-bottom:14px">${ici("plus")}수업 만들기</a>
-      ${arrs.length ? `<div class="sec-title">일정 요청 (선생님 수락 대기) <span class="badge b-warn">${arrs.length}건</span></div>
+    return `
+      ${arrs.length ? `<div class="sec-title" style="margin-top:4px">일정 요청 (선생님 수락 대기) <span class="badge b-warn">${arrs.length}건</span></div>
       <div class="card flat">${arrs.map(arrItem).join("")}</div>` : ""}
       <div class="cb-filters">
         <div class="cb-frow"><span class="cb-flabel">선생님</span>${fchip("전체", cbUI.teacher === "all", "App.cbTeacher('all')")}${teachers.map((t) => fchip(`${t.name} 선생님`, cbUI.teacher === t.id, `App.cbTeacher('${t.id}')`)).join("")}</div>
@@ -2878,11 +2889,27 @@
         : `<div class="card flat mb-empty"><div class="em">${IC.empty}</div>
             <p class="muted mt8">이 날은 수업이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.cbDay('${near}')">수업이 있는 가장 가까운 날 ${dlabel(near)}로 이동</button>` : ""}</div>`}
-      ${dayArrs.length ? `<div class="sec-title">이 날을 희망한 일정 요청</div><div class="card flat">${dayArrs.map(arrItem).join("")}</div>` : ""}`);
+      ${dayArrs.length ? `<div class="sec-title">이 날을 희망한 일정 요청</div><div class="card flat">${dayArrs.map(arrItem).join("")}</div>` : ""}`;
+  }
+  // ══ v2.43 (형 확정 08-23): 센터 «수업» 탭 = [예약 현황 | 수업 관리] 세그 통합 화면 ══
+  // 세그는 해시에서 파생한다(#/c/classes=예약 현황 · #/c/classes/manage=수업 관리) — v2.37 회원 예약 탭과
+  // 같은 문법. 전역 상태로 들면 상세를 다녀온 뒤 세그가 엉뚱하게 열리는 잔류가 생긴다.
+  // 세그 배지 N = 선생님 수락 대기 일정 요청 — «예약» 탭이 사라진 대신 세그 버튼이 그 노출을 보전한다(v2.36 문법).
+  let cClsTab = "cal";
+  function vCClsSeg() {
+    const n = mArrs().filter((a) => a.status === "pending").length;
+    const btn = (key, label, extra) => `<button role="tab" aria-selected="${cClsTab === key}" class="${cClsTab === key ? "on" : ""}" onclick="App.cTab('${key}')">${label}${extra || ""}</button>`;
+    return `<div class="seg book-seg" id="cc-seg" role="tablist">
+      ${btn("cal", "예약 현황", n ? ` <i class="seg-n" aria-label="선생님 수락 대기 ${n}건">${n}</i>` : "")}
+      ${btn("manage", "수업 관리")}
+    </div>`;
+  }
+  function vCClasses() {
+    return shell("c", "수업", vCClsSeg() + (cClsTab === "manage" ? classListHtml("c") : cBookingsBody()));
   }
   function vCSlot(id) {
     const s = slot(id);
-    if (!s) return vCBookings();
+    if (!s) { cClsTab = "cal"; return vCClasses(); } // v2.43: 예약 현황 세그로 폴백 (구 vCBookings)
     const c = cls(s.classId);
     const seats = seatBk(s.id);
     const w = waitBk(s.id);
@@ -3208,7 +3235,7 @@
         : `<div class="card flat mb-empty"><div class="em">${IC.won}</div>
             <p class="muted mt8">이 날은 정산 내역이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.csDay('${near}')">정산 내역이 있는 가장 가까운 날 ${dlabel(near)}로 이동</button>` : ""}</div>`}` : ""}
-      ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건은 수강확인이 안 돼 정산에 포함되지 않았어요. 노쇼 보상은 현재 <b>${rewardLabel}</b>이에요 — <a href="#/c/policy" style="color:var(--link);font-weight:600">정책 설정에서 변경 ›</a></div></div>` : ""}
+      ${noshowN ? `<div class="card flat"><div class="muted small">노쇼 ${noshowN}건은 수강확인이 안 돼 정산에 포함되지 않았어요. 노쇼 보상은 현재 <b>${rewardLabel}</b>이에요 — <a href="#/c/policy" style="color:var(--link);font-weight:600">설정에서 변경 ›</a></div></div>` : ""}
       ${per.length ? `<div class="card"><div class="row" style="gap:12px"><span class="grow"><b>엑셀로 내려받기</b>
         <div class="muted small mt4">지금 화면 그대로 — <b>${y}년 ${m}월</b>${csUI.teacher === "all" ? "" : ` · <b>${teacher(csUI.teacher).name} 선생님</b>`} 정산 내역을 엑셀 파일로 저장해요. 이의 심사 중인 회차는 제외 표시가 붙고, 마지막 줄에 합계가 들어 있어요.</div></span>
         <button class="btn sm" onclick="App.exportSettlement()">${ici("down")}내려받기</button></div></div>` : ""}
@@ -3329,15 +3356,21 @@
       foot: "",  // 정책 전용 안내문은 반복 설정엔 맞지 않고, 끄기 설명은 카드 안 hint와 중복된다
     },
   };
-  const POL_ORDER = ["booking", "cancel", "confirm", "authority", "scope", "settlement", "recur"];
+  const POL_ORDER = ["booking", "cancel", "confirm", "authority", "scope", "settlement"];
+  // v2.43 ①(형 확정 08-23): «수업상품 관리»를 «수업 관리» 상단 ghost에서 여기 「운영」 그룹으로 이관 —
+  // v2.42 반복 이관과 같은 패턴. 비정책 항목이 들어오며 제목도 «정책 설정»→«설정», 정책 안내문은 정책 그룹에만.
   function vCPolicy() {
-    return shell("c", "정책 설정", `
-      <div class="card flat">${POL_ORDER.map((k) => {
-        const sec = POL_SECTIONS[k];
-        return `<div class="slot tapable pol-row" role="button" tabindex="0" onclick="location.hash='#/c/policy/${k}'">
-          <span class="grow"><span class="t">${sec.title}</span><div class="muted small mt4">${sec.sum()}</div></span>
-          <span class="chev" aria-hidden="true">›</span></div>`;
-      }).join("")}</div>
+    const row = (go, title, sum) => `<div class="slot tapable pol-row" role="button" tabindex="0" onclick="location.hash='${go}'">
+      <span class="grow"><span class="t">${title}</span><div class="muted small mt4">${sum}</div></span>
+      <span class="chev" aria-hidden="true">›</span></div>`;
+    return shell("c", "설정", `
+      <div class="sec-title" style="margin-top:4px">운영</div>
+      <div class="card flat">
+        ${row("#/c/products", "수업상품 관리", `판매 중인 멤버십 상품 ${DB.products.length}개 · 판매·등록 / 새 상품 개설`)}
+        ${row("#/c/policy/recur", POL_SECTIONS.recur.title, POL_SECTIONS.recur.sum())}
+      </div>
+      <div class="sec-title">정책</div>
+      <div class="card flat">${POL_ORDER.map((k) => row(`#/c/policy/${k}`, POL_SECTIONS[k].title, POL_SECTIONS[k].sum())).join("")}</div>
       <p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 멤버십에는 적용되지 않아요 — 취소 조건은 예약할 때 기준으로 보존돼요.</p>`);
   }
   function vCPolicySection(key) {
@@ -3345,7 +3378,7 @@
     if (!sec) return vCPolicy();
     return shell("c", sec.title, `${sec.body()}
       ${sec.foot === undefined ? `<p class="muted small">정책을 바꿔도 이미 잡힌 예약·구매한 멤버십에는 적용되지 않아요 — 취소 조건은 예약할 때 기준으로 보존돼요.</p>` : sec.foot}
-      <button class="btn ghost" onclick="location.hash='#/c/policy'">‹ 정책 설정으로 돌아가기</button>`, { back: true });
+      <button class="btn ghost" onclick="location.hash='#/c/policy'">‹ 설정으로 돌아가기</button>`, { back: true });
   }
   // v2.7: P2-2b 범위 편집 상세 화면 — 리스트 행 탭으로 진입 (인라인 전체 펼침 제거, 기능은 v2.3 그대로)
   function vCPolicyScope(tid) {
@@ -4512,7 +4545,7 @@
       }
       negoCloseClass(id, reason); // v2.30 A5: 조율·제안 대기 건을 한 곳에서 함께 자동 거절 (예전엔 조율만 처리)
       closeModal();
-      location.hash = role === "t" ? "#/t/classes" : "#/c/classes";
+      location.hash = role === "t" ? "#/t/classes" : "#/c/classes/manage"; // v2.43: 센터는 수업 관리 세그로 복귀
       toast(`폐강 처리됐어요. 예약 ${n}건 자동취소 · 회원 알림 발송. 진행된 회차의 정산은 유지돼요.`);
     },
     // v2.39 F1: 이의 인정/기각은 횟수 복원·차감이 즉시 일어난다 — 어느 멤버십이 몇 회 움직이는지 적고 확인받는다.
@@ -4790,6 +4823,8 @@
     tsMonthSheet() { monthSheet((tSchedDay || DB.TODAY).slice(0, 7), "tsGoto"); },
     // v2.25 ⑤: 예약 탭 [캘린더 | 내 예약] 전환
     mbTab(k) { history.replaceState(null, "", k === "mine" ? "#/m/book/mine" : "#/m/book"); render(); },
+    // v2.43: 센터 «수업» 탭 세그 — mbTab과 같은 해시 파생 문법
+    cTab(k) { history.replaceState(null, "", k === "manage" ? "#/c/classes/manage" : "#/c/classes"); render(); },
     // v2.11: 회원 예약 캘린더 — 날짜 선택·주 이동·월 이동
     mbDay(d) { mBookSel = d; render(); },
     mbWeek(delta) { mBookSel = addDays(mBookSel || DB.TODAY, delta * 7); render(); },
@@ -4865,9 +4900,10 @@
     [/^#\/t\/earnings$/, vTEarnings],
     [/^#\/c\/home$/, vCHome],
     [/^#\/c\/products$/, vCProducts],
-    [/^#\/c\/classes$/, () => vClasses("c")],
+    // v2.43: 센터 «수업» 탭 세그도 해시에서 파생(#/c/classes=예약 현황 · #/c/classes/manage=수업 관리) — v2.37 문법.
+    [/^#\/c\/classes$/, () => { cClsTab = "cal"; return vCClasses(); }],
+    [/^#\/c\/classes\/manage$/, () => { cClsTab = "manage"; return vCClasses(); }],
     [/^#\/c\/class\/(.+)$/, (id) => vClassManage("c", id)],
-    [/^#\/c\/bookings$/, vCBookings],
     [/^#\/c\/slot\/(.+)$/, vCSlot],
     [/^#\/c\/create$/, () => vCreate("c")],
     [/^#\/c\/overlaps$/, () => vOverlaps("c")],
@@ -4889,7 +4925,8 @@
     { key: "ccUI", keepOn: (h) => h === "#/t/create" || h === "#/c/create", reset: () => { ccUI = null; } },
     { key: "mBookSel", keepOn: (h) => h === "#/m/book" || h === "#/m/book/mine", reset: () => { mBookSel = null; } },
     // 센터 캘린더 — 회차 상세를 다녀와도 날짜·필터 유지, 그 밖으로 나가면 초기화
-    { key: "cbUI", keepOn: (h) => h === "#/c/bookings" || h.startsWith("#/c/slot/"), reset: () => { cbUI = { sel: null, teacher: "all", cls: "all" }; } },
+    // v2.43: 세그 전환(#/c/classes/manage)·회차 상세 왕복에도 캘린더 날짜·필터 유지 — 회원 mBookSel과 같은 범위 규칙
+    { key: "cbUI", keepOn: (h) => h === "#/c/classes" || h === "#/c/classes/manage" || h.startsWith("#/c/slot/"), reset: () => { cbUI = { sel: null, teacher: "all", cls: "all" }; } },
     { key: "csUI", keepOn: (h) => h === "#/c/settlement", reset: () => { csUI = { sel: null, teacher: "all", detail: false }; } },
     { key: "teUI", keepOn: (h) => h === "#/t/earnings", reset: () => { teUI = { sel: null }; } },
     { key: "mcMore", keepOn: (h) => h.startsWith("#/m/class/"), reset: () => { mcMore = false; } }, // v2.39 F9
@@ -4901,9 +4938,10 @@
   // v2.36: «요청» 탭·«받은 제안» 화면을 흡수했다. 알림 딥링크·즐겨찾기가 죽지 않게 라우트는 남기고 새 자리로 보낸다.
   // v2.37: 「예약 내역」(#/m/bookings) 화면도 예약 탭 «내 예약» 세그먼트(#/m/book/mine)로 흡수 — 옛 링크는 여기로.
   // v2.41: «내 멤버십»(#/m/pass)도 홈으로 — 홈 «내 멤버십» 섹션이 그 자리를 그대로 대신한다.
+  // v2.43: 센터 «예약 현황»(#/c/bookings)은 «수업» 탭 예약 현황 세그로 흡수 — 옛 링크·홈 배지는 여기로.
   const REDIRECTS = { "#/t/quick": "#/t/create", "#/c/quick": "#/c/create", "#/t/classes": "#/t/schedule",
     "#/t/inbox": "#/t/schedule", "#/m/proposals": "#/m/book/mine", "#/m/bookings": "#/m/book/mine",
-    "#/m/pass": "#/m/home" };
+    "#/m/pass": "#/m/home", "#/c/bookings": "#/c/classes" };
   function render() {
     const h0 = location.hash || "#/";
     if (REDIRECTS[h0]) {
