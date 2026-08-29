@@ -163,7 +163,8 @@ button.banner:active { transform: scale(.98); }
 .field input[type=date], .field input[type=time] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; min-height: 46px; text-align: left; }
 .field input::-webkit-date-and-time-value { text-align: left; }
 .field .hint { font-size: 12px; color: var(--text-muted); margin-top: 5px; }
-.seg { display: flex; background: var(--surface-sunken); border-radius: 12px; padding: 4px; gap: 4px; }
+/* v2.49: 트랙 #f4f4f6이 페이지 배경 #fafafa와 거의 같아 미선택 탭이 맨 텍스트로 보였다 — 트랙을 한 톤 낮추고 테두리로 «누르는 컨트롤»임을 드러낸다 */
+.seg { display: flex; background: #ececf0; border: 1px solid #e2e2e8; border-radius: 12px; padding: 4px; gap: 4px; }
 .seg button { flex: 1; padding: 9px 4px; border-radius: 9px; font-size: 13px; font-weight: 700; color: var(--text-muted); transition: background .18s var(--ease-out), color .18s var(--ease-out), box-shadow .18s var(--ease-out), transform .12s var(--ease-out); }
 .seg button:active { transform: scale(.96); }
 .seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(32,32,36,.12); }
