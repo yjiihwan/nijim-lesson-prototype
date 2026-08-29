@@ -599,6 +599,103 @@ window.DB = {
   );
 })();
 
+// ── v2.47 커버리지 시드 (운영자 지시 08-29: 구현된 기능을 기본 데이터만으로 전부 육안 확인) ──
+// 배경: 회원 화면 [변경 요청] 버튼이 뜨는 «깨끗한 확정 1:1»(진행 중 변경 건 없음)이 시드에 없어
+// 형이 버튼을 못 찾는 사고가 있었다. 버튼이 «뜨는» 케이스와 «안 뜨는» 케이스를 나란히 둔다.
+//   회원 확정 1:1 3종 대비: bkE1=깨끗([변경 요청]+[취소]) / bk1=선생님 제안 진행 중(안내문) / bkE2=내가 보낸 변경 요청 진행 중(안내문)
+//   그 외: bkE3=이의기간 지난 수강완료(이의 버튼 없음, bkB3과 대비) · ar6=만료된 일정 요청 · pp8=철회된 제안 · pp9=수락된 제안(→bkE1)
+//   선생님: s43=완료 보고 대기 회차([수업 완료 보고]) · c7=폐강 수업 · rc4=중단된 반복 · s44=따로 옮긴 회차(rc2 8/28→8/27) · s45↔s8=의도한 겹침
+//   센터/정산: sl40=할인 재등록+자동확정(t1) · sl41=보류+전송완료(6월 «샐리에서 직접 취소» 배너) · rp14/sl42=이의 기각·센터 확정 · gt20=빈 범위
+// ⚠️ LCG 시드 뒤 append 원칙 동일. 기존 항목은 필드 추가(ovOk·skips)만 하고 삭제·수정하지 않는다.
+// ⚠️ autoStats 주의: t1 자동확정 비율은 sl40·sl41이 둘 다 auto=true라 31%→35%로 오히려 올라 배너 보존.
+(function seedCoverage() {
+  const D = window.DB, SNAP = { cancelHours: 24, cancelMode: "conditional" };
+
+  D.slots.push(
+    { id: "s40", classId: "c2", date: "2026-08-22", time: "11:00", status: "scheduled", adhoc: true }, // bkE1 (pp9 수락 결과)
+    { id: "s41", classId: "c2", date: "2026-08-24", time: "19:00", status: "scheduled", adhoc: true }, // bkE2 (mc2 진행 중)
+    { id: "s42", classId: "c2", date: "2026-08-06", time: "11:00", status: "done", adhoc: true },      // bkE3 — 기존 원장 8/6 attend와 결부
+    { id: "s43", classId: "c2", date: "2026-08-17", time: "08:00", status: "done", adhoc: true },      // 오늘 아침 종료 · 미보고 → [수업 완료 보고]
+    { id: "s44", classId: "c3", date: "2026-08-27", time: "07:30", status: "scheduled", recurId: "rc2", detached: true }, // rc2 8/28(금) 회차를 «이번만» 목 07:30로 옮김
+    { id: "s45", classId: "c3", date: "2026-08-20", time: "19:30", status: "scheduled", adhoc: true, ovOk: ["s8"] }, // s8(PT 19:00)과 «의도한 겹침»
+  );
+  // 의도한 겹침은 양쪽 회차에 기록 (v2.31 §D-2) — 배지·경고는 남고 «해야 할 일»에서만 빠진다
+  const s8 = D.slots.find((s) => s.id === "s8");
+  s8.ovOk = (s8.ovOk || []).concat("s45");
+
+  D.bookings.push(
+    { id: "bkE1", slotId: "s40", memberId: "m1", passId: "ps1", status: "booked", policySnap: SNAP },    // ★ 깨끗한 확정 1:1 — [변경 요청]+[취소]
+    { id: "bkE2", slotId: "s41", memberId: "m1", passId: "ps1", status: "booked", policySnap: SNAP },    // 내가 변경 요청 보낸 상태 (mc2)
+    { id: "bkE3", slotId: "s42", memberId: "m1", passId: "ps1", status: "confirmed", policySnap: SNAP }, // 이의기간(7일) 지난 수강완료 — 버튼 없음
+    { id: "bkE4", slotId: "s43", memberId: "m2", passId: "ps4", status: "booked", policySnap: SNAP },    // 종료 후 미보고 좌석 → 보고 필요
+    { id: "bkE5", slotId: "s45", memberId: "m7", passId: "ps11", status: "booked", policySnap: SNAP },
+  );
+
+  D.negos.push(
+    // 회원발 «일정 변경 요청» 진행 중 (m1·bkE2) — «보낸 요청» 카테고리 + 선생님 «받은 일정 변경 요청»
+    { id: "mc2", initiator: "member", kind: "change", classId: "c2", teacherId: "t1", memberId: "m1", bookingId: "bkE2",
+      origDesc: "8/24 (월) 19:00", date: "2026-08-25", time: "19:00",
+      opts: [{ date: "2026-08-25", time: "19:00" }, { date: "2026-08-26", time: "20:00" }],
+      status: "pending", note: "월요일 저녁 회의가 생겼어요. 하루나 이틀 미룰 수 있을까요?", at: "2026-08-16 21:40" },
+    // 만료된 일정 요청 — 저장값은 pending, 희망 시각이 지나 «기한 만료»로 파생 표시
+    { id: "ar6", initiator: "member", kind: "request", classId: "c2", teacherId: "t1", memberId: "m1", passId: "ps1",
+      date: "2026-08-15", time: "15:00", status: "pending", note: "토요일 오후 가능하실까요?", at: "2026-08-13 10:00" },
+    // 선생님이 철회한 제안 — 회원 «지난 예약»의 «선생님이 제안을 철회했어요»
+    { id: "pp8", initiator: "teacher", kind: "slot", teacherId: "t1", memberId: "m1", classId: "c2",
+      date: "2026-08-23", time: "10:00", note: "일요일 오전이 비어 있어요.", status: "canceled", canceledBy: "teacher", at: "2026-08-15 17:00" },
+    // 수락된 제안 — 결과 회차 s40(bkE1). «수락해서 예약이 잡혔어요» 이력
+    { id: "pp9", initiator: "teacher", kind: "slot", teacherId: "t1", memberId: "m1", classId: "c2", slotId: "s40",
+      date: "2026-08-22", time: "11:00", note: "토요일 낮이 비어 있어요. 어떠세요?", status: "accepted", at: "2026-08-15 12:00" },
+  );
+
+  // 선생님(t1) 폐강 수업 — «내 수업» 폐강 배지·사유·폐강 화면 (기존 c4는 t2 담당이라 선생님 화면에 안 보였다)
+  D.classes.push({ id: "c7", title: "점심 스트레칭 PT", teacherId: "t1", kind: "private", capacity: 1,
+    schedule: "arranged", scheduleLabel: "회원과 일정 맞춤", duration: 30,
+    eligibility: "list", eligibleProductIds: [], memberIds: ["m3"], status: "closed",
+    closedReason: "수요가 적어 종료", closedAt: "2026-08-15 12:00" });
+
+  // 중단된 반복 (rc4) + «이번만 건너뛰기» 이력 (rc2 8/28 → s44로 이동)
+  D.recurs.push({ id: "rc4", classId: "c3", weekdays: [4], time: "07:00",
+    startDate: "2026-08-17", endMode: "until", endDate: null, active: false, skips: [], createdAt: "2026-08-17 12:00" });
+  D.recurs.find((r) => r.id === "rc2").skips.push("2026-08-28");
+
+  // m3 재등록 할인 수업권 — 선생님(t1) 정산 명세에 «할인 구매» 라벨이 실데이터로 보이게 (ps6 만료 임박 재등록 서사)
+  D.passes.push({ id: "ps16", memberId: "m3", productId: "pr2", name: "PT 20회", kind: "private",
+    total: 20, unitPrice: 81000, purchasePrice: 1620000, listPrice: 1800000, expiresAt: "2026-12-15", remaining: 19 });
+
+  D.slines.push(
+    // t1 8월 — 할인 구매 + 자동확정 겸용 라인 (검토 대상·할인 라벨을 같은 행에서)
+    { id: "sl40", bookingId: null, slotId: null, lessonDate: "2026-08-16", lessonTime: "18:00", classTitle: "PT",
+      teacherId: "t1", memberId: "m3", member: "이하늘", passId: "ps16", passName: "PT 20회",
+      desc: "8/16 (일) 18:00 PT", unitPrice: 81000, listPrice: 1800000, listUnitPrice: 90000,
+      method: "auto", auto: true, status: "eligible", pushed: false, pushId: null },
+    // t1 6월 — 보류인데 이미 전송된 라인 → 정산 «이미 전송된 N건은 샐리에서 직접 취소» 경고
+    { id: "sl41", bookingId: null, slotId: null, lessonDate: "2026-06-19", lessonTime: "06:30", classTitle: "크로스핏",
+      teacherId: "t1", memberId: "m4", member: "최민아", passId: "ps8", passName: "필라테스 그룹 20회",
+      desc: "6/19 (금) 06:30 크로스핏", unitPrice: 30000, listPrice: 600000, listUnitPrice: 30000,
+      method: "auto", auto: true, status: "held", pushed: true, pushId: "sly_t1_202606_1" },
+    // t2 8월 — «센터 기각 확정»(center_override) 수단 라인 (rp14와 짝)
+    { id: "sl42", bookingId: null, slotId: null, lessonDate: "2026-08-16", lessonTime: "10:00", classTitle: "필라테스 기구 초급",
+      teacherId: "t2", memberId: "m6", member: "한소라", passId: "ps10", passName: "필라테스 그룹 10회 (무기한)",
+      desc: "8/16 (일) 10:00 필라테스 기구 초급", unitPrice: 35000, listPrice: 350000, listUnitPrice: 35000,
+      method: "center_override", auto: false, status: "eligible", pushed: false, pushId: null },
+  );
+
+  // 이의 기각 후 센터가 확정한 기록 — 보고 «기록» 카테고리의 빨간 «기각» 배지 + 수단 «센터 기각 확정»
+  D.reports.push({ id: "rp14", slotId: null, bookingId: null, passId: "ps10", memberId: "m6", member: "한소라",
+    desc: "8/16 (일) 10:00 필라테스 기구 초급", status: "confirmed", method: "center_override",
+    label: "확인 완료 · 이의 기각(센터 확정)", at: "8/16 14:20 센터 처리", deducted: true, lineId: "sl42" });
+
+  // 원장(m1·ps2): 자동확정 차감 → 센터가 자동확정 취소 · 복원 — 합계 0이라 잔여 7 불변 («잔여=Σ원장» 유지)
+  D.ledger.push(
+    { passId: "ps2", delta: -1, reason: "attend", detail: "8/7 (금) 필라테스 기구 초급 · 자동확정", at: "2026-08-08 10:00" },
+    { passId: "ps2", delta: +1, reason: "auto_cancel_restore", detail: "8/7 (금) 필라테스 기구 초급 · 센터가 자동확정 취소", at: "2026-08-09 15:20" },
+  );
+
+  // P2-2b «빈 범위 — 지정 가능 회원 없음» 라벨 (범위만 custom이고 아무도 안 고른 상태)
+  D.policy.teacherScope.gt20 = { mode: "custom", productIds: [], memberIds: [] };
+})();
+
 // ── v2.23 확인 요청 스태킹 검증 프리셋 (형 확정 1안 08-18) ──
 // ?case=confirmstack 으로 열면 m1 확인 대기 3건을 추가 — 기존 bk3 포함 총 4건이 되어
 // 홈 요약 카드 접힘 → 목록 건별 확인 → 잔여 2건 이하 시 개별 카드 복귀 흐름을 화면으로 검증한다.
