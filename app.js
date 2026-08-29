@@ -179,6 +179,11 @@
      예약 중 내 일정 겹침 확인용 단일 표식(같은 화면의 목록 중복이 사라져 점의 존재 이유가 살아난다).
      해야 할 일이 있으면 상단에 요약 1행(todo-row 문법)만 — 탭하면 «내 예약»으로.
    ④ 화면 제목 «수업 예약»→«예약»(탭 라벨과 통일). todoItems("m")는 배지 집계·요약 행 계산에만 쓴다.
+   v2.53 (2026-08-29 P7-2 완성): 확인수단 정책 실동작 — ① methodApp=끔이면 회원 원탭 확인(«받았어요»)
+   전면 미노출(강조 카드·확인 대기 목록·확인 상세) + «현장 QR로만 수강확인» 안내, 액션 단(confirmAttendAsk·
+   confirmAttend)도 이중 차단 ② QR 랜딩(#/m/qr/:token)·qrConfirm은 methodApp과 무관하게 항상 동작
+   (QR도 회원 폰에서 확정되는 구조) ③ 두 토글 동시 끄기 금지 — 마지막 남은 수단을 끄면 토스트 거부·상태 유지
+   ④ 선생님 보고 안내·완료 보고 모달·센터 설정 요약(sum)을 정책 조합(둘 다/앱만/QR만)별 분기.
 */
 (function () {
   const DB = window.DB;
@@ -900,7 +905,7 @@
   function rpSub(r) {
     const auto = DB.policy.autoConfirmHours;
     switch (r.status) {
-      case "pending": return `회원 폰으로 확인 요청이 갔어요 · ${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정` : "자동확정 없음 — 센터 수동 처리"}`;
+      case "pending": return `${DB.policy.methodApp ? "회원 폰으로 확인 요청이 갔어요" : "현장 QR 확인 대기 — 회원 폰 스캔으로 확인돼요"} · ${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정` : "자동확정 없음 — 센터 수동 처리"}`;
       case "confirmed": return `${r.at}${r.method ? ` · 수단: ${methodLabel(r.method)}` : ""}`;
       case "auto": return `회원 무응답으로 자동확정됐어요 · 수단: ${methodLabel(r.method || "auto")}`;
       case "noshow_wait": return `${noshowDeadline(r).replaceAll("-", ".")}까지 이의가 없으면 자동확정되고 횟수가 차감돼요`;
@@ -1191,6 +1196,10 @@
   function myEnded() {
     return upcomingBase().filter((b) => isPast(slot(b.slotId))).sort((a, b) => bkAt(b) - bkAt(a));
   }
+  // ── v2.53 (P7-2): 확인수단 정책 — methodApp=끔이면 회원 원탭 확인 미노출·QR 안내로 대체. ──
+  // QR 랜딩(#/m/qr/:token)·qrConfirm은 이 게이트와 무관 — QR도 회원 폰에서 확정되는 구조라서다.
+  const QR_ONLY_MSG = "이 센터는 현장에서 QR로만 수강확인을 받아요 — 수업 현장에서 선생님이 띄운 QR을 내 폰으로 스캔하면 확인돼요.";
+  const qrOnlyNote = (extra) => `<div class="qr-only${extra ? " " + extra : ""}">${QR_ONLY_MSG}</div>`;
   // ── v2.46: 수강확인 카드는 «내 예약» 세그 본문 최상단에 산다 — «강조 블록 1개»(v2.29) 자리. ──
   // S-1: 확인 카드는 pending 보고가 실존하는 confirm_wait 예약에만 (v2.13: 원탭 확인 카드)
   // 카드가 대신하는 confirm_wait 행은 «답변 필요» 목록에서 뺀다(중복 금지, mBookingsBody).
@@ -1205,7 +1214,7 @@
         <b class="mt8" style="display:block;font-size:15px">확인을 기다리는 수업이 ${confirmWait.length}건 있어요</b>
         <div class="muted small mt4">${c0.title} · ${dlabel(s0.date)} ${s0.time} 외 ${confirmWait.length - 1}건</div>
         <button class="btn primary mt12" onclick="location.hash='#/m/confirms'">한 건씩 확인하기</button>
-        <div class="muted small mt8" style="text-align:center">확인하면 멤버십이 차감돼서, 한 건씩만 확인할 수 있어요</div>
+        <div class="muted small mt8" style="text-align:center">${DB.policy.methodApp ? "확인하면 멤버십이 차감돼서, 한 건씩만 확인할 수 있어요" : "이 센터는 현장에서 QR로만 수강확인을 받아요"}</div>
       </div>`;
     })() : confirmWait.map((b) => {
       const s = slot(b.slotId); const c = cls(s.classId);
@@ -1213,7 +1222,9 @@
         <div class="row"><span class="grow"><span class="badge b-rose">수강 확인 요청</span></span><span class="muted small">선생님 완료 보고</span></div>
         <b class="mt8" style="display:block;font-size:15px">${c.title}</b>
         <div class="muted small mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
-        <button class="btn primary mt12" onclick="App.confirmAttendAsk('${b.id}')">받았어요 (수강 확인)</button>
+        ${DB.policy.methodApp
+          ? `<button class="btn primary mt12" onclick="App.confirmAttendAsk('${b.id}')">받았어요 (수강 확인)</button>`
+          : qrOnlyNote("mt12")}
         <button class="btn ghost mt8" onclick="location.hash='#/m/confirm/${b.id}'">자세히 보기</button>
         <div class="muted small mt8" style="text-align:center">확인하면 <b>멤버십 1회가 차감</b>돼요. 받지 않은 수업이면 «자세히 보기»에서 이의를 제기할 수 있어요.</div>
         <div class="muted small mt4" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>
@@ -1627,7 +1638,7 @@
         ${mOverlapBadge(b)}<span class="badge ${bd.badge}">${bd.label}</span>
         ${chgBtn}
         ${canAct ? `<button class="btn sm ghost" onclick="App.askCancel('${b.id}')">취소</button>` : ""}
-        ${b.status === "confirm_wait" ? `<button class="btn sm primary" onclick="location.hash='#/m/confirm/${b.id}'">확인</button>` : ""}
+        ${b.status === "confirm_wait" ? `<button class="btn sm ${DB.policy.methodApp ? "primary" : "ghost"}" onclick="location.hash='#/m/confirm/${b.id}'">${DB.policy.methodApp ? "확인" : "상세"}</button>` : ""}
         ${b.status === "noshow_wait" ? `<button class="btn sm ghost" onclick="App.askDispute('${b.id}')">이의제기</button>` : ""}
         ${b.status === "confirmed" && disputeOpen(b) ? `<button class="btn sm ghost" onclick="App.askDispute('${b.id}')">이의제기</button>` : ""}</div>`;
     };
@@ -1708,7 +1719,9 @@
         <div class="divider"></div>
         <p style="font-size:15px">수업을 이상 없이 받으셨나요?<br><span class="muted small">확인하면 멤버십 1회가 차감되고 수업 기록이 남아요.</span></p></div>
       <div class="banner">${icb("lock")}<span>확인은 <b>회원 본인 계정</b>에서만 가능해요 — 선생님·센터가 대신 확인할 수 없어요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
-      <button class="btn primary" onclick="App.confirmAttendAsk('${b.id}')">받았어요 (수강 확인)</button>
+      ${DB.policy.methodApp
+        ? `<button class="btn primary" onclick="App.confirmAttendAsk('${b.id}')">받았어요 (수강 확인)</button>`
+        : qrOnlyNote()}
       <button class="btn danger-ghost mt8" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>`, { back: true });
   }
   // v2.23 (형 확정 1안): 확인 대기 3건+에서 홈 요약 카드가 여는 목록 — 건별 «받았어요»만 제공.
@@ -1724,12 +1737,15 @@
         <div class="row"><span class="grow"><b style="font-size:15px">${c.title}</b></span><span class="badge b-warn">대기</span></div>
         <div class="muted small mt4">${dlabel(s0.date)} ${s0.time} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="row mt12" style="gap:8px">
-          <button class="btn primary grow" onclick="App.confirmAttendAsk('${b.id}')">받았어요 (수강 확인)</button>
-          <button class="btn ghost" style="flex:0 0 auto;width:auto;padding-left:16px;padding-right:16px" onclick="location.hash='#/m/confirm/${b.id}'">자세히</button>
+          ${DB.policy.methodApp
+            ? `<button class="btn primary grow" onclick="App.confirmAttendAsk('${b.id}')">받았어요 (수강 확인)</button>
+          <button class="btn ghost" style="flex:0 0 auto;width:auto;padding-left:16px;padding-right:16px" onclick="location.hash='#/m/confirm/${b.id}'">자세히</button>`
+            : `<button class="btn ghost grow" onclick="location.hash='#/m/confirm/${b.id}'">자세히 보기</button>`}
         </div></div>` };
     });
     return shell("m", "수강 확인 요청", `
       ${list.length ? `<p class="muted" style="margin-bottom:12px">확인을 기다리는 수업이 <b>${list.length}건</b> 있어요. 확인하면 멤버십 1회가 차감되니 한 건씩 확인해 주세요.</p>
+      ${DB.policy.methodApp ? "" : qrOnlyNote("mb12")}
       ${fltHtml("m-confirms", { cats: [{ k: "wait", label: "확인 대기", items, empty: "확인을 기다리는 수업이 없어요." }], ph: "수업명·선생님 검색" })}
       <div class="muted small mt8" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>`
       : `<div class="card flat" style="text-align:center;padding:32px 16px">
@@ -2301,8 +2317,14 @@
       { k: "rec", label: "기록", items: recs.map((r) => ({ txt: rTxt(r), date: rpDate(r) || "", html: row(r) })).sort(newest),
         empty: "아직 기록이 없어요." },
     ];
+    // v2.53 (P7-2): 확인 안내는 센터의 확인수단 조합(둘 다/앱만/QR만)에 맞춰 말한다
+    const methodLine = DB.policy.methodApp && DB.policy.methodQr
+      ? "확인은 회원 본인 폰에서만 가능하고, 현장에선 일회용 QR로 바로 확인받을 수 있어요."
+      : DB.policy.methodApp
+        ? "확인은 회원 본인 폰(앱 원탭)에서만 가능해요 — 센터 정책상 현장 QR 확인은 꺼져 있어요."
+        : "센터 정책상 앱 원탭 확인 없이 <b>현장 일회용 QR</b>로만 확인을 받아요 — «처리 필요»에서 QR을 띄워 회원 폰으로 스캔받아 주세요.";
     return shell("t", "완료 보고 현황", `
-      <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. 확인은 회원 본인 폰에서만 가능하고, 현장에선 일회용 QR로 바로 확인받을 수 있어요.<br>완료 보고 자체는 «일정» 탭에서 그 회차를 열어 «완료 보고»를 눌러요 — 여기선 보고한 뒤의 확인 상태만 봐요.</p>
+      <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. ${methodLine}<br>완료 보고 자체는 «일정» 탭에서 그 회차를 열어 «완료 보고»를 눌러요 — 여기선 보고한 뒤의 확인 상태만 봐요.</p>
       ${fltHtml("t-report", { cats, ph: "회원·수업명 검색", initial: () => (needItems.length ? "need" : inprog.length ? "prog" : "rec") })}`);
   }
   // ── v2.9: 회차별 단가 명세 (형 지적 08-18 — 회원별·등록시기별 단가 차이를 화면에서 확인) ──
@@ -3313,13 +3335,13 @@
     },
     confirm: {
       title: "수강확인",
-      sum: () => `개인 ${DB.policy.signPrivate ? "필수" : "선택"} · 그룹 ${DB.policy.signGroup ? "필수" : "선택"} · 자동확정 ${DB.policy.autoConfirmHours ? `${DB.policy.autoConfirmHours}시간 후` : "사용 안 함"}`,
+      sum: () => `개인 ${DB.policy.signPrivate ? "필수" : "선택"} · 그룹 ${DB.policy.signGroup ? "필수" : "선택"} · 수단 ${DB.policy.methodApp && DB.policy.methodQr ? "앱+QR" : DB.policy.methodApp ? "앱만" : "QR만"} · 자동확정 ${DB.policy.autoConfirmHours ? `${DB.policy.autoConfirmHours}시간 후` : "사용 안 함"}`,
       body: () => {
         const P = DB.policy;
         return `<div class="card flat">
         <div class="toggle-row"><span><div class="tl">개인수업 확인 필수</div><div class="td">회원이 확인해야 횟수가 차감되고 정산돼요</div></span>${polSw("signPrivate", P.signPrivate)}</div>
         <div class="toggle-row"><span><div class="tl">그룹수업 확인 필수</div><div class="td">끄면 그룹수업은 출석 체크만으로 차감돼요 · 이의제기 기간은 그대로 유지돼요</div></span>${polSw("signGroup", P.signGroup)}</div>
-        <div class="toggle-row"><span><div class="tl">회원 앱 확인</div><div class="td">회원 본인 폰에서 원탭 확인 (기본 경로)</div></span>${polSw("methodApp", P.methodApp)}</div>
+        <div class="toggle-row"><span><div class="tl">회원 앱 확인</div><div class="td">회원 본인 폰에서 원탭 확인 (기본 경로) · 끄면 회원 앱의 확인 버튼이 사라지고 현장 QR로만 확인받아요</div></span>${polSw("methodApp", P.methodApp)}</div>
         <div class="toggle-row"><span><div class="tl">현장 QR 확인</div><div class="td">선생님이 띄운 일회용 QR을 회원이 본인 폰으로 스캔해요 · 그 수업 1건에만 쓸 수 있고 몇 분 뒤 만료돼요</div></span>${polSw("methodQr", P.methodQr)}</div>
         <div class="toggle-row"><span><div class="tl">무응답 자동확정</div><div class="td">알림을 2번 보낸 뒤에도 응답이 없으면 자동확정돼요 · 자동확정 표시가 남아요</div></span>
           ${polSelect("App.setAutoConfirm(this.value)", AUTO_HOURS, P.autoConfirmHours)}</div>
@@ -4084,6 +4106,7 @@
     // modal(`<h3>…</h3><p>…</p><div class="btn-row">[돌아가기][실행]</div>`). 새 패턴을 만들지 않는다.
     // 본문에는 «무엇이 몇 회 움직이는지»를 숫자로 적는다(0회면 0회라고 적는다).
     confirmAttendAsk(bkId) {
+      if (!DB.policy.methodApp) { toast(QR_ONLY_MSG); return; } // v2.53 (P7-2): 앱 원탭 확인 꺼짐 — QR로만
       const b = DB.bookings.find((x) => x.id === bkId);
       if (b && b.memberId !== DB.me.member) { toast("확인은 해당 수업 회원 본인 계정에서만 가능해요."); return; }
       const r = b && DB.reports.find((x) => x.bookingId === b.id && x.status === "pending");
@@ -4098,6 +4121,7 @@
     },
     // S-1: 상태·보고 검증 후에만 확인 성립. v2.13: 확인 권한=회원 본인 계정 귀속 (대리 확인 불가)
     confirmAttend(bkId) {
+      if (!DB.policy.methodApp) { toast(QR_ONLY_MSG); return; } // v2.53 (P7-2): 렌더 사이 우회 진입 이중 차단
       const b = DB.bookings.find((x) => x.id === bkId);
       if (b && b.memberId !== DB.me.member) { toast("확인은 해당 수업 회원 본인 계정에서만 가능해요."); return; }
       const r = b && DB.reports.find((x) => x.bookingId === b.id && x.status === "pending");
@@ -4147,7 +4171,9 @@
             <button class="on" data-v="attend" onclick="App.seg(this)">참석</button>
             <button data-v="noshow" onclick="App.seg(this)">노쇼</button></div></div>`).join("")}
         <p class="muted small mt8">${needConfirm
-          ? "보고하면 각 회원에게 수강 확인 요청이 가요. 회원이 확인해야 차감·정산돼요."
+          ? (DB.policy.methodApp
+            ? "보고하면 각 회원에게 수강 확인 요청이 가요. 회원이 확인해야 차감·정산돼요."
+            : "보고하면 각 회원이 «확인 대기»가 돼요. 이 센터는 현장 QR로만 확인을 받아요 — «완료 보고 현황»에서 QR을 띄워 회원 폰으로 스캔받아 주세요.")
           : `이 수업은 확인 생략(출석 체크) 정책이라 보고 즉시 차감돼요. 회원에게 즉시 알림이 가고 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.`}
           ${DB.policy.noshowDeduct ? ` 노쇼로 보고하면 회원에게 바로 알림이 가고, ${DB.policy.disputeDays}일 안에 이의가 없으면 자동 확정되고 횟수가 차감돼요.` : " 노쇼는 차감 없이 종결돼요."}</p>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">취소</button>
@@ -4791,6 +4817,10 @@
     },
     toggle(key) {
       const P = DB.policy;
+      // v2.53 (P7-2): 확인수단(앱·QR)은 최소 1개 유지 — 마지막 남은 수단을 끄려 하면 거부하고 상태 유지
+      if ((key === "methodApp" && P.methodApp && !P.methodQr) || (key === "methodQr" && P.methodQr && !P.methodApp)) {
+        toast("확인수단은 최소 1개는 켜져 있어야 해요. 다른 수단을 먼저 켠 뒤 꺼 주세요."); return;
+      }
       if (key === "cancelCond") P.cancelMode = P.cancelMode === "conditional" ? "none" : "conditional";
       else if (key === "waitlistAuto") P.waitlistPromote = P.waitlistPromote === "auto" ? "manual" : "auto";
       else P[key] = !P[key];

@@ -743,3 +743,7 @@ button.stat:active { transform: scale(.97); }
   .role-c .hd-in { padding: 14px 40px; }
   .role-c .cw2 { gap: 0 32px; }
 }
+
+/* ── v2.53 (P7-2): methodApp=끔 안내 — 원탭 확인 버튼 자리를 대신하는 정보 박스 ── */
+.qr-only { background: var(--surface-sunken); border: 1px solid var(--border-strong); border-radius: 12px; padding: 11px 14px; font-size: 13px; font-weight: 500; color: var(--text-muted); line-height: 1.55; text-align: center; width: 100%; }
+.mb12 { margin-bottom: 12px; }
