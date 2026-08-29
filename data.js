@@ -746,3 +746,57 @@ window.DB = {
     if (!r.policySnap) r.policySnap = { disputeDays: P.disputeDays, autoConfirmHours: P.autoConfirmHours, noshowDeduct: P.noshowDeduct };
   });
 })();
+
+// ── v2.50: 기준일 하드코딩 제거 — 로드 시 전체 시드를 «실제 오늘» 기준으로 시프트 ──
+// 시드 코드는 기준일(2026-08-17) 그대로 유지(상대 관계·요일 설계 보존), 여기서 한 번에
+// (실제 오늘 − 기준일)일만큼 모든 날짜를 이동한다. 반드시 data.js의 «마지막» IIFE여야 한다.
+// - ISO 날짜("YYYY-MM-DD"·"YYYY-MM-DD HH:MM")와 표기용 "M/D (요일)" 텍스트 모두 시프트(요일 재계산).
+// - recurs.weekdays(getDay 규약)는 delta%7 회전 — 시프트된 회차 날짜와 요일 정합 유지.
+(function shiftToRealToday() {
+  const D = window.DB, BASE = D.TODAY;
+  const p2 = (n) => String(n).padStart(2, "0");
+  const now = new Date();
+  const real = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}`;
+  const utcNoon = (iso) => new Date(iso + "T12:00:00Z");
+  const delta = Math.round((utcNoon(real) - utcNoon(BASE)) / 86400000);
+  if (!delta) return;
+  const ROT = ((delta % 7) + 7) % 7;
+  const DOWK = "일월화수목금토";
+  const shiftISO = (iso) => {
+    const d = utcNoon(iso); d.setUTCDate(d.getUTCDate() + delta);
+    return d.toISOString().slice(0, 10);
+  };
+  const rotD = (ch) => DOWK[(DOWK.indexOf(ch) + ROT) % 7];
+  const shiftStr = (s) => {
+    let out = s.replace(/\d{4}-\d{2}-\d{2}/g, shiftISO);
+    out = out.replace(/\b(\d{1,2})\/(\d{1,2})(\s*\(([월화수목금토일])\))?/g, (m, mo, da, par) => {
+      const d = utcNoon(`${BASE.slice(0, 4)}-${p2(+mo)}-${p2(+da)}`);
+      if (isNaN(d)) return m;
+      d.setUTCDate(d.getUTCDate() + delta);
+      const md = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+      return par ? `${md} (${DOWK[d.getUTCDay()]})` : md;
+    });
+    // 표기용 요일 텍스트도 회전 — 회전된 weekdays·시프트된 날짜와 정합 유지
+    out = out.replace(/매주 ([월화수목금토일](?:·[월화수목금토일])*)/g, (m, g) =>
+      "매주 " + g.split("·").map(rotD).sort((a, b) => DOWK.indexOf(a) - DOWK.indexOf(b)).join("·"));
+    out = out.replace(/\(([월화수목금토일]) (\d{1,2}:\d{2})\)/g, (m, w, t) => `(${rotD(w)} ${t})`);
+    out = out.replace(/([월화수목금토일])요일/g, (m, w) => `${rotD(w)}요일`);
+    return out;
+  };
+  const walk = (o) => {
+    if (Array.isArray(o)) {
+      o.forEach((v, i) => {
+        if (typeof v === "string") o[i] = shiftStr(v);
+        else if (v && typeof v === "object") walk(v);
+      });
+      return;
+    }
+    for (const k of Object.keys(o)) {
+      const v = o[k];
+      if (typeof v === "string") o[k] = shiftStr(v);
+      else if (k === "weekdays" && Array.isArray(v)) o[k] = v.map((d) => (d + ROT) % 7).sort((a, b) => a - b);
+      else if (v && typeof v === "object") walk(v);
+    }
+  };
+  walk(D);
+})();

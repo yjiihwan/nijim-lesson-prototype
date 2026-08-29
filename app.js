@@ -182,7 +182,7 @@
 */
 (function () {
   const DB = window.DB;
-  const NOW = new Date("2026-08-17T12:00:00+09:00"); // 데모 고정 현재시각
+  const NOW = new Date(); // v2.50: 실제 현재시각 (데모 고정 폐지 — data.js가 시드를 오늘 기준으로 시프트)
   const $app = document.getElementById("app");
 
   // ── 헬퍼 ──
@@ -213,7 +213,7 @@
   }
   let seq = 100;
   const nid = (p) => p + seq++;
-  const nowStamp = "2026-08-17 12:00";
+  const nowStamp = `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, "0")}-${String(NOW.getDate()).padStart(2, "0")} ${String(NOW.getHours()).padStart(2, "0")}:${String(NOW.getMinutes()).padStart(2, "0")}`; // v2.50: 실제 현재시각
 
   // ── 좌석·대기 파생 (bookings가 단일 진실) ──
   const SEAT = ["booked", "confirm_wait", "noshow_wait", "confirmed", "disputed"];
@@ -1463,7 +1463,7 @@
     return overlapSlots(c.teacherId, d, t, c.duration, []).length
       ? `<div class="banner warn">${icb("info")}<span>${ARR_OV_MSG}</span></div>` : "";
   }
-  const ARR_D0 = "2026-08-21", ARR_T0 = "11:00"; // 일정 요청 폼 기본값 — 폼·안내 표시가 같은 값을 쓰도록
+  const ARR_D0 = addDays(DB.TODAY, 4), ARR_T0 = "11:00"; // 일정 요청 폼 기본값(오늘+4일) — 폼·안내 표시가 같은 값을 쓰도록
   let mcMore = false; // v2.39 F9: 수업 상세 «예약 가능 회차» 4주 뒤까지 펼쳤는지 — 그 화면 안에서만 유지
   function vMClass(id) {
     const c = cls(id);
@@ -1928,7 +1928,7 @@
           ${pickerHtml("pp-member", { pool: members })}
           <div class="hint">멤버십 자격은 제안을 보낼 때와 회원이 수락할 때 다시 확인해요.</div></div>
         <div class="field"><label>수업</label><select id="pp-class">${classes.map((c) => `<option value="${c.id}">${c.title}</option>`).join("")}</select></div>
-        <div class="field"><label>날짜</label><input type="date" id="pp-date" value="2026-08-22" min="${DB.TODAY}"></div>
+        <div class="field"><label>날짜</label><input type="date" id="pp-date" value="${addDays(DB.TODAY, 5)}" min="${DB.TODAY}"></div>
         <div class="field"><label>시간</label><input type="time" id="pp-time" value="15:00"></div>
         <div class="field"><label>메모 (선택 · 회원에게 전달)</label><input type="text" id="pp-note" placeholder="예: 이 시간이 비어 있어요. 어떠세요?"></div>
         <button class="btn primary" onclick="App.proposeSlot()">제안 보내기</button>
@@ -2013,10 +2013,10 @@
       const list = ccClasses(role);
       const first = list[0] || null;
       ccUI = { role, fill: "assign", classId: first ? first.id : "new", slotSel: "new",
-        date: "2026-08-22", time: "11:00", title: "", teacherId: (DB.teachers[0] || {}).id,
+        date: addDays(DB.TODAY, 5), time: "11:00", title: "", teacherId: (DB.teachers[0] || {}).id,
         kind: "group", cap: "6", sched: "fixed", elig: first ? first.eligibility : "pass",
         // v2.28 반복 — wdays=null이면 «고른 날짜의 요일»을 따라간다(요일을 직접 건드리면 그때부터 고정)
-        rep: false, wdays: null, endMode: "until", endDate: "2026-12-31" };
+        rep: false, wdays: null, endMode: "until", endDate: `${DB.TODAY.slice(0, 4)}-12-31` };
     }
     return ccUI;
   }
@@ -2214,7 +2214,7 @@
       if (seatCount(sl.id) + mids.length > c.capacity) errs.push(`정원 초과: 잔여 ${Math.max(0, c.capacity - seatCount(sl.id))}석인데 ${mids.length}명을 선택했어요.`);
       for (const mid of mids) if (DB.bookings.some((b) => b.slotId === sl.id && b.memberId === mid && ACTIVE.includes(b.status))) errs.push(`<b>${memberName(mid)}</b>: 이미 이 회차에 예약이 있어요.`);
     } else {
-      d = U.date || "2026-08-22";
+      d = U.date || addDays(DB.TODAY, 5);
       t = U.time || "11:00";
       if (new Date(`${d}T${t}:00+09:00`) <= NOW) { ccPastAsk(); return; }
     }
@@ -2240,7 +2240,7 @@
   // «자리 열어두고 신청 받기» — 회차만 열고 좌석은 비워 둔다. 회원이 «수업 예약»에서 신청하면 채워진다.
   function ccOpen(role, c, isNew) {
     const U = ccUI;
-    const d = U.date || "2026-08-22";
+    const d = U.date || addDays(DB.TODAY, 5);
     const t = U.time || "11:00";
     if (new Date(`${d}T${t}:00+09:00`) <= NOW) { ccPastAsk(); return; }
     const elig = U.elig;
