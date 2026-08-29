@@ -112,7 +112,7 @@ a { color: var(--link); text-decoration: none; }
 .toggle-row .tl, .toggle-row .td { word-break: keep-all; }
 
 /* 버튼 — pointer-down 즉시 피드백(scale), 터치 타깃 확보 */
-.btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 50px; text-align: center; border-radius: 14px; padding: 14px 16px; font-size: 15px; font-weight: 700; letter-spacing: -0.005em; transition: transform .12s var(--ease-out), background .15s ease; }
+.btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 50px; text-align: center; border-radius: 14px; padding: 14px 16px; font-size: 15px; font-weight: 700; letter-spacing: -0.005em; word-break: keep-all; transition: transform .12s var(--ease-out), background .15s ease; }
 .btn:active { transform: scale(.97); }
 .btn.primary { background: var(--cta); color: var(--text-on-brand); box-shadow: 0 4px 14px rgba(255,0,101,.22); }
 .btn.primary:active { background: var(--cta-hover); }
@@ -121,7 +121,8 @@ a { color: var(--link); text-decoration: none; }
 .btn.danger-ghost { background: var(--surface); border: 1px solid var(--border-strong); color: var(--danger); }
 .btn.sm { min-height: 40px; padding: 9px 14px; font-size: 13px; border-radius: 11px; width: auto; display: inline-flex; }
 .btn-row { display: flex; gap: 8px; margin-top: 12px; }
-.btn-row .btn { margin: 0; flex: 1; }
+/* v2.48: flex-basis auto — 행은 언제나 100% 채우되, 라벨이 긴 버튼(주버튼)이 더 넓게 가져가 줄바꿈을 줄인다 */
+.btn-row .btn { margin: 0; flex: 1 1 auto; min-width: 0; }
 
 /* 프로토타입 데모 전용 장치 — 실서비스 UI와 시각적으로 구분 (점선 보더 + 캡션) */
 .demo-box { margin-top: 10px; padding: 9px 11px; border: 1.5px dashed var(--border-strong); border-radius: 12px; display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; background: var(--surface-sunken); }
@@ -188,6 +189,8 @@ button.banner:active { transform: scale(.98); }
 .ledger .delta.minus { color: var(--danger); }
 .ledger .delta.plus { color: var(--success); }
 .tl-item { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; align-items: flex-start; }
+/* v2.48: .row/.slot의 .grow와 달리 여기만 flex:1이 빠져 있어 내용 블록이 가장 긴 텍스트 폭으로 수축 — 버튼 행이 카드 폭을 못 채우던 원인 */
+.tl-item > .grow { flex: 1; min-width: 0; }
 .tl-item:last-child { border-bottom: 0; }
 
 /* 역할 랜딩 */
@@ -603,7 +606,7 @@ button.stat:active { transform: scale(.97); }
 /* §B8-3 (U8) 요청 카드 3버튼 — 긍정(풀폭) → 중립·부정(1:1 2열) */
 .btn-row.col { flex-direction: column; }
 .btn-row.col .btn-row.half { display: flex; gap: 8px; margin-top: 0; width: 100%; }
-.btn-row.col .btn-row.half .btn { flex: 1; }
+.btn-row.col .btn-row.half .btn { flex: 1 1 auto; min-width: 0; }
 
 /* ══ v2.29 §B13 (U13) 정산 — 상단 월 합계 카드 + «날짜별 상세» 접힘 섹션 ══ */
 .cs-sum .k { font-size: 13px; font-weight: 700; color: var(--text-muted); }
