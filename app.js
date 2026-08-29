@@ -2275,7 +2275,8 @@
     const isNeed = (r) => r.status === "pending" && qrOn;
     const need = DB.reports.filter(isNeed);
     const rest = DB.reports.filter((r) => !isNeed(r));
-    const INPROG = ["pending", "auto", "noshow_wait", "disputed"];
+    // v2.52: auto=자동확정 «완료»(rpBadge=종료) — 미확정이 아니라 기록이다. 진행 중은 결과가 아직 안 정해진 상태만.
+    const INPROG = ["pending", "noshow_wait", "disputed"];
     const inprog = rest.filter((r) => INPROG.includes(r.status));
     const recs = rest.filter((r) => !INPROG.includes(r.status));
     const row = (r, action) => {
@@ -2963,7 +2964,8 @@
     const isNeed = (r) => r.status === "disputed" || r.status === "auto" || (r.status === "noshow_wait" && centerNoshow);
     const need = DB.reports.filter(isNeed);
     const rest = DB.reports.filter((r) => !isNeed(r));
-    const INPROG = ["pending", "noshow_wait", "auto", "disputed"];
+    // v2.52: auto·disputed는 위 isNeed가 항상 선점(액션 있음)해서 여기 못 온다 — 미확정 상태만 남긴다.
+    const INPROG = ["pending", "noshow_wait"];
     const inprog = rest.filter((r) => INPROG.includes(r.status));
     const recs = rest.filter((r) => !INPROG.includes(r.status));
     const actions = (r) => `
