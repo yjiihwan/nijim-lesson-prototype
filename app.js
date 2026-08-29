@@ -1776,12 +1776,8 @@
   }
   function vTHome() {
     const today = tSlots().filter((s) => s.date === DB.TODAY).sort((a, b) => a.time.localeCompare(b.time));
-    // v2.29 §A1-6 (U21): «해야 할 일»에 올라간 수치는 스탯에서 뺀다 — 같은 숫자를 두 번 보여주지 않는다.
-    // 남는 스탯은 «지표»(액션 없음), 해야 할 일은 «과업»(액션 있음).
+    // v2.51 (형 지시 08-29): «오늘 수업 N회» 스탯 삭제 — 바로 아래 «오늘 일정» 목록과 같은 정보라 중복.
     return shell("t", "박코치 선생님", `
-      <div class="stat-grid one">
-        <div class="stat"><div class="k">오늘 수업</div><div class="v">${today.length}<small>회</small></div></div>
-      </div>
       ${todoBlock("t")}
       <div class="sec-title">오늘 일정 · ${dlabel(DB.TODAY)}</div>
       <div class="card flat">${today.length ? today.map((s) => {
