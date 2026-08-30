@@ -747,3 +747,8 @@ button.stat:active { transform: scale(.97); }
 /* ── v2.53 (P7-2): methodApp=끔 안내 — 원탭 확인 버튼 자리를 대신하는 정보 박스 ── */
 .qr-only { background: var(--surface-sunken); border: 1px solid var(--border-strong); border-radius: 12px; padding: 11px 14px; font-size: 13px; font-weight: 500; color: var(--text-muted); line-height: 1.55; text-align: center; width: 100%; }
 .mb12 { margin-bottom: 12px; }
+
+/* ── v2.57: 희망 일시 접힘 슬롯 — 기본 1쌍, «+ 희망 시간 추가»로 하나씩 펼침, ×로 접음 ── */
+.mch-x { flex: 0 0 40px; width: 40px; min-height: 46px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text-muted); font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.mch-x:active { background: var(--surface-sunken); }
+.mch-add { display: block; background: none; border: none; padding: 8px 2px 0; color: var(--link); font-weight: 600; font-size: 13px; font-family: inherit; text-align: left; cursor: pointer; }

@@ -3918,14 +3918,17 @@
       if (isPast(s)) { toast("이미 지난 수업이라 시간을 바꿀 수 없어요."); return; }
       if (pendingChangeFor(bkId)) { toast("이 예약에는 답변을 기다리는 변경 요청이 이미 있어요."); return; }
       mchCtx = { c, slotId: s.id };
-      const row = (i) => `<div class="row" style="gap:8px${i ? ";margin-top:8px" : ""}">
+      // v2.57: 기본은 1쌍만 — 2·3번째는 «+ 희망 시간 추가»로 펼치고 ×로 접는다(입력값도 함께 비움).
+      const row = (i) => `<div class="row" id="mc-r${i}" style="gap:8px${i ? ";margin-top:8px;display:none" : ""}">
         <input type="date" id="mc-d${i}" ${i ? "" : `value="${s.date}"`} min="${DB.TODAY}" style="flex:1" oninput="App.mchSync()">
-        <input type="time" id="mc-t${i}" ${i ? "" : `value="${s.time}"`} style="flex:1" oninput="App.mchSync()"></div>`;
+        <input type="time" id="mc-t${i}" ${i ? "" : `value="${s.time}"`} style="flex:1" oninput="App.mchSync()">
+        ${i ? `<button type="button" class="mch-x" onclick="App.mchSlotDel(${i})" aria-label="이 희망 시간 지우기">&times;</button>` : ""}</div>`;
       modal(`<h3>시간 변경 요청</h3><p><b>${c.title}</b> · 지금 일정 ${dlabel(s.date)} ${s.time}<br>
         희망하는 시간을 알려 주시면 ${teacher(c.teacherId).name} 선생님이 확인하고 답해요.</p>
-        <div class="field mt12"><label>희망 일시 (1개 이상 · 최대 3개)</label>
+        <div class="field mt12"><label>희망 일시</label>
           ${row(0)}${row(1)}${row(2)}
-          <div class="hint">여러 개를 적어 두면 선생님이 되는 시간을 골라 확정해요. 2·3번째는 비워 둬도 돼요.</div></div>
+          <button type="button" class="mch-add" id="mc-add" onclick="App.mchSlotAdd()">+ 희망 시간 추가 (최대 3개)</button>
+          <div class="hint">여러 개 적어 두면 선생님이 되는 시간을 골라 확정해요.</div></div>
         <div id="mc-ov"></div>
         <div class="field"><label>사유 (선택 · 선생님에게 전달)</label>
           <textarea id="mc-note" rows="2" placeholder="예: 그날 회사 일정이 생겼어요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
@@ -3940,6 +3943,28 @@
       const c = mchCtx.c;
       const hit = mchRead().some((o) => overlapSlots(c.teacherId, o.date, o.time, c.duration, [mchCtx.slotId]).length);
       box.innerHTML = hit ? `<div class="banner warn">${icb("info")}<span>${ARR_OV_MSG}</span></div>` : "";
+    },
+    // v2.57: 접힘 슬롯 펼치기/지우기 — UI만. 제출 검증(mchRead: 값 있는 쌍만)은 그대로다.
+    mchSlotAdd() {
+      const hid = [1, 2].find((i) => (document.getElementById("mc-r" + i) || {}).style?.display === "none");
+      if (hid == null) return;
+      document.getElementById("mc-r" + hid).style.display = "";
+      if (hid === 2) document.getElementById("mc-add").style.display = "none";
+      document.getElementById("mc-d" + hid).focus();
+    },
+    // × — 지운 슬롯 뒤에 열린 슬롯이 있으면 값을 앞으로 당겨 채우고 마지막을 접는다(순서 유지).
+    mchSlotDel(i) {
+      const el = (p, j) => document.getElementById(p + j);
+      const kept = [1, 2].filter((j) => j !== i && el("mc-r", j).style.display !== "none")
+        .map((j) => ({ d: el("mc-d", j).value, t: el("mc-t", j).value }));
+      [1, 2].forEach((j, k) => {
+        const on = k < kept.length;
+        el("mc-r", j).style.display = on ? "" : "none";
+        el("mc-d", j).value = on ? kept[k].d : "";
+        el("mc-t", j).value = on ? kept[k].t : "";
+      });
+      document.getElementById("mc-add").style.display = "";
+      App.mchSync();
     },
     mchSend(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
