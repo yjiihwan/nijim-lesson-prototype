@@ -747,6 +747,78 @@ window.DB = {
   });
 })();
 
+// ══ v2.54 계정·소속 구조 (형 지시 08-30) ══
+// 니짐내짐 계정 = 휴대폰번호(아이디) + 비밀번호(+카카오 간편로그인). «아무 역할 없는 일반유저»가 기본값이고
+// 역할은 전부 «부여»다 — 회원(멤버십 구매/센터 등록), 사장님(플랫폼 부여), 선생님·직원(사장님 부여 + 상호동의).
+// 한 계정이 여러 센터에 동시에 회원·선생님·직원·사장님일 수 있다.
+//
+// 실서비스 ERD (프로토타입 affils가 대응):
+//   accounts(id, phone UNIQUE, password_hash, kakao_id NULL, created_at)
+//   center_roles(id, account_id→accounts, center_id→centers, role ENUM(member|teacher|staff|owner),
+//                subject NULL, status ENUM(invited|active|left|declined|canceled),
+//                started_at, ended_at NULL, ended_by ENUM(center|self|platform) NULL,
+//                invited_at NULL, source, UNIQUE(account_id, center_id, role, started_at))
+// 원칙: 행은 절대 삭제하지 않는다(append-only) — 퇴사·해제는 ended_at/ended_by 기록으로 «종료»만 한다.
+// 수업·예약·정산·보고 데이터는 전부 (center_id, account_id)를 참조하므로 소속이 끝나도 각 플레이어
+// (회원·선생님·센터) 입장에서 과거 데이터가 유실·단절 없이 조회된다. 재취업 시 새 active 행을 append —
+// 같은 계정·같은 센터라도 기간 행이 나뉘어 «언제 어디 소속으로 한 수업인지»가 남는다.
+// 프로토타입에선 members 배열이 계정 풀을 겸한다(phone=아이디). teachers는 «프로필»이라 퇴사해도 남는다
+// — 활동 중 여부는 언제나 affils에서 파생한다.
+(function seedAffiliations() {
+  const D = window.DB;
+  // 카카오 간편로그인 연동 계정 표시용 (아이디·비번 로그인과 병행)
+  const kakaoSet = new Set(["m1", "m3", "m9"]);
+  D.members.forEach((m) => { if (kakaoSet.has(m.id)) m.kakao = true; });
+
+  // 센터 디렉터리 — 운영 화면(센터 역할)은 ct1(엔짐 개봉점) 컨텍스트만 구현. 나머지는 선생님 «내 소속 센터» 데모용.
+  D.centers = [
+    { id: "ct1", name: "엔짐 개봉점", area: "서울 구로구" },
+    { id: "ct2", name: "코어핏 강남", area: "서울 강남구" },
+    { id: "ct3", name: "리포즈 필라테스 목동", area: "서울 양천구" },
+    { id: "ct4", name: "바디텍 신촌", area: "서울 서대문구" },
+  ];
+
+  // 스태프 전용 계정 시드 — 사장님·직원·초대 대기·퇴사 이력 데모
+  D.members.push(
+    { id: "mOwn1", name: "김대현", phone: "010-2000-0001", staff: true },            // ct1 사장님
+    { id: "mStf1", name: "윤보라", phone: "010-2000-0002", staff: true, kakao: true }, // ct1 직원
+    { id: "mInv1", name: "한도윤", phone: "010-2000-0003", kakao: true },             // ct1이 선생님 초대 중 (아직 일반유저)
+    { id: "mPast1", name: "서지안", phone: "010-2000-0004" },                          // ct1 퇴사 선생님 계정
+  );
+  // 퇴사 선생님 «프로필»은 남는다 — 과거 수업·정산 화면이 이름을 계속 그린다 (활동 여부는 affils가 진실)
+  D.teachers.push({ id: "t90", name: "서지안", subject: "필라테스", memberId: "mPast1" });
+
+  D.affils = [];
+  const af = (o) => D.affils.push(Object.assign({ id: "af" + (D.affils.length + 1), centerId: "ct1" }, o));
+  // ct1 사장님(플랫폼 부여)·직원(사장님 부여)
+  af({ memberId: "mOwn1", role: "owner", status: "active", startedAt: "2025-06-01", source: "platform" });
+  af({ memberId: "mStf1", role: "staff", status: "active", startedAt: "2026-02-10", source: "invite" });
+  // ct1 재직 선생님 전원 — 기존 teachers 시드(t1·t2 + 대규모 32명)를 affils로 편입
+  D.teachers.filter((t) => t.id !== "t90").forEach((t, i) => {
+    af({ memberId: t.memberId, role: "teacher", subject: t.subject, status: "active",
+      startedAt: i === 0 ? "2025-09-01" : i === 1 ? "2025-12-15" : `2026-0${1 + (i % 6)}-0${1 + (i % 9)}`, source: "invite" });
+  });
+  // ct1 → 한도윤 선생님 초대 (상호동의 대기 — 상대 수락 전엔 소속 아님)
+  af({ memberId: "mInv1", role: "teacher", subject: "요가", status: "invited", invitedAt: "2026-08-16", source: "invite" });
+  // ct1 퇴사 이력 — 서지안 선생님 (본인 퇴사). 행은 남고 ended로 종료 — 재직 기간·과거 데이터 조회 근거
+  af({ memberId: "mPast1", role: "teacher", subject: "필라테스", status: "left",
+    startedAt: "2025-11-03", endedAt: "2026-07-15", endedBy: "self", source: "invite" });
+
+  // ── 박코치(t1·계정 m9)의 다센터·다역할 데모 — «한 계정, 여러 센터, 여러 역할» ──
+  // ct2: 선생님이면서 동시에 «회원»(멤버십 구매) — 역할 병행
+  af({ centerId: "ct2", memberId: "m9", role: "teacher", subject: "PT", status: "active", startedAt: "2026-05-01", source: "invite",
+    hist: { lessons: 46, lastAt: "2026-08-15" } });
+  af({ centerId: "ct2", memberId: "m9", role: "member", status: "active", startedAt: "2026-05-20", source: "purchase" });
+  // ct3: 퇴사한 지난 소속 — 수업 142회 이력은 퇴사 후에도 그대로 조회된다 (실서비스=center_id 스코프 라이브 조회,
+  // 프로토타입은 타 센터 DB가 없어 요약 스냅샷으로 대체)
+  af({ centerId: "ct3", memberId: "m9", role: "teacher", subject: "PT", status: "left",
+    startedAt: "2025-03-02", endedAt: "2026-06-30", endedBy: "self", source: "invite",
+    hist: { lessons: 142, lastAt: "2026-06-28" } });
+  // ct4: 센터가 보낸 선생님 초대 — 내(선생님)가 수락/거절하는 상호동의 데모
+  af({ centerId: "ct4", memberId: "m9", role: "teacher", subject: "PT", status: "invited",
+    invitedAt: "2026-08-15", source: "invite" });
+})();
+
 // ── v2.50: 기준일 하드코딩 제거 — 로드 시 전체 시드를 «실제 오늘» 기준으로 시프트 ──
 // 시드 코드는 기준일(2026-08-17) 그대로 유지(상대 관계·요일 설계 보존), 여기서 한 번에
 // (실제 오늘 − 기준일)일만큼 모든 날짜를 이동한다. 반드시 data.js의 «마지막» IIFE여야 한다.

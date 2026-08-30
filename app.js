@@ -1078,7 +1078,7 @@
   // 완료 보고가 필요한 종료 회차 — 시각이 지났고 아직 보고 안 된 좌석이 남아 있는 회차 (U20)
   const slotNeedsReport = (s) => isPast(s) && s.status !== "canceled" && DB.bookings.some((b) => b.slotId === s.id && b.status === "booked");
   const cAutoWarns = () => (DB.policy.autoConfirmHours > 0
-    ? DB.teachers.map((t) => ({ t, ...autoStats(t.id) })).filter((x) => x.total && x.rate >= DB.policy.autoWarnRate) : []);
+    ? activeTeachers().map((t) => ({ t, ...autoStats(t.id) })).filter((x) => x.total && x.rate >= DB.policy.autoWarnRate) : []);
   function todoItems(role) {
     const out = [];
     const add = (o) => { if (o.n > 0) out.push(o); };
@@ -1108,6 +1108,9 @@
       // §D-2 B안(형 확정 08-20): 강행 허용은 유지하되 실수로 남은 겹침이 조용히 묻히지 않게 «문제»로 올린다
       add({ n: ovOpenSlots("t").length, tier: "bad", rank: 3, icon: "clock", key: "overlap",
         text: "시간이 겹친 수업이 있어요", go: "#/t/overlaps" });
+      // v2.54: 센터가 보낸 소속(권한 부여) 초대 — 상호 동의라 내 수락이 있어야 성립
+      add({ n: myCenterInvites().length, tier: "wait", rank: 4, icon: "users", key: "centerinv",
+        text: "센터에서 온 소속 초대가 있어요", go: "#/t/centers" });
     } else if (role === "c") {
       add({ n: DB.reports.filter((r) => r.status === "disputed").length, tier: "bad", rank: 1, icon: "alert", key: "disputes",
         text: "처리할 이의제기가 있어요", go: "#/c/confirms" });
@@ -1794,6 +1797,7 @@
     const today = tSlots().filter((s) => s.date === DB.TODAY).sort((a, b) => a.time.localeCompare(b.time));
     // v2.51 (형 지시 08-29): «오늘 수업 N회» 스탯 삭제 — 바로 아래 «오늘 일정» 목록과 같은 정보라 중복.
     return shell("t", "박코치 선생님", `
+      ${tLeftBannerHtml()}
       ${todoBlock("t")}
       <div class="sec-title">오늘 일정 · ${dlabel(DB.TODAY)}</div>
       <div class="card flat">${today.length ? today.map((s) => {
@@ -1803,6 +1807,7 @@
           ${overlapBadge(s)}${slotNeedsReport(s) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
       }).join("") : `<p class="muted">오늘 수업이 없어요.</p>`}</div>
       <a class="btn primary mt8" href="#/t/create">${ici("plus")}수업 만들기</a>
+      ${tCenterEntryHtml()}
       <p class="muted small mt8" style="text-align:center">회원을 지정해 바로 확정하거나, 자리만 열어두고 신청을 받을 수 있어요.<br>수업 수정·폐강은 «일정» 탭의 «내 수업»에서 해요.</p>`);
   }
   let tSchedDay = null; // 주간 일정 선택 요일 — 화면 이탈 시 초기화(render)
@@ -2099,7 +2104,7 @@
         ${isNew ? `
         <div class="field"><label>수업명</label><input type="text" id="nc-title" value="${(U.title || "").replaceAll('"', "&quot;")}" placeholder="예: 저녁 요가 클래스"></div>
         ${r === "t" ? `<div class="field"><label>담당 선생님</label><input type="text" value="${me.name} (본인)" disabled><div class="hint">선생님이 만든 수업은 본인 담당으로 만들어져요.</div></div>`
-          : `<div class="field"><label>담당 선생님</label><select id="nc-teacher">${DB.teachers.map((t) => opt(t.id, `${t.name} (${t.subject})`, t.id === U.teacherId)).join("")}</select></div>`}
+          : `<div class="field"><label>담당 선생님</label><select id="nc-teacher">${activeTeachers().map((t) => opt(t.id, `${t.name} (${t.subject})`, t.id === U.teacherId)).join("")}</select></div>`}
         <div class="field"><label>종류</label><div class="seg" id="nc-kind">
           <button class="${U.kind === "group" ? "on" : ""}" data-v="group" onclick="App.ccSeg('${r}',this,'kind')">그룹 (다인)</button>
           <button class="${U.kind === "private" ? "on" : ""}" data-v="private" onclick="App.ccSeg('${r}',this,'kind')">개인 (1:1)</button></div></div>
@@ -2415,6 +2420,7 @@
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/confirms'"><div class="k">수강확인</div><div class="v" style="font-size:15px">${ici("clip")}수강확인 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/products'"><div class="k">판매</div><div class="v" style="font-size:15px">${ici("ticket")}수업상품 관리</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/settlement'"><div class="k">월말</div><div class="v" style="font-size:15px">${ici("won")}정산·샐리 전송</div></button>
+        <button class="stat" style="text-align:left" onclick="location.hash='#/c/teachers'"><div class="k">계정</div><div class="v" style="font-size:15px">${ici("users")}선생님·직원 관리</div></button>
       </div></div></div>`);
   }
   // v2.9: 실구매가 → 회당 단가 스냅샷 미리보기 문구 (판매·등록 폼과 App.sellPreview가 공유)
@@ -2622,7 +2628,9 @@
   }
   function polFilterTeachers(key) {
     const q = (polState().q[key] || "").trim();
-    return q ? DB.teachers.filter((t) => t.name.includes(q) || t.subject.includes(q)) : DB.teachers;
+    // v2.54: 정책 대상 = «재직 중»(affils 파생) 선생님만 — 퇴사자는 목록에서 빠지고 데이터는 남는다
+    const base = activeTeachers();
+    return q ? base.filter((t) => t.name.includes(q) || t.subject.includes(q)) : base;
   }
   const POL_EMPTY = '<p class="muted small" style="padding:12px">검색 결과가 없어요.</p>';
   // P2-2 센터 지정 선생님 — 체크 리스트
@@ -3303,7 +3311,7 @@
   const QUICK_SCOPE = [["valid", "유효 멤버십 보유자만"], ["all", "전체 회원"], ["mine", "담당 회원만"]];
   const NOSHOW_ACTOR = [["teacher_report", "선생님 보고 → 자동확정"], ["center_only", "센터만 판정"]];
   const polAuthNames = () => (DB.policy.classAuth.memberIds || []).map((mid) => (DB.teachers.find((t) => t.memberId === mid) || { name: mid }).name);
-  const polScopedCount = () => DB.teachers.filter((t) => tScope(t.id).mode === "custom").length;
+  const polScopedCount = () => activeTeachers().filter((t) => tScope(t.id).mode === "custom").length;
   const POL_SECTIONS = {
     booking: {
       title: "예약 · 대기",
@@ -3355,21 +3363,21 @@
       sum: () => { const n = polAuthNames(); return n.length ? `지정 ${n.length}명 — ${n.slice(0, 2).join(" · ")}${n.length > 2 ? ` 외 ${n.length - 2}명` : ""}` : "지정 없음 — 센터만 개설 가능"; },
       body: () => `<div class="card">
         <div class="field"><label>센터 지정 선생님</label>
-          ${polEditBlock("auth", polSummary(polAuthNames(), "명"), "선생님 이름·직군 검색", `선생님 총 ${DB.teachers.length.toLocaleString("ko-KR")}명 — 검색해 지정·해제해 주세요`)}
-          <div class="hint">지정된 선생님은 본인 수업의 개설·수정·폐강이 가능해요.</div></div>
+          ${polEditBlock("auth", polSummary(polAuthNames(), "명"), "선생님 이름·직군 검색", `재직 선생님 총 ${activeTeachers().length.toLocaleString("ko-KR")}명 — 검색해 지정·해제해 주세요`)}
+          <div class="hint">지정된 선생님은 본인 수업의 개설·수정·폐강이 가능해요. 소속 선생님 추가·퇴사는 <a href="#/c/teachers" style="font-weight:700">선생님·직원 관리 ›</a>에서 해요.</div></div>
         <div class="muted small">${(() => {
-          const authed = DB.teachers.filter((t) => classAuth(t).ok);
-          return `현재 개설 권한 보유: <b>${authed.length.toLocaleString("ko-KR")}명</b> / 선생님 ${DB.teachers.length.toLocaleString("ko-KR")}명`;
+          const authed = activeTeachers().filter((t) => classAuth(t).ok);
+          return `현재 개설 권한 보유: <b>${authed.length.toLocaleString("ko-KR")}명</b> / 재직 선생님 ${activeTeachers().length.toLocaleString("ko-KR")}명`;
         })()}<br>비워 두면 수업 개설·관리는 센터만 가능해요. 선생님 계정은 호스트 앱(니짐내짐) 회원 계정과 연결돼요.</div>
       </div>`,
     },
     scope: {
       title: "선생님별 지정 가능 회원 범위",
-      sum: () => `${DB.teachers.length.toLocaleString("ko-KR")}명 중 범위 지정 ${polScopedCount()}명`,
+      sum: () => `${activeTeachers().length.toLocaleString("ko-KR")}명 중 범위 지정 ${polScopedCount()}명`,
       body: () => `<div class="card">
         <div class="pk">
           <div class="pk-tools"><input type="search" placeholder="선생님 이름·직군 검색" value="${(polState().q.scope || "").replaceAll('"', "&quot;")}" oninput="App.polQuery('scope', this.value)" autocomplete="off" aria-label="선생님 검색"></div>
-          <div class="pk-total">선생님 총 ${DB.teachers.length.toLocaleString("ko-KR")}명 — 행을 누르면 범위를 설정해요</div>
+          <div class="pk-total">재직 선생님 총 ${activeTeachers().length.toLocaleString("ko-KR")}명 — 행을 누르면 범위를 설정해요</div>
           <div class="pk-results tall"><div id="pol-scope-list">${polScopeRows()}</div></div>
         </div>
         <div class="muted small mt8">범위를 설정하지 않으면 <b>전체 회원</b>이 기본이에요. 이 범위는 선생님이 수업을 만들 때 고르는 <b>«지정 회원» 목록</b>과 <b>«회원 지정해서 바로 확정» 회원 목록</b>에 적용돼요. 전체 회원으로 두거나, 멤버십 단위로 좁히거나, 멤버십 안에서 회원을 개별로 고를 수 있어요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.</div>
@@ -3416,6 +3424,7 @@
     return shell("c", "설정", `
       <div class="sec-title" style="margin-top:4px">운영</div>
       <div class="card flat">
+        ${row("#/c/teachers", "선생님·직원 관리", `재직 선생님 ${cAffils("active").filter((a) => a.role === "teacher").length.toLocaleString("ko-KR")}명 · 직원 ${cAffils("active").filter((a) => a.role === "staff").length}명${cAffils("invited").length ? ` · 수락 대기 ${cAffils("invited").length}건` : ""} — 초대(상호 동의)·권한 해제·지난 소속`)}
         ${row("#/c/products", "수업상품 관리", `판매 중인 멤버십 상품 ${DB.products.length}개 · 판매·등록 / 새 상품 개설`)}
         ${row("#/c/policy/recur", POL_SECTIONS.recur.title, POL_SECTIONS.recur.sum())}
       </div>
@@ -3455,6 +3464,132 @@
         <div class="muted small">범위를 설정하지 않으면 <b>전체 회원</b>이 기본이에요. 이 범위는 선생님이 수업을 만들 때 고르는 <b>«지정 회원» 목록</b>과 <b>«회원 지정해서 바로 확정» 회원 목록</b>에 적용돼요. 이미 만들어진 수업의 지정 회원은 바뀌지 않아요.</div>
       </div>
       <button class="btn ghost" onclick="location.hash='#/c/policy/scope'">‹ 회원 범위 목록으로 돌아가기</button>`, { back: true });
+  }
+
+  // ══ v2.54 계정·소속 관리 (형 지시 08-30) — 센터의 선생님·직원 관리 / 선생님의 소속 센터 관리 ══
+  // 데이터 모델은 data.js seedAffiliations 주석 참조. 핵심 원칙:
+  //   ① 소속(affil)은 계정×센터×역할 «기간 행»이고 절대 삭제하지 않는다 — 퇴사·해제는 ended 기록만 남긴다.
+  //   ② 선생님 «프로필»(DB.teachers)·수업·정산·보고 데이터는 소속 종료와 무관하게 남는다 —
+  //      과거 데이터는 회원·선생님·센터 각자의 화면에서 끊김 없이 계속 조회된다.
+  //   ③ «활동 중인 선생님» 목록은 언제나 affils에서 파생한다(activeTeachers) — 정책·개설 화면이 이걸 쓴다.
+  //   ④ 선생님·직원 권한 부여는 상호 동의 — 센터가 초대(invited)하고 상대 계정이 수락해야 active.
+  const myAccount = () => teacher(DB.me.teacher).memberId;
+  const centerOf = (cid) => DB.centers.find((c) => c.id === cid) || { id: cid, name: cid, area: "" };
+  const affilById = (id) => DB.affils.find((a) => a.id === id);
+  const isStaffRole = (r) => r === "teacher" || r === "staff" || r === "owner";
+  const cAffils = (status) => DB.affils.filter((a) => a.centerId === DB.center.id && isStaffRole(a.role) && a.status === status);
+  const hasLiveStaffAffil = (memberId) => DB.affils.some((a) => a.centerId === DB.center.id && a.memberId === memberId
+    && isStaffRole(a.role) && (a.status === "active" || a.status === "invited"));
+  const teacherActive = (t) => DB.affils.some((a) => a.centerId === DB.center.id && a.memberId === t.memberId && a.role === "teacher" && a.status === "active");
+  const activeTeachers = () => DB.teachers.filter(teacherActive);
+  const myCenterInvites = () => DB.affils.filter((a) => a.memberId === myAccount() && isStaffRole(a.role) && a.status === "invited");
+  const AF_ROLE = { owner: ["사장님", "b-rose"], staff: ["직원", "b-blue"], teacher: ["선생님", "b-green"], member: ["회원", "b-gray"] };
+  const afRoleBadge = (a) => `<span class="badge ${AF_ROLE[a.role][1]}">${AF_ROLE[a.role][0]}</span>`;
+  const afDate = (d) => (d || "").replaceAll("-", ".");
+  const AF_ENDBY = { self: "본인 퇴사", center: "센터 권한 해제", platform: "플랫폼 해제" };
+  // 계정 아이디=휴대폰번호. 카카오 연동 계정은 간편로그인 병행 표시.
+  const acctLine = (m) => `계정 ${m.phone}${m.kakao ? " · 카카오 연동" : ""}`;
+
+  // 선생님 홈 진입점 — 소속 N곳 + 수락 대기 초대 배지 (문법=recurEntryHtml의 btn ghost 행)
+  function tCenterEntryHtml() {
+    const acc = myAccount();
+    const n = new Set(DB.affils.filter((a) => a.memberId === acc && isStaffRole(a.role) && a.status === "active").map((a) => a.centerId)).size;
+    const inv = myCenterInvites().length;
+    return `<a class="btn ghost mt8" href="#/t/centers" id="tc-entry">${ici("users")}내 소속 센터 ${n}곳${inv ? ` · 초대 ${inv}건` : ""} ›</a>`;
+  }
+  // 이 센터 소속이 해제된 뒤에도 화면·이력은 그대로 열린다 — «데이터 끊김 없음»을 배너로 설명
+  function tLeftBannerHtml() {
+    const acc = myAccount();
+    const live = DB.affils.some((a) => a.centerId === DB.center.id && a.memberId === acc && isStaffRole(a.role) && a.status === "active");
+    const past = DB.affils.some((a) => a.centerId === DB.center.id && a.memberId === acc && isStaffRole(a.role) && a.status === "left");
+    return !live && past ? `<div class="banner warn">${icb("info")}<span>${DB.center.name} 소속이 해제됐어요 — 과거 수업·정산·보고 이력은 계속 조회할 수 있어요.</span></div>` : "";
+  }
+
+  function vCTeachers() {
+    const act = cAffils("active").slice().sort((a, b) => (a.role === "owner" ? -1 : b.role === "owner" ? 1 : a.role === "staff" ? -1 : b.role === "staff" ? 1 : 0));
+    const inv = cAffils("invited");
+    const left = cAffils("left");
+    const it = (a, html) => { const m = member(a.memberId) || { name: "?", phone: "" };
+      return { txt: `${m.name} ${a.subject || ""} ${m.phone} ${AF_ROLE[a.role][0]}`, date: null, html }; };
+    const activeCard = (a) => { const m = member(a.memberId);
+      return `<div class="card"><div class="row"><span class="grow"><b>${m.name}</b> ${afRoleBadge(a)}${a.subject ? ` <span class="muted small">${a.subject}</span>` : ""}
+        <div class="muted small mt4">${acctLine(m)} · ${afDate(a.startedAt)}부터</div></span>
+        ${a.role === "owner" ? `<span class="muted small">플랫폼 부여</span>`
+    : `<button class="btn sm ghost" onclick="App.afRemoveAsk('${a.id}')">권한 해제</button>`}</div></div>`; };
+    const invCard = (a) => { const m = member(a.memberId);
+      return `<div class="card"><div class="row"><span class="grow"><b>${m.name}</b> ${afRoleBadge(a)}${a.subject ? ` <span class="muted small">${a.subject}</span>` : ""}
+        <div class="muted small mt4">${acctLine(m)} · ${afDate(a.invitedAt)} 초대함</div>
+        <div class="muted small">상대방이 수락해야 소속돼요 — <b>상호 동의</b></div></span>
+        <button class="btn sm ghost" onclick="App.afInviteCancelAsk('${a.id}')">초대 취소</button></div></div>`; };
+    const leftCard = (a) => { const m = member(a.memberId);
+      return `<div class="card"><div class="row"><span class="grow"><b>${m.name}</b> ${afRoleBadge(a)}${a.subject ? ` <span class="muted small">${a.subject}</span>` : ""} <span class="badge b-gray">${AF_ENDBY[a.endedBy] || "종료"}</span>
+        <div class="muted small mt4">${acctLine(m)} · 재직 ${afDate(a.startedAt)} ~ ${afDate(a.endedAt)}</div>
+        <div class="muted small">그동안의 수업·정산·보고 기록은 그대로 남아 있어요 — 정산·보고 화면에서 기간으로 조회돼요.</div></span>
+        <button class="btn sm ghost" onclick="App.afReinvite('${a.id}')">다시 초대</button></div></div>`; };
+    const wrap = (rows) => `<div class="cards">${rows}</div>`;
+    return shell("c", "선생님·직원 관리", `
+      <div class="cw2"><div>
+      <div class="sec-title" style="margin-top:4px">소속 계정</div>
+      ${fltHtml("c-staff", { dated: false, ph: "이름·과목·전화 검색", cats: [
+      { k: "active", label: "재직 중", wrap, items: act.map((a) => it(a, activeCard(a))), empty: "재직 중인 선생님·직원이 없어요. 오른쪽 «초대»로 시작해 주세요." },
+      { k: "invited", label: "수락 대기", wrap, items: inv.map((a) => it(a, invCard(a))), empty: "수락을 기다리는 초대가 없어요." },
+      { k: "left", label: "지난 소속", wrap, items: left.map((a) => it(a, leftCard(a))), empty: "지난 소속 이력이 없어요.",
+        note: "소속이 끝나도 데이터는 지워지지 않아요 — 수업·정산·보고 기록은 계정·센터 기준으로 남아, 회원·선생님·센터 모두 자기 화면에서 계속 조회할 수 있어요." },
+    ] })}
+      </div><div>
+      <div class="sec-title">선생님·직원 초대</div>
+      <div class="card">
+        <div class="field"><label>계정 (이름·휴대폰번호 검색)</label>${pickerHtml("af-inv", { multi: false, pool: DB.members.filter((m) => !hasLiveStaffAffil(m.id)) })}</div>
+        <div class="field"><label>부여할 역할</label><div class="seg" id="af-role">
+          <button class="on" data-v="teacher" onclick="App.afRoleSeg(this)">선생님</button>
+          <button data-v="staff" onclick="App.afRoleSeg(this)">직원</button></div>
+          <div class="hint">직원은 센터 화면을 함께 쓰되, 사장님보다 메뉴 접근·수정 권한을 적게 부여받는 역할이에요.</div></div>
+        <div class="field" id="af-subj-wrap"><label>담당 과목 (선생님)</label><input type="text" id="af-subject" placeholder="예: PT · 필라테스 · 요가"></div>
+        <button class="btn primary" onclick="App.afInvite()">초대 보내기</button>
+        <p class="muted small mt8">권한 부여는 <b>상호 동의</b>예요 — 초대를 보내면 상대 계정 앱에 뜨고, 수락해야 소속돼요.
+          이미 다른 센터 소속이어도 초대할 수 있어요(한 계정이 여러 센터에 동시 소속 가능).</p>
+      </div>
+      <div class="sec-title">계정·권한 구조</div>
+      <div class="card"><p class="muted small" style="margin:0">니짐내짐 계정(아이디=휴대폰번호, 카카오 간편로그인 병행)은 기본이 «일반유저»고
+        역할은 전부 부여로 생겨요 — <b>회원</b>(멤버십 구매·센터 등록) · <b>사장님</b>(플랫폼 부여) · <b>선생님·직원</b>(사장님 부여+상호 동의).
+        한 계정이 여러 센터의 여러 역할을 동시에 가질 수 있고, 소속이 끝나도 기록은 계정×센터 기준으로 남아요.
+        선생님의 수업 개설 권한·회원 범위는 <a href="#/c/policy" style="font-weight:700">설정 ›</a>에서 정해요.</p></div>
+      </div></div>`, { back: true });
+  }
+
+  function vTCenters() {
+    const acc = myAccount();
+    const me = member(acc);
+    const mine = DB.affils.filter((a) => a.memberId === acc);
+    const staffAt = (cid, st) => mine.filter((a) => a.centerId === cid && isStaffRole(a.role) && a.status === st);
+    const rolesLine = (cid) => mine.filter((a) => a.centerId === cid && a.status === "active")
+      .map((a) => `${AF_ROLE[a.role][0]}${a.subject ? ` · ${a.subject}` : ""}${a.role === "member" ? " (멤버십 이용)" : ""}`).join(" / ");
+    const invCards = mine.filter((a) => isStaffRole(a.role) && a.status === "invited").map((a) => { const c = centerOf(a.centerId);
+      return `<div class="card"><b>${c.name}</b> ${afRoleBadge(a)} <span class="muted small">${c.area}</span>
+        <div class="muted small mt4">${afDate(a.invitedAt)} · 센터가 ${AF_ROLE[a.role][0]} 권한 부여를 제안했어요 — 수락해야 소속돼요(상호 동의)</div>
+        <div class="btn-row mt8"><button class="btn ghost" onclick="App.tcDeclineAsk('${a.id}')">거절</button>
+        <button class="btn primary" onclick="App.tcAccept('${a.id}')">수락</button></div></div>`; });
+    const activeCards = [...new Set(mine.filter((a) => isStaffRole(a.role) && a.status === "active").map((a) => a.centerId))].map((cid) => {
+      const c = centerOf(cid); const a = staffAt(cid, "active")[0];
+      const here = cid === DB.center.id;
+      return `<div class="card">${here ? `<div class="mt4" style="margin-top:0;margin-bottom:6px"><span class="badge b-rose">지금 보고 있는 센터</span></div>` : ""}
+        <div class="row"><span class="grow"><b>${c.name}</b> <span class="muted small">${c.area}</span>
+          <div class="muted small mt4">${rolesLine(cid)} · ${afDate(a.startedAt)}부터</div>
+          ${a.hist ? `<div class="muted small">여기서 한 수업 ${a.hist.lessons}회 · 최근 ${afDate(a.hist.lastAt)}</div>` : ""}
+          ${here ? "" : `<div class="muted small">센터를 전환하면 같은 계정으로 이 센터의 일정·보고·정산을 봐요 — 프로토타입은 ${DB.center.name} 화면만 구현돼 있어요.</div>`}</span>
+        <button class="btn sm ghost" onclick="App.tcLeaveAsk('${a.id}')">퇴사하기</button></div></div>`;
+    });
+    const leftCards = mine.filter((a) => isStaffRole(a.role) && a.status === "left").map((a) => { const c = centerOf(a.centerId);
+      return `<div class="card"><b>${c.name}</b> ${afRoleBadge(a)} <span class="badge b-gray">${AF_ENDBY[a.endedBy] || "종료"}</span>
+        <div class="muted small mt4">재직 ${afDate(a.startedAt)} ~ ${afDate(a.endedAt)}${a.hist ? ` · 수업 ${a.hist.lessons}회` : ""}</div>
+        <div class="muted small">퇴사해도 여기서 한 수업·정산·보고 기록은 그대로 남아 계속 조회할 수 있어요.</div></div>`; });
+    return shell("t", "내 소속 센터", `
+      <div class="card flat" style="margin-bottom:14px"><div class="muted small"><b>${me.name}</b> · ${acctLine(me)}<br>
+        한 계정으로 여러 센터의 회원·선생님·직원·사장님 역할을 동시에 가질 수 있어요. 소속이 끝나도 그 센터에서의 기록은 끊기지 않고 남아요.</div></div>
+      ${invCards.length ? `<div class="sec-title">수락을 기다리는 초대 <span class="badge b-warn">${invCards.length}</span></div><div class="cards">${invCards.join("")}</div>` : ""}
+      <div class="sec-title">소속 센터 · ${activeCards.length}곳</div>
+      ${activeCards.length ? `<div class="cards">${activeCards.join("")}</div>` : `<div class="card"><p class="muted" style="margin:0">소속된 센터가 없어요. 센터의 초대를 수락하면 여기에 나타나요.</p></div>`}
+      ${leftCards.length ? `<div class="sec-title">지난 소속</div><div class="cards">${leftCards.join("")}</div>` : ""}`, { back: true });
   }
 
   // ── v2.13: 현장 일회용 QR (04 수단 B — PIN 폐지 대체) ──
@@ -3538,6 +3673,101 @@
       pkRefresh(id);
     },
     tsTab(v) { tSchedTab = v; render(); },
+    // ── v2.54 소속·권한: 센터 측 (초대·취소·해제·재초대) — affil 행은 삭제하지 않는다(append-only) ──
+    afRoleSeg(btn) {
+      App.seg(btn);
+      const w = document.getElementById("af-subj-wrap");
+      if (w) w.style.display = btn.dataset.v === "teacher" ? "" : "none";
+    },
+    afInvite() {
+      const mid = pkSelected("af-inv")[0];
+      if (!mid) return toast("초대할 계정을 검색해 선택해 주세요.");
+      const role = (document.querySelector("#af-role .on") || { dataset: {} }).dataset.v || "teacher";
+      const subject = role === "teacher" ? ((document.getElementById("af-subject") || {}).value || "").trim() : "";
+      if (role === "teacher" && !subject) return toast("담당 과목을 입력해 주세요.");
+      if (hasLiveStaffAffil(mid)) return toast("이미 재직 중이거나 초대가 진행 중인 계정이에요.");
+      DB.affils.push({ id: nid("afx"), centerId: DB.center.id, memberId: mid, role,
+        subject: subject || undefined, status: "invited", invitedAt: DB.TODAY, source: "invite" });
+      const st = fltUI["c-staff"]; if (st) st.cat = "invited"; // 보낸 초대가 바로 보이게
+      toast(`${memberName(mid)} 계정에 초대를 보냈어요 — 상대방이 수락하면 소속돼요.`);
+      render();
+    },
+    afInviteCancelAsk(id) {
+      const a = affilById(id);
+      modal(`<h3>초대를 취소할까요?</h3><p><b>${memberName(a.memberId)}</b> 계정에 보낸 ${AF_ROLE[a.role][0]} 초대예요. 취소하면 상대방 화면에서 사라지고, 필요하면 언제든 다시 초대할 수 있어요.</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.afInviteCancel('${id}')">초대 취소</button></div>`);
+    },
+    afInviteCancel(id) {
+      const a = affilById(id);
+      a.status = "canceled"; a.canceledAt = DB.TODAY; a.canceledBy = "center";
+      closeModal(); toast("초대를 취소했어요."); render();
+    },
+    afRemoveAsk(id) {
+      const a = affilById(id);
+      const m = member(a.memberId);
+      const t = DB.teachers.find((x) => x.memberId === a.memberId);
+      const liveCls = t ? DB.classes.filter((c) => c.teacherId === t.id && c.status !== "closed").length : 0;
+      const futureSlots = t ? DB.slots.filter((s) => !isPast(s) && s.status === "scheduled" && (cls(s.classId) || {}).teacherId === t.id).length : 0;
+      modal(`<h3>${m.name} ${AF_ROLE[a.role][0]}의 권한을 해제할까요?</h3>
+        <p>해제하면 이 센터에서의 ${a.role === "teacher" ? "수업 개설·관리 권한" : "센터 화면 접근 권한"}이 바로 사라져요.
+        ${liveCls ? `<br>진행 중 수업 <b>${liveCls}개</b>·앞으로 회차 <b>${futureSlots}건</b>은 자동으로 사라지지 않아요 — 폐강·담당 변경은 «수업 관리»에서 정리해 주세요.` : ""}
+        <br>지난 수업·정산·보고 <b>기록은 그대로 남아</b> 본인·회원·센터 모두 계속 조회할 수 있어요.</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.afRemove('${id}')">권한 해제</button></div>`);
+    },
+    afRemove(id) {
+      const a = affilById(id);
+      a.status = "left"; a.endedAt = DB.TODAY; a.endedBy = "center";
+      // 개설 권한(P2-2)은 소속 전제 — 함께 회수. 이미 만든 수업·회차·정산 라인은 손대지 않는다.
+      const CA = DB.policy.classAuth.memberIds || [];
+      const i = CA.indexOf(a.memberId);
+      if (i >= 0) CA.splice(i, 1);
+      closeModal(); toast(`${memberName(a.memberId)} 님의 권한을 해제했어요 — 기록은 그대로 남아요.`); render();
+    },
+    afReinvite(id) {
+      const a = affilById(id);
+      if (hasLiveStaffAffil(a.memberId)) return toast("이미 재직 중이거나 초대가 진행 중인 계정이에요.");
+      // 지난 소속 행은 그대로 두고 새 초대 행을 append — 기간 이력이 행 단위로 쌓인다
+      DB.affils.push({ id: nid("afx"), centerId: DB.center.id, memberId: a.memberId, role: a.role,
+        subject: a.subject, status: "invited", invitedAt: DB.TODAY, source: "invite" });
+      const st = fltUI["c-staff"]; if (st) st.cat = "invited";
+      toast(`${memberName(a.memberId)} 계정에 다시 초대를 보냈어요.`);
+      render();
+    },
+    // ── v2.54 소속·권한: 선생님 측 (초대 수락·거절, 퇴사) ──
+    tcAccept(id) {
+      const a = affilById(id);
+      a.status = "active"; a.startedAt = DB.TODAY;
+      toast(`${centerOf(a.centerId).name} 소속이 됐어요 🎉`);
+      render();
+    },
+    tcDeclineAsk(id) {
+      const a = affilById(id);
+      modal(`<h3>초대를 거절할까요?</h3><p><b>${centerOf(a.centerId).name}</b>의 ${AF_ROLE[a.role][0]} 권한 부여 제안이에요. 거절해도 그 센터의 회원 이용에는 영향이 없고, 센터가 다시 초대할 수 있어요.</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.tcDecline('${id}')">거절</button></div>`);
+    },
+    tcDecline(id) {
+      const a = affilById(id);
+      a.status = "declined"; a.declinedAt = DB.TODAY;
+      closeModal(); toast("초대를 거절했어요."); render();
+    },
+    tcLeaveAsk(id) {
+      const a = affilById(id);
+      const c = centerOf(a.centerId);
+      const here = a.centerId === DB.center.id;
+      modal(`<h3>${c.name}에서 퇴사할까요?</h3>
+        <p>앞으로 잡힌 수업·예약이 있다면 센터와 미리 정리해 주세요 — 퇴사해도 예약·회차가 자동으로 사라지지는 않아요.
+        <br>그동안의 수업·정산·보고 <b>기록은 그대로 남아</b> 언제든 다시 조회할 수 있어요.${here ? `<br><span class="muted small">지금 보고 있는 센터예요 — 퇴사 처리 후에도 과거 이력 화면은 그대로 열려요.</span>` : ""}</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.tcLeave('${id}')">퇴사하기</button></div>`);
+    },
+    tcLeave(id) {
+      const a = affilById(id);
+      a.status = "left"; a.endedAt = DB.TODAY; a.endedBy = "self";
+      closeModal(); toast(`${centerOf(a.centerId).name} 퇴사 처리됐어요 — 기록은 그대로 남아요.`); render();
+    },
     seg(btn) {
       btn.parentElement.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
       btn.classList.add("on");
@@ -4949,6 +5179,7 @@
     [/^#\/m\/qr\/(.+)$/, vMQr],
     [/^#\/m\/history$/, vMHistory],
     [/^#\/t\/home$/, vTHome],
+    [/^#\/t\/centers$/, vTCenters],
     [/^#\/t\/schedule$/, vTSchedule],
     [/^#\/t\/propose$/, vTPropose],
     [/^#\/t\/slot\/(.+)$/, vTSlot],
@@ -4958,6 +5189,7 @@
     [/^#\/t\/report$/, vTReport],
     [/^#\/t\/earnings$/, vTEarnings],
     [/^#\/c\/home$/, vCHome],
+    [/^#\/c\/teachers$/, vCTeachers],
     [/^#\/c\/products$/, vCProducts],
     // v2.43: 센터 «수업» 탭 세그도 해시에서 파생(#/c/classes=예약 현황 · #/c/classes/manage=수업 관리) — v2.37 문법.
     [/^#\/c\/classes$/, () => { cClsTab = "cal"; return vCClasses(); }],
