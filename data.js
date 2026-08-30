@@ -819,6 +819,27 @@ window.DB = {
     invitedAt: "2026-08-15", source: "invite" });
 })();
 
+// ── v2.55 완성본 QA 시드 (운영자 지시 08-30) — 희귀 케이스 보강 ──
+// ① 긴 이름 회원(10자) + 그룹 예약: 이름이 긴 계정에서 참석자 줄·카드가 밀리거나 잘리지 않는지 육안 확인용
+// ② m1 만료 임박(오늘 만료) 멤버십: 만료 경계일 표기 + «만료 임박 우선 차감» 기본 선택의 실데이터
+// ⚠️ LCG 시드 뒤 append 원칙 동일. ct1 재직/초대/퇴사 계정 수·t1 자동확정 비율·기존 보고·만석 판정은 불변
+//    (bkL1은 s2 잔여 3→2로만 줄인다). 잔여=Σ원장 불변식도 유지(구매 행만 추가).
+(function seedEdgeCases() {
+  const D = window.DB, SNAP = { cancelHours: 24, cancelMode: "conditional" };
+  D.members.push({ id: "gmL1", name: "크리스티나박이사벨라", phone: "010-7777-0001" });
+  D.passes.push({ id: "psL1", memberId: "gmL1", productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
+    total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-11-20", remaining: 17 });
+  D.bookings.push({ id: "bkL1", slotId: "s2", memberId: "gmL1", passId: "psL1", status: "booked", policySnap: SNAP });
+  // m1 오늘 만료 멤버십 — 만료 경계일. 그룹 예약의 기본 차감 대상이 이 권으로 잡힌다(만료 임박 우선).
+  D.passes.push({ id: "ps17", memberId: "m1", productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
+    total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-08-17", remaining: 20 });
+  D.ledger.push(
+    { passId: "psL1", delta: +20, reason: "purchase", detail: "필라테스 그룹 20회 · 600,000원", at: "2026-08-12 10:00" },
+    { passId: "psL1", delta: -3, reason: "attend", detail: "8월 수강 3회 (요약)", at: "2026-08-16 11:00" },
+    { passId: "ps17", delta: +20, reason: "purchase", detail: "필라테스 그룹 20회 · 600,000원", at: "2026-05-19 10:00" },
+  );
+})();
+
 // ── v2.50: 기준일 하드코딩 제거 — 로드 시 전체 시드를 «실제 오늘» 기준으로 시프트 ──
 // 시드 코드는 기준일(2026-08-17) 그대로 유지(상대 관계·요일 설계 보존), 여기서 한 번에
 // (실제 오늘 − 기준일)일만큼 모든 날짜를 이동한다. 반드시 data.js의 «마지막» IIFE여야 한다.
