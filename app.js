@@ -190,6 +190,11 @@
    confirmAttend)도 이중 차단 ② QR 랜딩(#/m/qr/:token)·qrConfirm은 methodApp과 무관하게 항상 동작
    (QR도 회원 폰에서 확정되는 구조) ③ 두 토글 동시 끄기 금지 — 마지막 남은 수단을 끄면 토스트 거부·상태 유지
    ④ 선생님 보고 안내·완료 보고 모달·센터 설정 요약(sum)을 정책 조합(둘 다/앱만/QR만)별 분기.
+   v2.56 (2026-08-30 형 지시 — 사용자 문구 전수 검사): 어색·관성 용어를 일상어로 교체(동작 불변).
+   «시간 얘기»→일정 요청·제안 / «증감 기록»→사용 기록 / «수시 일정»→일정 맞춤(확정 용어 통일) /
+   «무응답 시»(문장형)→응답이 없으면 / «임계»→기준 / «(대기) 승격»→확정·직접 예약으로 올려요 /
+   «감사 기록»→기록 / «구매일 미상»→구매일 정보 없음 / «자동 성립»→자동으로 완료 처리 / «수업 시각»→수업 시간.
+   유지: «무응답 자동확정»(정책 라벨)·확인수단 P7-2 어휘·«일정 변경 제안»(PROP_KIND.change 축)·차감/잔여/회차/폐강 등 통용어.
 */
 (function () {
   const DB = window.DB;
@@ -845,7 +850,7 @@
     switch (b.status) {
       case "booked": return st4("ok", b.promoted ? "대기에서 자리가 나 확정됐어요" : "");
       case "waitlisted": return st4("wait", `예약 대기 ${b.pos}번 · 자리가 나면 자동으로 확정돼요`);
-      case "confirm_wait": return st4("wait", `수강 확인이 필요해요${auto ? ` · 무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : ""}`);
+      case "confirm_wait": return st4("wait", `수강 확인이 필요해요${auto ? ` · 응답이 없으면 보고 ${auto}시간 뒤 자동확정돼요` : ""}`);
       case "noshow_wait": {
         const r = DB.reports.find((x) => x.bookingId === b.id && x.status === "noshow_wait");
         return st4("bad", `노쇼로 보고됐어요${r ? ` · ${noshowDeadline(r).replaceAll("-", ".")}까지 이의가 없으면 1회 차감돼요` : ""}`);
@@ -913,9 +918,9 @@
   function rpSub(r) {
     const auto = DB.policy.autoConfirmHours;
     switch (r.status) {
-      case "pending": return `${DB.policy.methodApp ? "회원 폰으로 확인 요청이 갔어요" : "현장 QR 확인 대기 — 회원 폰 스캔으로 확인돼요"} · ${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정` : "자동확정 없음 — 센터 수동 처리"}`;
+      case "pending": return `${DB.policy.methodApp ? "회원 폰으로 확인 요청이 갔어요" : "현장 QR 확인 대기 — 회원 폰 스캔으로 확인돼요"} · ${auto ? `응답이 없으면 보고 ${auto}시간 뒤 자동확정` : "자동확정 없음 — 센터 수동 처리"}`;
       case "confirmed": return `${r.at}${r.method ? ` · 수단: ${methodLabel(r.method)}` : ""}`;
-      case "auto": return `회원 무응답으로 자동확정됐어요 · 수단: ${methodLabel(r.method || "auto")}`;
+      case "auto": return `회원이 응답하지 않아 자동확정됐어요 · 수단: ${methodLabel(r.method || "auto")}`;
       case "noshow_wait": return `${noshowDeadline(r).replaceAll("-", ".")}까지 이의가 없으면 자동확정되고 횟수가 차감돼요`;
       case "disputed": return `${r.at}${r.disputeReason ? ` · 사유: ${r.disputeReason}` : ""}`;
       case "noshow_final": return r.autoFinal ? "이의 없이 자동확정 · 1회 차감"
@@ -1128,7 +1133,7 @@
       add({ n: mArrs().filter((a) => a.status === "pending").length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
         text: "선생님 수락을 기다리는 일정 요청이 있어요", go: "#/c/classes" });
       add({ n: cAutoWarns().length, tier: "wait", rank: 5, icon: "clock", key: "autowarn",
-        text: "자동확정 비율이 임계를 넘은 선생님이 있어요", go: "#/c/confirms" });
+        text: "자동확정 비율이 기준을 넘은 선생님이 있어요", go: "#/c/confirms" });
     }
     return out.sort((a, b) => a.rank - b.rank);
   }
@@ -1238,7 +1243,7 @@
           : qrOnlyNote("mt12")}
         <button class="btn ghost mt8" onclick="location.hash='#/m/confirm/${b.id}'">자세히 보기</button>
         <div class="muted small mt8" style="text-align:center">확인하면 <b>멤버십 1회가 차감</b>돼요. 받지 않은 수업이면 «자세히 보기»에서 이의를 제기할 수 있어요.</div>
-        <div class="muted small mt4" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>
+        <div class="muted small mt4" style="text-align:center">${auto ? `응답이 없으면 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>
       </div>`;
     }).join("");
   }
@@ -1460,7 +1465,7 @@
         : `<div class="card flat mb-empty"><div class="em">${IC.empty}</div>
             <p class="muted mt8">이 날은 예약할 수 있는 수업이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.mbDay('${near}')">가장 가까운 수업일 ${dlabel(near)}로 이동</button>` : ""}</div>`}
-      <div class="sec-title">수시 일정 수업 <span class="muted small" style="font-weight:600">— 날짜와 무관하게 신청해요</span></div>
+      <div class="sec-title">일정 맞춤 수업 <span class="muted small" style="font-weight:600">— 날짜와 무관하게 신청해요</span></div>
       ${arranged.length ? arranged.map((c) => {
         const pend = mArrs().filter((a) => a.memberId === DB.me.member && a.classId === c.id && a.status === "pending").length;
         return `<button class="card card-tap" onclick="location.hash='#/m/class/${c.id}'">
@@ -1469,7 +1474,7 @@
           <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span>
           <span class="badge b-gray">${eligLabel(c)}</span>${pend ? `<span class="badge b-warn">수락 대기 ${pend}건</span>` : ""}</div></span>
         <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`;
-      }).join("") : `<div class="card flat"><p class="muted">수시 일정으로 진행하는 수업이 없어요.</p></div>`}`);
+      }).join("") : `<div class="card flat"><p class="muted">일정 맞춤으로 진행하는 수업이 없어요.</p></div>`}`);
   }
   // v2.33 B-2: 조율 신청 화면의 «그 날 선생님 일정» — 시간 구간만 적는다.
   // 다른 회원 이름·수업명은 절대 노출하지 않고, 아직 수락 안 된 조율 요청도 넣지 않는다(확정 일정이 아님).
@@ -1569,7 +1574,7 @@
         ${canCancel ? `<button class="btn danger-ghost" onclick="App.askCancel('${mine.id}')">${mine.status === "waitlisted" ? "예약대기 취소" : "예약 취소"}</button>
         ${chgLine}
         <a class="btn ghost mt8" href="#/m/book/mine">내 예약 보기</a>`
-        : `<div class="card flat"><div class="muted small">${isPast(s) ? "수업 시각이 지나 취소할 수 없어요. 선생님 완료 보고 뒤 «수강 확인»으로 넘어가요." : "이 상태에서는 취소할 수 없어요."}</div></div>
+        : `<div class="card flat"><div class="muted small">${isPast(s) ? "수업 시간이 지나 취소할 수 없어요. 선생님 완료 보고 뒤 «수강 확인»으로 넘어가요." : "이 상태에서는 취소할 수 없어요."}</div></div>
         <a class="btn ghost" href="#/m/book/mine">내 예약 보기</a>`}`;
     } else if (isPast(s)) {
       action = `<button class="btn primary" disabled>지난 회차는 예약할 수 없어요</button>`;
@@ -1689,13 +1694,13 @@
         empty: "선생님에게 보낸 요청이 없어요.",
         note: "선생님이 수락하면 알려드릴게요. 마음이 바뀌면 «요청 취소»를 누르면 돼요. 변경 요청은 거절돼도 원래 예약과 남은 횟수는 그대로예요." },
       { k: "past", label: "지난 예약", items: pastItems, empty: "지난 예약이 아직 없어요.",
-        note: ended.length ? "수업 시각이 지난 회차는 선생님이 완료 보고를 하면 «답변 필요»로 올라와요." : "" },
+        note: ended.length ? "수업 시간이 지난 회차는 선생님이 완료 보고를 하면 «답변 필요»로 올라와요." : "" },
     ];
     // v2.46: 순서 = 강조 카드(있을 때) → 안내 한 줄 → 카테고리·검색. 시급한 액션이 항상 첫 화면이다.
     return `
       <div id="m-need"></div>
       ${mConfirmCardHtml()}
-      <p class="muted" style="margin-bottom:12px">예약과 선생님과 주고받은 «시간 얘기»가 모두 여기 모여 있어요. 멤버십 증감 기록은 «내역» 탭에서 볼 수 있어요.</p>
+      <p class="muted" style="margin-bottom:12px">예약, 그리고 선생님과 주고받은 일정 요청·제안이 모두 여기 모여 있어요. 멤버십 사용 기록은 «내역» 탭에서 볼 수 있어요.</p>
       ${fltHtml("m-mine", { cats, ph: "수업명·선생님 검색", initial: () => (needCount ? "need" : "act") })}`;
   }
   function vMConfirm(id) {
@@ -1758,7 +1763,7 @@
       ${list.length ? `<p class="muted" style="margin-bottom:12px">확인을 기다리는 수업이 <b>${list.length}건</b> 있어요. 확인하면 멤버십 1회가 차감되니 한 건씩 확인해 주세요.</p>
       ${DB.policy.methodApp ? "" : qrOnlyNote("mb12")}
       ${fltHtml("m-confirms", { cats: [{ k: "wait", label: "확인 대기", items, empty: "확인을 기다리는 수업이 없어요." }], ph: "수업명·선생님 검색" })}
-      <div class="muted small mt8" style="text-align:center">${auto ? `무응답 시 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>`
+      <div class="muted small mt8" style="text-align:center">${auto ? `응답이 없으면 보고 ${auto}시간 뒤 자동확정돼요` : "자동확정 없이 센터가 수동 처리해요"} · 확인은 내 계정에서만 가능해요</div>`
       : `<div class="card flat" style="text-align:center;padding:32px 16px">
         <div class="em state-em">${IC.clip}</div><b style="font-size:17px">모두 확인했어요</b>
         <p class="muted mt8">확인을 기다리는 수업이 없어요.</p></div>
@@ -1767,7 +1772,7 @@
   // v2.29 §B5 (U19): 같은 이름의 수업권이 여러 장이면 헤더만으로 구분이 안 된다 — 구매일을 항상 병기한다
   const passBuyDate = (p) => {
     const l = DB.ledger.find((x) => x.passId === p.id && x.delta > 0 && x.reason === "purchase");
-    return (l ? l.at : p.purchasedAt || "").slice(0, 10) || "구매일 미상";
+    return (l ? l.at : p.purchasedAt || "").slice(0, 10) || "구매일 정보 없음";
   };
   function vMHistory() {
     const mine = DB.passes.filter((p) => p.memberId === DB.me.member);
@@ -1779,7 +1784,7 @@
       label: `${p.name} · ${shortBuy(p)}`,
       head: `<div class="flt-head"><b>${p.name}</b>${passState(p) !== "active" ? ` <span class="badge b-gray">${{ expired: "기간 만료", exhausted: "소진", frozen: "정지" }[passState(p)]}</span>` : ""} · ${passBuyDate(p)} 구매 · 잔여 ${p.remaining}회 / 총 ${p.total}회</div>`,
       wrap: (rows) => `<div class="card flat"><ul class="ledger">${rows}</ul></div>`,
-      empty: "이 멤버십에는 아직 증감 기록이 없어요.",
+      empty: "이 멤버십에는 아직 사용 기록이 없어요.",
       items: DB.ledger.filter((l) => l.passId === p.id).slice().reverse().map((l) => ({
         txt: `${ledgerLabel(l)} ${l.detail || ""} ${l.at || ""}`,
         date: (l.at || "").slice(0, 10),
@@ -1789,7 +1794,7 @@
       })),
     }));
     return shell("m", "이용 내역", `
-      <p class="muted" style="margin-bottom:12px">멤버십별 증감 기록이에요 — <b>보고 싶은 멤버십을 먼저 고르면</b> 그 멤버십 기록만 최신순으로 나와요. 기본 차감 순서는 <b>만료가 임박한 멤버십</b>부터예요(예약할 때 직접 바꿀 수 있어요). 기록은 수정·삭제되지 않아요.</p>
+      <p class="muted" style="margin-bottom:12px">멤버십별 사용 기록이에요 — <b>보고 싶은 멤버십을 먼저 고르면</b> 그 멤버십 기록만 최신순으로 나와요. 기본 차감 순서는 <b>만료가 임박한 멤버십</b>부터예요(예약할 때 직접 바꿀 수 있어요). 기록은 수정·삭제되지 않아요.</p>
       ${mine.length ? fltHtml("m-hist", { cats, ph: "사유·수업명 검색" })
         : `<div class="card flat mb-empty"><div class="em">${IC.receipt}</div><p class="muted mt8">보유한 멤버십이 없어요.</p></div>`}`);
   }
@@ -1938,7 +1943,7 @@
     ];
     const firstPend = ["req", "chg", "sent"].find((k) => (cats.find((c) => c.k === k) || {}).items.length) || "req";
     return `
-      <p class="muted" style="margin-bottom:12px">회원과 «시간 얘기»를 주고받는 곳이에요. 수락해야 회차·예약이 만들어져요 — 수락 전엔 일정에 잡히지 않아요.</p>
+      <p class="muted" style="margin-bottom:12px">회원과 일정 요청·제안을 주고받는 곳이에요. 수락해야 회차·예약이 만들어져요 — 수락 전엔 일정에 잡히지 않아요.</p>
       <div class="sticky-cta"><button class="btn primary" onclick="App.proposeEntry()">${ici("plus")}일정 제안하기</button></div>
       ${fltHtml("t-reqs", { cats, ph: "회원·수업명 검색", initial: () => firstPend })}`;
   }
@@ -2194,7 +2199,7 @@
       schedule: U.sched, scheduleLabel: U.sched === "fixed" ? "매주 고정 (시간표 설정)" : "회원과 일정 맞춤", duration: 50,
       eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" };
   }
-  const ccPastAsk = () => modal(`<h3>지난 일시로는 만들 수 없어요</h3><p>수업은 앞으로의 일시로만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 감사 기록에 남아요.</p>
+  const ccPastAsk = () => modal(`<h3>지난 일시로는 만들 수 없어요</h3><p>수업은 앞으로의 일시로만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 기록으로 남아요.</p>
     <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
   // v2.28: 첫 회차를 만든 뒤 «매주 반복» 규칙을 세우고 롤링 8주치를 바로 채운다.
   // 규칙은 첫 회차가 실제로 만들어진 뒤에만 생긴다 — 검증에 걸려 회차가 없는데 규칙만 남는 사고 방지.
@@ -2392,7 +2397,7 @@
         <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${auto}회 ${auto ? '<span class="badge b-warn">검토 대상</span>' : ""}</b></div>
         ${rewardOn() && ns.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">노쇼 보상 (센터 정책)</span><b>${ns.length}건 · ${won(nsAmt)}</b></div>` : ""}
         ${held.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">이의 심사 중 (보류)</span><b>${held.length}회 <span class="badge b-danger">정산 제외 중</span></b></div>` : ""}
-        ${auto ? `<div class="hint">«검토 대상» = 회원이 직접 누르지 않고 무응답으로 자동확정된 회차예요. 금액엔 포함되지만 센터가 정산 전에 다시 볼 수 있어요.</div>` : ""}
+        ${auto ? `<div class="hint">«검토 대상» = 회원이 직접 누르지 않아 자동확정된 회차예요. 금액엔 포함되지만 센터가 정산 전에 다시 볼 수 있어요.</div>` : ""}
         ${held.length ? `<div class="hint">«정산 제외 중» = 이의 심사가 끝날 때까지 집계·전송에서 빠져요. 이의가 기각되면 다시 들어와요.</div>` : ""}
         ${linesDetailHtml(elig, held)}
         ${!lines.length && !ns.length ? `<div class="hint">${y}년 ${m}월에는 정산 내역이 없어요. 회원 수강확인이 끝난 회차만 집계돼요.</div>` : ""}
@@ -2993,7 +2998,7 @@
       }).join("") : `<p class="muted">예약자가 없어요.</p>`}</div>
       ${w.length ? `<div class="sec-title">대기열</div><div class="card flat">${w.map((b) => `
         <div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b></span><span class="badge b-warn">대기 ${b.pos}번</span></div>`).join("")}</div>
-        <p class="muted small">자리가 나면 ${DB.policy.waitlistPromote === "auto" ? "순번대로 자동 확정돼요" : "센터가 수동으로 승격해요"}.</p>` : ""}`, { back: true });
+        <p class="muted small">자리가 나면 ${DB.policy.waitlistPromote === "auto" ? "순번대로 자동 확정돼요" : "센터가 직접 예약으로 올려요"}.</p>` : ""}`, { back: true });
   }
   function vCConfirms() {
     const warns = cAutoWarns();
@@ -3037,7 +3042,7 @@
       { k: "rec", label: "기록", items: recs.map(rIt).sort(newest), empty: "아직 기록이 없어요." },
     ];
     return shell("c", "수강확인 관리", `
-      ${warns.map((x) => `<div class="banner warn">${icb("clock")}<span>${x.t.name} 자동확정 비율 <b>${x.rate}%</b> (임계 ${DB.policy.autoWarnRate}%). 자동확정 회차는 정산 전 검토를 권장해요.</span></div>`).join("")}
+      ${warns.map((x) => `<div class="banner warn">${icb("clock")}<span>${x.t.name} 자동확정 비율 <b>${x.rate}%</b> (기준 ${DB.policy.autoWarnRate}%). 자동확정 회차는 정산 전 검토를 권장해요.</span></div>`).join("")}
       ${fltHtml("c-confirms", { cats, ph: "회원·수업명 검색", initial: () => (need.length ? "need" : inprog.length ? "prog" : "rec") })}
       <p class="muted small">모든 확인에는 시각·기기 기록이 남고, 한 번 남은 기록은 바꾸거나 지울 수 없어요.</p>`, { back: true });
   }
@@ -3323,12 +3328,12 @@
   const POL_SECTIONS = {
     booking: {
       title: "예약 · 대기",
-      sum: () => `정원 마감 시 대기 ${DB.policy.waitlist ? "켜짐" : "꺼짐"} · 자동 승격 ${DB.policy.waitlistPromote === "auto" ? "켜짐" : "꺼짐"}`,
+      sum: () => `정원 마감 시 대기 ${DB.policy.waitlist ? "켜짐" : "꺼짐"} · 자동 확정 ${DB.policy.waitlistPromote === "auto" ? "켜짐" : "꺼짐"}`,
       body: () => {
         const P = DB.policy;
         return `<div class="card flat">
         <div class="toggle-row"><span><div class="tl">정원 마감 시 예약대기</div><div class="td">자리가 나면 순번대로 확정</div></span>${polSw("waitlist", P.waitlist)}</div>
-        <div class="toggle-row"><span><div class="tl">대기 자동 승격</div><div class="td">끄면 자리가 나도 센터가 직접 올려줘야 해요</div></span>${polSw("waitlistAuto", P.waitlistPromote === "auto")}</div>
+        <div class="toggle-row"><span><div class="tl">대기 자동 확정</div><div class="td">끄면 자리가 나도 센터가 직접 올려줘야 해요</div></span>${polSw("waitlistAuto", P.waitlistPromote === "auto")}</div>
         <div class="toggle-row"><span><div class="tl">«회원 지정» 표시 범위</div><div class="td">«수업 만들기»에서 회원을 고를 때 보여줄 목록이에요</div></span>
           ${polSelect("App.setQuickScope(this.value)", QUICK_SCOPE, P.quickScope)}</div>
       </div>`;
@@ -4867,7 +4872,7 @@
       }
       modal(`<h3>${r.member} 회원 이의를 ${acc ? "인정" : "기각"}할까요?</h3>
         <p>${desc}<br>${move}</p>
-        <p class="muted small mt8">처리 결과와 사유는 회원·선생님에게 그대로 전달되고, 감사 기록에 남아요.</p>
+        <p class="muted small mt8">처리 결과와 사유는 회원·선생님에게 그대로 전달되고, 기록으로 남아요.</p>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.resolveDispute('${rpId}', ${acc})">${acc ? "이의 인정" : "이의 기각"}</button></div>`);
     },
@@ -4939,7 +4944,7 @@
       const res = confirmTx(b, r, "auto");
       if (!res.ok) { toast("자동확정 처리 불가 — " + res.msg); return; }
       render();
-      toast(`자동확정 시한(${autoConfirmHoursOf(r)}시간)이 지나 수강확인이 자동 성립되고 1회 차감됐어요. 목록에는 «무응답 자동확정»으로 남아요.`);
+      toast(`자동확정 시한(${autoConfirmHoursOf(r)}시간)이 지나 수강확인이 자동으로 완료 처리되고 1회 차감됐어요. 목록에는 «무응답 자동확정»으로 남아요.`);
     },
     // v2.39 F1: 자동확정 취소 = 횟수 복원 + 정산 제외. 복원 회차 수를 적고 확인받는다.
     overrideAutoAsk(rpId) {
