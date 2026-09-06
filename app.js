@@ -1,4 +1,9 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.58 (2026-09-06 최종 QA): 명백한 결함 일괄 수정 — 입력 HTML 주입 방어(clean/esc)·D-day 당일 계산·NOW 실시간 갱신·
+   모달 ESC/포커스/닫힘 중 재클릭 차단·구매 더블클릭·취소 상태 가드·지난 회차 보고 버튼(status done 의존 제거)·미래 회차 보고 차단·
+   폐강 시 지난 미보고 회차 보존·반복 건너뛰기 사유 코드·처리 보류 라벨 노출·퇴사 시 개설 권한 회수·초대 수락 가드·
+   취소 회차 예약 차단·일정 요청 수락 자격 재검증·이의 본인 계정 가드·기각 후 재이의 차단·QR 5분 만료·자동확정 안내 스냅샷·
+   만료 요청 대기 집계 제외·보고 현황 선생님 필터·수업/상품 입력 검증·샐리 미리보기 undefined·정산 숨김 선생님 수·문구 3건.
    v2 (2026-08-17 보완): 감사 결함 35건 + 신규 4건 반영.
    v2.1 (2026-08-17 시정): 선생님 수업 개설·관리(수정·폐강) — 권한=센터가 지정한 회원만(02 P2-2).
    v2.2 (2026-08-17 형 확정 반영): ① P5-4b 노쇼=보고→통지→무이의 시 자동 확정·차감(이의 건만 센터 중재)
@@ -182,7 +187,7 @@
    v2.55 (2026-08-30 완성본 QA — 형 지시 «데모 느낌 제거·완성본 수준»): ① 사용자 노출 문구에서 «프로토타입/
    더미/mock/모의» 어휘 전면 제거 — 랜딩 배지·구매 안내·토스트 3종·picker 힌트 2곳·소속 센터 안내. 필요한
    주의 문구는 «체험용/체험판»으로 통일, 시간 경과 장치 캡션은 «시뮬레이션 — 실서비스에선 …»로 교체(demo-box
-   구조·클래스는 불변 — 게이트 호환). ② 버그: 런타임 완료 보고 at이 "8/17 12:00 보고" 하드코딩 → nowShort
+   구조·클래스는 불변 — 게이트 호환). ② 버그: 런타임 완료 보고 at이 "8/17 12:00 보고" 하드코딩 → shortOf()
    파생(v2.50 이후 날짜가 어긋나던 것). ③ 선생님 홈 타이틀 하드코딩 «박코치» → 파생. ④ vTSlot ⏳ 이모지
    → IC.clock(v2.25 ④ 일관성). ⑤ 문서 타이틀 «· 프로토타입» 제거. 시드: 긴 이름 회원·만료 임박(D-1) 멤버십.
    v2.53 (2026-08-29 P7-2 완성): 확인수단 정책 실동작 — ① methodApp=끔이면 회원 원탭 확인(«받았어요»)
@@ -198,11 +203,20 @@
 */
 (function () {
   const DB = window.DB;
-  const NOW = new Date(); // v2.50: 실제 현재시각 (데모 고정 폐지 — data.js가 시드를 오늘 기준으로 시프트)
+  // v2.50: 실제 현재시각 (데모 고정 폐지 — data.js가 시드를 오늘 기준으로 시프트)
+  // v2.58 QA: 로드 시각 고정이면 탭을 오래 열어 둔 사이 «취소 기한·지난 회차·만료» 판정이 멈춘다 — 조작·렌더마다 갱신한다.
+  let NOW = new Date();
+  const tick = () => { NOW = new Date(); };
+  document.addEventListener("pointerdown", tick, true);
+  document.addEventListener("keydown", tick, true);
   const $app = document.getElementById("app");
 
   // ── 헬퍼 ──
   const won = (n) => n.toLocaleString("ko-KR") + "원";
+  // v2.58 QA: 사용자 입력 텍스트 방어 — 저장 전 꺾쇠(<>)를 전각으로 바꿔 HTML 주입을 무력화(문구 의미는 유지),
+  // 렌더 지점엔 esc()로 한 번 더. (수업명·상품명·메모·사유·과목 등 자유 입력 전부)
+  const clean = (v) => String(v == null ? "" : v).replace(/</g, "＜").replace(/>/g, "＞");
+  const esc = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const DOW = ["일", "월", "화", "수", "목", "금", "토"];
   function dlabel(dateStr) {
     const d = new Date(dateStr + "T00:00:00+09:00");
@@ -220,7 +234,8 @@
   function hoursUntil(s) { return (slotAt(s) - NOW) / 3600000; }
   function dday(dateStr) {
     if (!dateStr) return null;
-    return Math.ceil((new Date(dateStr + "T23:59:59+09:00") - NOW) / 86400000);
+    // v2.58 QA: 달력 날짜 차이 — 만료 당일=0(D-Day)·내일=1(D-1). (예전엔 23:59 기준 ceil이라 하루씩 크게 나왔다)
+    return Math.round((new Date(dateStr + "T12:00:00+09:00") - new Date(DB.TODAY + "T12:00:00+09:00")) / 86400000);
   }
   function addDays(dateStr, n) {
     // 정오 기준으로 더해 UTC 변환 시 날짜 밀림 방지
@@ -229,9 +244,11 @@
   }
   let seq = 100;
   const nid = (p) => p + seq++;
-  const nowStamp = `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, "0")}-${String(NOW.getDate()).padStart(2, "0")} ${String(NOW.getHours()).padStart(2, "0")}:${String(NOW.getMinutes()).padStart(2, "0")}`; // v2.50: 실제 현재시각
+  // v2.50: 실제 현재시각 · v2.58 QA: 로드 시각이 아니라 «기록하는 순간»의 시각을 찍는다(함수화)
+  const p2 = (n) => String(n).padStart(2, "0");
+  const stampOf = () => { const d = new Date(); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
   // v2.55: 보고·확인 행의 짧은 표시용 시각 ("M/D HH:MM") — 시드의 표기 규칙과 동일
-  const nowShort = `${NOW.getMonth() + 1}/${NOW.getDate()} ${String(NOW.getHours()).padStart(2, "0")}:${String(NOW.getMinutes()).padStart(2, "0")}`;
+  const shortOf = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 
   // ── 좌석·대기 파생 (bookings가 단일 진실) ──
   const SEAT = ["booked", "confirm_wait", "noshow_wait", "confirmed", "disputed"];
@@ -443,6 +460,7 @@
   // ── v2.25 ③ 예약 화면 «사용 수업권 (변경)» — 기본=만료 임박 순 자동, 회원이 직접 다른 권으로 교체 ──
   // key: "s:<slotId>"(회차 예약) | "c:<classId>"(일정 요청). 선택은 화면 이탈 시 초기화 → 다시 기본값.
   let bookPass = {};
+  let buyLock = false; // v2.58 QA: «결제하기» 더블탭 가드
   const passCtxClass = (key) => (key.slice(0, 2) === "s:" ? cls((slot(key.slice(2)) || {}).classId) : cls(key.slice(2)));
   function chosenPass(key, list) {
     const pid = bookPass[key];
@@ -497,7 +515,7 @@
     if (!p) return { ok: false, msg: "연결된 멤버십이 없어요. 센터에서 멤버십 연결 후 처리할 수 있어요." };
     if (delta < 0 && p.remaining + delta < 0) return { ok: false, msg: "잔여 횟수가 0회라 차감할 수 없어요. 센터에서 멤버십 연장·추가 결제 후 처리하는 예외 절차로 넘어가요." };
     p.remaining += delta;
-    DB.ledger.push({ passId: p.id, delta, reason, detail, at: nowStamp });
+    DB.ledger.push({ passId: p.id, delta, reason, detail, at: stampOf() });
     return { ok: true };
   }
 
@@ -515,7 +533,7 @@
     Object.assign(r, patch.report || {});
     if (b && patch.booking) b.status = patch.booking;
     DB.repEvents.push({ id: nid("ev"), reportId: r.id, bookingId: b ? b.id : r.bookingId || null,
-      type: o.event || (patch.report || {}).status || "update", from, to: r.status, actor: o.actor || "system", at: nowStamp });
+      type: o.event || (patch.report || {}).status || "update", from, to: r.status, actor: o.actor || "system", at: stampOf() });
     return { ok: true };
   }
 
@@ -547,6 +565,14 @@
   // 둘 다 없으면 «차감 불가»로 센터 예외처리 — confirmTx와 같은 규칙(연결 필수).
   const passForReport = (r, b) => ((b && b.passId) ? pass(b.passId) : (r && r.passId ? pass(r.passId) : null));
   const NO_PASS_MSG = "이 예약에 멤버십이 연결돼 있지 않아요. 센터에서 멤버십을 연결한 뒤 처리할 수 있어요.";
+  // v2.58 QA: 이의제기는 «본인 예약»에만 — 확인·QR과 같은 계정 귀속 규칙
+  function disputeAllowed(b) {
+    if (!b) { toast("예약을 찾을 수 없어요."); return false; }
+    if (b.memberId !== DB.me.member) { toast("이의제기는 해당 수업 회원 본인 계정에서만 가능해요."); return false; }
+    if (!["confirm_wait", "noshow_wait", "confirmed"].includes(b.status)) { toast("이 상태에서는 이의를 제기할 수 없어요."); return false; }
+    if (b.status === "confirmed" && !disputeOpen(b)) { toast("이의제기 기간이 지났거나 이미 센터가 판정한 회차예요."); return false; }
+    return true;
+  }
 
   // ── 노쇼 (형 확정 2026-08-17 · 02 P5-4b/P9-1) ──
   // 판정: 선생님 보고 → 회원 즉시 통지 → 이의기간 내 무이의 시 자동 확정·차감. 이의 건만 센터 중재.
@@ -783,7 +809,11 @@
       ctl.anim = spring({ from: H, to: 0, damping: 0.85, response: 0.36, onUpdate: ctl.set, onDone: () => (ctl.anim = null) });
     }
     attachSheetDrag(ctl);
+    // v2.58 QA: 키보드 접근 — 시트에 포커스를 옮겨 ESC·탭 이동이 시트 안에서 시작되게 한다
+    sheet.tabIndex = -1;
+    setTimeout(() => { if (sheetCtl === ctl) sheet.focus({ preventScroll: true }); }, 30);
   }
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sheetCtl) closeModal(); });
   function attachSheetDrag(ctl) {
     let drag = null;
     ctl.sheet.addEventListener("pointerdown", (e) => {
@@ -826,6 +856,7 @@
     document.querySelectorAll(".modal-wrap").forEach((el) => { if (!ctl || el !== ctl.wrap) el.remove(); });
     if (!ctl) return;
     ctl.anim && ctl.anim.stop();
+    ctl.wrap.style.pointerEvents = "none"; // v2.58 QA: 닫히는 애니메이션 중 버튼 재클릭(이중 실행) 차단
     if (instant) { ctl.wrap.remove(); return; }
     if (REDUCE.matches) {
       ctl.wrap.style.transition = "opacity .18s ease";
@@ -846,7 +877,9 @@
   const st4 = (tier, sub) => ({ tier, label: ST4[tier][0], badge: ST4[tier][1], sub: sub || "" });
   function bkBadge(b, ended) {
     if (ended) return st4("wait", "수업이 끝났어요 · 선생님 완료 보고를 기다리는 중");
-    const auto = DB.policy.autoConfirmHours;
+    // v2.58 QA: 자동확정 시한 안내는 «보고 시점 스냅샷»(실제 판정 기준)으로 — 정책을 바꿔도 진행 중 건의 안내가 어긋나지 않게
+    const rp0 = b.status === "confirm_wait" ? DB.reports.find((x) => x.bookingId === b.id && x.status === "pending") : null;
+    const auto = rp0 ? autoConfirmHoursOf(rp0) : DB.policy.autoConfirmHours;
     switch (b.status) {
       case "booked": return st4("ok", b.promoted ? "대기에서 자리가 나 확정됐어요" : "");
       case "waitlisted": return st4("wait", `예약 대기 ${b.pos}번 · 자리가 나면 자동으로 확정돼요`);
@@ -857,11 +890,11 @@
       }
       case "disputed": return st4("wait", "이의가 접수됐어요 · 센터 판단을 기다리는 중");
       case "noshow_final": return st4("bad", "노쇼 확정 · 1회 차감됐어요");
-      case "forfeited": return st4("bad", "취소 기한이 지나 1회 차감됐어요");
+      case "forfeited": return st4("bad", b.forfeitFailed ? "취소 기한이 지났지만 잔여 0회라 차감 없이 종결 · 센터 예외처리" : "취소 기한이 지나 1회 차감됐어요");
       case "restored": return st4("end", b.restoreKind === "none" ? "이의가 인정돼 차감 없이 종결됐어요" : "이의가 인정돼 1회 복원됐어요");
       case "confirmed": return st4("end", "수강 확인 완료 · 1회 차감");
       case "canceled": return st4("end", cancelSub(b));
-      case "class_closed": return st4("end", `폐강으로 취소됐어요${b.closeReason ? ` · 사유: ${b.closeReason}` : ""}`);
+      case "class_closed": return st4("end", `폐강으로 취소됐어요${b.closeReason ? ` · 사유: ${esc(b.closeReason)}` : ""}`);
       default: return st4("end", "");
     }
   }
@@ -916,13 +949,14 @@
   const M_PROP_SUB = { accepted: "수락해서 예약이 잡혔어요", declined: "거절했어요", canceled: "선생님이 제안을 철회했어요", expired: "답하지 않아 기한이 지났어요" };
   // 완료 보고·수강확인 12종 → 4계열 (§A2-3). 사유는 rpSub로 내린다.
   function rpSub(r) {
-    const auto = DB.policy.autoConfirmHours;
+    const auto = r.status === "pending" ? autoConfirmHoursOf(r) : DB.policy.autoConfirmHours; // v2.58 QA: 보고 시점 스냅샷
     switch (r.status) {
-      case "pending": return `${DB.policy.methodApp ? "회원 폰으로 확인 요청이 갔어요" : "현장 QR 확인 대기 — 회원 폰 스캔으로 확인돼요"} · ${auto ? `응답이 없으면 보고 ${auto}시간 뒤 자동확정` : "자동확정 없음 — 센터 수동 처리"}`;
+      // v2.58 QA: 출석 체크 차감이 실패한 건(잔여 0회)은 «처리 보류» 사유가 먼저 보여야 한다
+      case "pending": return `${(r.label || "").startsWith("처리 보류") ? `${esc(r.label)} · ` : ""}${DB.policy.methodApp ? "회원 폰으로 확인 요청이 갔어요" : "현장 QR 확인 대기 — 회원 폰 스캔으로 확인돼요"} · ${auto ? `응답이 없으면 보고 ${auto}시간 뒤 자동확정` : "자동확정 없음 — 센터 수동 처리"}`;
       case "confirmed": return `${r.at}${r.method ? ` · 수단: ${methodLabel(r.method)}` : ""}`;
       case "auto": return `회원이 응답하지 않아 자동확정됐어요 · 수단: ${methodLabel(r.method || "auto")}`;
       case "noshow_wait": return `${noshowDeadline(r).replaceAll("-", ".")}까지 이의가 없으면 자동확정되고 횟수가 차감돼요`;
-      case "disputed": return `${r.at}${r.disputeReason ? ` · 사유: ${r.disputeReason}` : ""}`;
+      case "disputed": return `${r.at}${r.disputeReason ? ` · 사유: ${esc(r.disputeReason)}` : ""}`;
       case "noshow_final": return r.autoFinal ? "이의 없이 자동확정 · 1회 차감"
         : (r.label || "").indexOf("기각") >= 0 ? "센터가 이의를 기각했어요 · 1회 차감" : "센터가 노쇼로 확정했어요 · 1회 차감";
       default: return r.label || "";
@@ -940,6 +974,8 @@
   function disputeOpen(b) {
     if (["confirm_wait", "noshow_wait"].includes(b.status)) return true;
     if (b.status !== "confirmed") return false;
+    // v2.58 QA: 센터가 이미 기각한 건은 같은 회차로 다시 이의를 걸 수 없다(무한 보류 루프 방지)
+    if (DB.reports.some((r) => r.bookingId === b.id && r.disputeRejected)) return false;
     const s = slot(b.slotId);
     return s && addDays(s.date, DB.policy.disputeDays) >= DB.TODAY;
   }
@@ -1071,7 +1107,7 @@
     const tabBadge = (h) => (h === todoTab ? mAlerts : role === "t" && h === "#/t/schedule" ? tPendingArrs().length : 0);
     return `
       <header class="hd"><div class="hd-in">
-        ${opts.back ? `<button class="hd-back" onclick="history.back()" aria-label="뒤로">‹</button>` : ""}
+        ${opts.back ? `<button class="hd-back" onclick="App.back()" aria-label="뒤로">‹</button>` : ""}
         <div class="hd-title${opts.center ? " center" : ""}">${title}</div>
         <button class="hd-role" onclick="location.hash='#/'">역할: <b>${ROLE_LABEL[role] || "-"}</b></button>
       </div></header>
@@ -1092,6 +1128,9 @@
   const slotNeedsReport = (s) => isPast(s) && s.status !== "canceled" && DB.bookings.some((b) => b.slotId === s.id && b.status === "booked");
   const cAutoWarns = () => (DB.policy.autoConfirmHours > 0
     ? activeTeachers().map((t) => ({ t, ...autoStats(t.id) })).filter((x) => x.total && x.rate >= DB.policy.autoWarnRate) : []);
+  // v2.58 QA: 보고 행의 담당 선생님 — 노쇼 행은 teacherId, 일반 행은 회차→수업, 시드 요약 행(둘 다 없음)은 현재 선생님 것으로 본다
+  const rTeacher = (r) => r.teacherId || (r.slotId && slot(r.slotId) && (cls(slot(r.slotId).classId) || {}).teacherId) || null;
+  const rMine = (r) => { const t = rTeacher(r); return !t || t === DB.me.teacher; };
   function todoItems(role) {
     const out = [];
     const add = (o) => { if (o.n > 0) out.push(o); };
@@ -1114,7 +1153,7 @@
     } else if (role === "t") {
       add({ n: tPendingArrs().length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
         text: "회원이 보낸 요청에 답해야 해요", go: "#/t/inbox" });
-      add({ n: DB.reports.filter((r) => r.status === "pending").length, tier: "wait", rank: 4, icon: "clip", key: "pending",
+      add({ n: DB.reports.filter((r) => r.status === "pending" && rMine(r)).length, tier: "wait", rank: 4, icon: "clip", key: "pending",
         text: "회원 확인을 기다리는 수업이 있어요", go: "#/t/report" });
       add({ n: tSlots().filter(slotNeedsReport).length, tier: "wait", rank: 4, icon: "today", key: "needrep",
         text: "완료 보고가 필요한 수업이 있어요", go: "#/t/report" });
@@ -1130,7 +1169,7 @@
       // §D-2 B안(형 확정 08-20): 겹침은 막지 않되 «해야 할 일»에 «문제»로 올려 눈에 띄게 한다
       add({ n: ovOpenSlots("c").length, tier: "bad", rank: 3, icon: "clock", key: "overlap",
         text: "시간이 겹친 수업이 있어요", go: "#/c/overlaps" });
-      add({ n: mArrs().filter((a) => a.status === "pending").length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
+      add({ n: mArrs().filter((a) => negoState(a) === "pending").length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
         text: "선생님 수락을 기다리는 일정 요청이 있어요", go: "#/c/classes" });
       add({ n: cAutoWarns().length, tier: "wait", rank: 5, icon: "clock", key: "autowarn",
         text: "자동확정 비율이 기준을 넘은 선생님이 있어요", go: "#/c/confirms" });
@@ -1191,7 +1230,7 @@
       <div class="mp-left"><b>${p.remaining}</b><span>회 남음</span><small>/ 총 ${p.total}회</small></div>
       <div class="mp-sub">회당 ${won(p.unitPrice)}${mpDisc(p) ? ` · <span class="d">할인 구매 (정가 회당 ${won(Math.floor(p.listPrice / p.total))})</span>` : ""}<br>${
         bad ? `<b class="warn">${bad}</b> · 예약에 쓸 수 없어요`
-        : p.expiresAt ? `${p.kind === "private" ? "개인수업 1:1" : "그룹수업"} 이용가능 (D-${dd})` : `${p.kind === "private" ? "개인수업 1:1" : "그룹수업"} · 횟수 소진 시까지 이용가능`}</div>
+        : p.expiresAt ? `${p.kind === "private" ? "개인수업 1:1" : "그룹수업"} 이용가능 (${dd === 0 ? "D-Day · 오늘까지" : `D-${dd}`})` : `${p.kind === "private" ? "개인수업 1:1" : "그룹수업"} · 횟수 소진 시까지 이용가능`}</div>
     </article>`;
   }
   function mpCarousel(ps) {
@@ -1234,6 +1273,8 @@
       </div>`;
     })() : confirmWait.map((b) => {
       const s = slot(b.slotId); const c = cls(s.classId);
+      const rp0 = DB.reports.find((x) => x.bookingId === b.id && x.status === "pending");
+      const auto = rp0 ? autoConfirmHoursOf(rp0) : DB.policy.autoConfirmHours; // v2.58 QA: 보고 시점 스냅샷
       return `<div class="card confirm-req">
         <div class="row"><span class="grow"><span class="badge b-rose">수강 확인 요청</span></span><span class="muted small">선생님 완료 보고</span></div>
         <b class="mt8" style="display:block;font-size:15px">${c.title}</b>
@@ -1294,7 +1335,7 @@
         <div class="divider"></div>
         <div class="row" style="justify-content:space-between"><span class="muted">횟수</span><b>${p.sessions}회 (회당 ${won(Math.floor(pay / p.sessions))})</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">유효기간</span><b>${p.validityDays ? `구매일부터 ${p.validityDays}일` : "없음 · 횟수 소진 시까지"}</b></div>
-        <div class="row mt8" style="justify-content:space-between"><span class="muted">취소 규정</span><b>수업 ${DB.policy.cancelHours}시간 전까지 무료</b></div>
+        <div class="row mt8" style="justify-content:space-between"><span class="muted">취소 규정</span><b>${DB.policy.cancelMode === "conditional" ? `수업 ${DB.policy.cancelHours}시간 전까지 무료` : "예약 취소 불가 (센터 문의)"}</b></div>
         <div class="hint mt8">이 멤버십으로 들을 수 있는 수업: <b>${passScopeLabel({ productId: p.id })}</b></div>
       </div>
       <p class="muted small">구매 시점의 가격·조건이 그대로 보존돼요. 이후 상품이 바뀌어도 내 멤버십은 영향받지 않아요.</p>
@@ -1467,7 +1508,7 @@
             ${near ? `<button class="btn ghost mt12" onclick="App.mbDay('${near}')">가장 가까운 수업일 ${dlabel(near)}로 이동</button>` : ""}</div>`}
       <div class="sec-title">일정 맞춤 수업 <span class="muted small" style="font-weight:600">— 날짜와 무관하게 신청해요</span></div>
       ${arranged.length ? arranged.map((c) => {
-        const pend = mArrs().filter((a) => a.memberId === DB.me.member && a.classId === c.id && a.status === "pending").length;
+        const pend = mArrs().filter((a) => a.memberId === DB.me.member && a.classId === c.id && negoState(a) === "pending").length;
         return `<button class="card card-tap" onclick="location.hash='#/m/class/${c.id}'">
         <div class="row"><span class="grow"><b>${c.title}</b>
           <div class="muted small mt4">${teacher(c.teacherId).name} 선생님 · ${c.duration}분</div>
@@ -1492,12 +1533,14 @@
   }
   const ARR_D0 = addDays(DB.TODAY, 4), ARR_T0 = "11:00"; // 일정 요청 폼 기본값(오늘+4일) — 폼·안내 표시가 같은 값을 쓰도록
   let mcMore = false; // v2.39 F9: 수업 상세 «예약 가능 회차» 4주 뒤까지 펼쳤는지 — 그 화면 안에서만 유지
+  // v2.58 QA: 폐강·취소된 수업/회차 딥링크 — 조용히 다른 화면을 그리지 않고 예약 탭으로 보내며 이유를 말한다
+  const mGoneToBook = (msg) => { history.replaceState(null, "", "#/m/book"); mBookTab = "cal"; toast(msg); return vMBook(); };
   function vMClass(id) {
     const c = cls(id);
-    if (!c || c.status === "closed") return vMBook();
+    if (!c || c.status === "closed") return mGoneToBook(c ? "폐강된 수업이라 열 수 없어요." : "찾을 수 없는 수업이에요.");
     const g = bookGuard(c, DB.me.member);
     if (c.schedule === "arranged") {
-      const myArrs = mArrs().filter((a) => a.memberId === DB.me.member && a.classId === id && a.status === "pending");
+      const myArrs = mArrs().filter((a) => a.memberId === DB.me.member && a.classId === id && negoState(a) === "pending");
       return shell("m", c.title, `
         <div class="card"><b>${teacher(c.teacherId).name} 선생님께 일정 요청</b>
           <p class="muted small mt4">이 수업은 고정 시간표가 없어요. 희망 일시를 보내면 <b>선생님이 수락해야</b> 예약이 확정돼요.</p></div>
@@ -1545,7 +1588,7 @@
   }
   function vMSlot(id) {
     const s = slot(id);
-    if (!s || s.status === "canceled") return vMBook();
+    if (!s || s.status === "canceled") return mGoneToBook(s ? "취소된 회차라 열 수 없어요." : "찾을 수 없는 회차예요.");
     const c = cls(s.classId);
     const n = seatCount(s.id);
     const full = n >= c.capacity;
@@ -1570,12 +1613,13 @@
             : "선생님이 보낸 «일정 변경 제안»이 있어요. «내 예약» «답변 필요»에서 답해 주세요."}</div></div>`
           : `<button class="btn ghost mt8" onclick="App.mchAsk('${mine.id}')">시간 변경 요청하기</button>`)
         : canCancel && mine.status === "booked" ? `<p class="muted small mt8">${CHANGE_GROUP_HINT}</p>` : "";
-      action = `<div class="banner">${icb("ban")}<span>이 회차에 이미 <b>${mine.status === "waitlisted" ? "예약 대기" : "예약"}</b>가 있어요. 중복 예약은 안 돼요.${bd.sub ? ` ${bd.sub}` : ""}</span></div>
+      action = `<div class="banner">${icb("ban")}<span>이 회차에 이미 <b>${mine.status === "waitlisted" ? "예약 대기" : "예약"}</b>이 있어요. 중복 예약은 안 돼요.${bd.sub ? ` ${bd.sub}` : ""}</span></div>
         ${canCancel ? `<button class="btn danger-ghost" onclick="App.askCancel('${mine.id}')">${mine.status === "waitlisted" ? "예약대기 취소" : "예약 취소"}</button>
         ${chgLine}
         <a class="btn ghost mt8" href="#/m/book/mine">내 예약 보기</a>`
-        : `<div class="card flat"><div class="muted small">${isPast(s) ? "수업 시간이 지나 취소할 수 없어요. 선생님 완료 보고 뒤 «수강 확인»으로 넘어가요." : "이 상태에서는 취소할 수 없어요."}</div></div>
-        <a class="btn ghost" href="#/m/book/mine">내 예약 보기</a>`}`;
+        : `<div class="card flat"><div class="muted small">${mine.status === "confirm_wait" ? "선생님이 완료 보고를 했어요 — 수강 확인을 해 주세요." : isPast(s) ? "수업 시간이 지나 취소할 수 없어요. 선생님 완료 보고 뒤 «수강 확인»으로 넘어가요." : "이 상태에서는 취소할 수 없어요."}</div></div>
+        ${mine.status === "confirm_wait" ? `<a class="btn primary" href="#/m/confirm/${mine.id}">수강 확인하러 가기</a>` : ""}
+        <a class="btn ghost${mine.status === "confirm_wait" ? " mt8" : ""}" href="#/m/book/mine">내 예약 보기</a>`}`;
     } else if (isPast(s)) {
       action = `<button class="btn primary" disabled>지난 회차는 예약할 수 없어요</button>`;
     } else if (!g.ok) {
@@ -1593,7 +1637,7 @@
     return shell("m", "수업 상세", `
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${c.duration}분 · ${teacher(c.teacherId).name} 선생님</div>
-        <div class="mt8"><span class="badge ${full ? "b-danger" : "b-green"}">${full ? `정원 마감 · 대기 ${waitBk(s.id).length}명` : `잔여 ${c.capacity - n}자리`}</span></div>
+        <div class="mt8"><span class="badge ${full ? "b-danger" : "b-green"}">${full ? `정원 마감${c.kind === "private" ? "" : ` · 대기 ${waitBk(s.id).length}명`}` : `잔여 ${c.capacity - n}자리`}</span></div>
         <div class="divider"></div>
         ${mine
           ? `<div class="pass-pick"><div class="pp-head"><span class="muted">차감될 멤버십</span></div>
@@ -1603,7 +1647,11 @@
           : usePass ? passPickRow(pkey, usePass, cands.length) + `<div class="hint">이 멤버십으로 들을 수 있는 수업: <b>${passScopeLabel(usePass)}</b></div>`
           : `<div class="row" style="justify-content:space-between"><span class="muted">사용 멤버십</span><b>사용 가능한 멤버십 없음</b></div>`}
       </div>
-      <div class="banner warn">${icb("info")}<span>취소는 수업 <b>${DB.policy.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요. 이 조건은 <b>예약 시점 기준으로 보존</b>돼요.</span></div>
+      ${(() => { // v2.58 QA: 내 예약이면 «예약 시점 스냅샷», 아니면 현재 정책 — 취소 불가 정책도 그대로 말한다
+        const snap = mine && mine.policySnap ? mine.policySnap : snapPolicy();
+        return snap.cancelMode !== "conditional"
+          ? `<div class="banner warn">${icb("info")}<span>이 ${mine ? "예약은 예약 당시 규정상" : "센터는"} <b>취소가 불가</b>해요. 사정이 생기면 센터에 문의해 주세요.</span></div>`
+          : `<div class="banner warn">${icb("info")}<span>취소는 수업 <b>${snap.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요. 이 조건은 <b>예약 시점 기준으로 보존</b>돼요.</span></div>`; })()}
       ${action}`, { back: true });
   }
   // ══ v2.36 §2 + v2.37 A안: 예약 탭 «내 예약» = 회원의 예약·«시간 얘기» 단일 창구 (형 확정 08-20) ══
@@ -1666,7 +1714,7 @@
         <div class="muted small">${chg ? `${a.origDesc || "기존 일정"} → ${optsLabel(a)} 희망` : `${dlabel(a.date)} ${a.time} 희망`}</div>${subHtml(bd)}</span>
         <span class="badge ${bd.badge}">${bd.label}</span>
         ${negoState(a) === "pending" ? `<button class="btn sm ghost" onclick="App.arrangeCancel('${a.id}')">요청 취소</button>` : ""}
-        ${alt ? `<button class="btn sm primary" onclick="App.scrollToNeed()">받은 제안 보기</button>` : ""}</div>`;
+        ${alt ? `<button class="btn sm primary" onclick="App.scrollToNeed('m-mine')">받은 제안 보기</button>` : ""}</div>`;
     };
     markArrSeen();
     // ══ v2.39 E (형 지시 08-21): 4섹션이 한 화면에 다 펼쳐져 3,708px — «구성»은 그대로 두고 «한 번에 보는 양»만 줄인다. ══
@@ -1720,15 +1768,27 @@
         <p class="muted mt8">${slotDesc(s)}<br>센터가 확인하고 있어요. 결과가 나오면 알려드릴게요.</p></div>
         <a class="btn ghost" href="#/m/book/mine">내 예약으로</a>`, { back: true });
     }
+    // v2.58 QA: 노쇼 보고 건은 «확인할 단계가 아니다»가 아니라 «이의를 낼 수 있는 단계»다
+    if (b.status === "noshow_wait") {
+      const rn = DB.reports.find((r) => r.bookingId === b.id && r.status === "noshow_wait");
+      return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
+        <div class="em state-em">${IC.alert}</div><b style="font-size:17px">노쇼로 보고됐어요</b>
+        <p class="muted mt8">${slotDesc(s)}<br>${rn ? `${noshowDeadline(rn).replaceAll("-", ".")}까지 이의가 없으면 1회가 차감돼요.` : "이의 기간 안에 이의가 없으면 1회가 차감돼요."}</p></div>
+        <button class="btn danger-ghost" onclick="App.askDispute('${b.id}')">문제가 있어요 (이의제기)</button>
+        <a class="btn ghost mt8" href="#/m/book/mine">내 예약으로</a>`, { back: true });
+    }
     // S-1: 완료 보고(pending)가 실존하는 confirm_wait만 확인 가능 — 미래·대기·일정 요청 회차 직접 진입 차단
     const rp = DB.reports.find((r) => r.bookingId === b.id && r.status === "pending");
     if (b.status !== "confirm_wait" || !rp) {
+      // v2.58 QA: 이미 종결된 예약(노쇼 확정·취소·복원 등)은 그 상태를 그대로 말한다 — «아직»은 진행 전 예약에만
+      const ended = ["noshow_final", "forfeited", "canceled", "restored", "class_closed"].includes(b.status);
+      const bd = bkBadge(b);
       return shell("m", "수강 확인", `<div class="card" style="text-align:center;padding:32px 16px">
-        <div class="em state-em">${IC.lock}</div><b style="font-size:17px">아직 확인할 단계가 아니에요</b>
-        <p class="muted mt8">${slotDesc(s)}<br>수업이 끝나고 선생님이 완료 보고를 하면<br>그때 수강 확인을 요청드려요.</p></div>
+        <div class="em state-em">${ended ? IC.clip : IC.lock}</div><b style="font-size:17px">${ended ? "이미 종결된 예약이에요" : "아직 확인할 단계가 아니에요"}</b>
+        <p class="muted mt8">${slotDesc(s)}<br>${ended ? esc(bd.sub) : "수업이 끝나고 선생님이 완료 보고를 하면<br>그때 수강 확인을 요청드려요."}</p></div>
         <a class="btn ghost" href="#/m/book/mine">내 예약으로</a>`, { back: true });
     }
-    const auto = DB.policy.autoConfirmHours;
+    const auto = autoConfirmHoursOf(rp); // v2.58 QA: 보고 시점 스냅샷
     return shell("m", "수강 확인", `
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
@@ -1969,7 +2029,7 @@
     const s = slot(id);
     if (!s || s.status === "canceled") return vTHome();
     const c = cls(s.classId);
-    const done = s.status === "done";
+    const done = s.status === "done" || isPast(s); // v2.58 QA: 시각이 지난 회차는 status와 무관하게 «종료» — 보고 버튼이 열려야 한다
     const seats = seatBk(s.id);
     const unreported = DB.bookings.filter((b) => b.slotId === s.id && b.status === "booked");
     const w = waitBk(s.id);
@@ -1985,7 +2045,7 @@
       ${ov.length ? `<div class="banner warn">${icb("alert")}<span>같은 시간대에 <b>${ov.map((o) => `${o.time} ${cls(o.classId).title}`).join(", ")}</b> 수업이 함께 잡혀 있어요. 확인하고 진행해 주세요.</span></div>` : ""}
       <div class="sec-title">참석자</div>
       <div class="card flat">${seats.length ? seats.map((b) => {
-        const bd = bkBadge(b);
+        const bd = bkBadge(b, done && b.status === "booked"); // v2.58 QA: 종료 회차의 미보고 좌석은 «확정»이 아니라 «보고 대기»
         // v2.22 ①: 확정(예정) 좌석엔 일정 변경 제안 — 이미 답변 대기 중이면 중복 제안 대신 상태 표시
         // v2.25 ①: 1:1 수업에서만. 그룹은 버튼을 렌더하지 않고 액션 자체도 거부한다.
         const canPropose = priv && !done && s.status === "scheduled" && !isPast(s) && b.status === "booked";
@@ -1996,7 +2056,8 @@
       ${done ? (unreported.length
         ? `<button class="btn primary" onclick="App.reportAsk('${s.id}')">수업 완료 보고 (${unreported.length}명)</button>
            <p class="muted small mt8" style="text-align:center">참석·노쇼를 회원별로 표시해 보고해요.<br>회원이 확인해야 횟수 차감·정산 대상이 돼요.</p>`
-        : `<div class="banner">${icb("clock")}<span>완료 보고됨 — 회원 확인·처리를 기다리고 있어요. 확인되어야 정산에 들어가요.</span></div>`)
+        : seats.length ? `<div class="banner">${icb("clock")}<span>완료 보고됨 — 회원 확인·처리를 기다리고 있어요. 확인되어야 정산에 들어가요.</span></div>`
+        : `<div class="banner">${icb("clock")}<span>참석자가 없어 보고할 내용이 없는 회차예요.</span></div>`)
         : `<button class="btn ghost" disabled style="color:var(--text-disabled)">수업 종료 후 완료 보고할 수 있어요</button>`}`, { back: true });
   }
   // B3: «회원 지정해서 바로 확정» — 회원 필터(센터 정책), 기존 회차 합류, 과거 차단(S-2)
@@ -2121,7 +2182,7 @@
         <div class="field"><label>종류</label><div class="seg" id="nc-kind">
           <button class="${U.kind === "group" ? "on" : ""}" data-v="group" onclick="App.ccSeg('${r}',this,'kind')">그룹 (다인)</button>
           <button class="${U.kind === "private" ? "on" : ""}" data-v="private" onclick="App.ccSeg('${r}',this,'kind')">개인 (1:1)</button></div></div>
-        ${U.kind === "group" ? `<div class="field"><label>정원</label><input type="number" id="nc-cap" value="${U.cap}" min="1"></div>` : ""}
+        ${U.kind === "group" ? `<div class="field"><label>정원</label><input type="number" id="nc-cap" value="${U.cap}" min="2" step="1" onchange="App.ccCap('${r}', this.value)"><div class="hint">2명 이상. 1명 수업은 «개인 (1:1)»로 만들어요.</div></div>` : ""}
         <div class="field"><label>일정 방식</label><div class="seg" id="nc-sched">
           <button class="${U.sched === "fixed" ? "on" : ""}" data-v="fixed" onclick="App.ccSeg('${r}',this,'sched')">매주 고정</button>
           <button class="${U.sched === "arranged" ? "on" : ""}" data-v="arranged" onclick="App.ccSeg('${r}',this,'sched')">회원과 일정 맞춤</button></div>
@@ -2146,12 +2207,13 @@
           <div class="hint" id="qk-cap-hint">${qkHintHtml(lim)}</div>
           <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 명단과 연동돼요. 표시 범위는 센터 설정에서 바꿔요.${scoped ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요.` : ""}</div></div>
         <button class="btn primary" onclick="App.ccSubmit('${r}')">${isNew ? "수업 만들고 바로 확정" : "바로 예약 확정"}</button>` : `
+        ${c && r === "t" && !auth.ok ? `<div class="field"><label>예약 가능 회원</label><div class="hint">${eligLabel(c)} — 이 수업의 설정 그대로 자리를 열어요. 자격 변경은 개설 권한이 있어야 해요.</div></div>` : `
         <div class="field"><label>예약 가능 회원</label><div class="seg" id="nc-elig">
           <button class="${U.elig === "pass" ? "on" : ""}" data-v="pass" onclick="App.ccSeg('${r}',this,'elig')">멤버십 보유자</button>
           <button class="${U.elig === "list" ? "on" : ""}" data-v="list" onclick="App.ccSeg('${r}',this,'elig')">회원 지정</button>
           <button class="${U.elig === "both" ? "on" : ""}" data-v="both" onclick="App.ccSeg('${r}',this,'elig')">혼합</button></div>
           <div class="hint">그룹수업도 특정 회원만 지정할 수 있어요.${c ? ` 이 설정을 바꾸면 «${c.title}» 수업 전체에 적용돼요.` : ""}</div></div>
-        ${eligExtraHtml("nc", c, r, U.elig)}
+        ${eligExtraHtml("nc", c, r, U.elig)}`}
         <button class="btn primary" onclick="App.ccSubmit('${r}')">${isNew ? "수업 만들고 자리 열기" : "자리 열고 신청 받기"}</button>`}
       </div>
       ${U.fill === "assign"
@@ -2183,7 +2245,11 @@
     if (role === "t" && !classAuth(teacher(DB.me.teacher)).ok) { toast("새 수업을 만들 권한이 없어요 — 센터 지정이 필요해요."); return null; }
     const teacherId = role === "t" ? DB.me.teacher : (U.teacherId || DB.teachers[0].id);
     const kind = U.kind;
-    const capacity = kind === "private" ? 1 : Math.max(1, parseInt(U.cap, 10) || 6);
+    // v2.58 QA: 이름·정원은 조용히 기본값으로 바꾸지 않는다 — 입력을 요구한다
+    if (!clean(U.title).trim()) { toast("수업명을 입력해 주세요."); return null; }
+    const capN = Number(U.cap);
+    if (kind === "group" && !(Number.isInteger(capN) && capN >= 2)) { toast("그룹 정원은 2명 이상 정수로 입력해 주세요. 1명이면 «개인 (1:1)»로 만들어 주세요."); return null; }
+    const capacity = kind === "private" ? 1 : capN;
     // «회원 지정해서 바로 확정»으로 만드는 수업은 고른 회원이 곧 예약 자격 — 별도 자격 설정을 묻지 않는다
     const elig = U.fill === "assign" ? "list" : U.elig;
     const prodIds = U.fill === "assign" ? [] : [...document.querySelectorAll("#nc-prods .chip.on")].map((b) => b.dataset.v);
@@ -2195,7 +2261,7 @@
       const bad = memIds.filter((mid) => !inTScope(DB.me.teacher, mid));
       if (bad.length) { toast(`내 «지정 가능 회원 범위» 밖 회원이에요: ${bad.map(memberName).join(", ")} — 센터에 범위 확대를 요청해 주세요.`); return null; }
     }
-    return { id: nid("c"), title: (U.title || "").trim() || "새 수업", teacherId, kind, capacity,
+    return { id: nid("c"), title: clean(U.title).trim(), teacherId, kind, capacity,
       schedule: U.sched, scheduleLabel: U.sched === "fixed" ? "매주 고정 (시간표 설정)" : "회원과 일정 맞춤", duration: 50,
       eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" };
   }
@@ -2208,7 +2274,7 @@
     if (!U || !U.rep || !ccRepOk(U, c) || !s || recurOf(s)) return null;
     const r = { id: nid("rc"), classId: c.id, weekdays: ccWdays(U).slice().sort((a, b) => a - b), time: s.time,
       startDate: s.date, endMode: U.endMode, endDate: U.endMode === "date" ? (U.endDate || null) : null,
-      active: true, skips: [], createdAt: nowStamp };
+      active: true, skips: [], createdAt: stampOf() };
     DB.recurs.push(r);
     s.recurId = r.id;
     return { r, made: recurGenerate(r).made + 1 }; // +1 = 방금 만든 첫 회차
@@ -2244,9 +2310,18 @@
       if (seatCount(sl.id) + mids.length > c.capacity) errs.push(`정원 초과: 잔여 ${Math.max(0, c.capacity - seatCount(sl.id))}석인데 ${mids.length}명을 선택했어요.`);
       for (const mid of mids) if (DB.bookings.some((b) => b.slotId === sl.id && b.memberId === mid && ACTIVE.includes(b.status))) errs.push(`<b>${memberName(mid)}</b>: 이미 이 회차에 예약이 있어요.`);
     } else {
-      d = U.date || addDays(DB.TODAY, 5);
-      t = U.time || "11:00";
+      d = U.date; t = U.time;
+      if (!d || !t) { toast("날짜와 시간을 입력해 주세요."); return; } // v2.58 QA: 기본값으로 조용히 만들지 않는다
       if (new Date(`${d}T${t}:00+09:00`) <= NOW) { ccPastAsk(); return; }
+      if (!ccRecurCheck(U, c, d)) return;
+      // v2.58 QA: 같은 수업·같은 일시 회차가 이미 있으면 합류(1:1은 거부) — «새 일시로 만들기»로 중복 회차가 생기지 않게
+      const dup = !isNew && DB.slots.find((x) => x.classId === c.id && x.date === d && x.time === t && x.status === "scheduled");
+      if (dup) {
+        if (isPrivateClass(c)) { toast("그 시간엔 이 수업의 1:1 회차가 이미 있어요 — 다른 시간으로 잡아 주세요."); return; }
+        sl = dup;
+        if (seatCount(sl.id) + mids.length > c.capacity) errs.push(`정원 초과: 그 시간 회차 잔여 ${Math.max(0, c.capacity - seatCount(sl.id))}석인데 ${mids.length}명을 선택했어요.`);
+        for (const mid of mids) if (DB.bookings.some((b) => b.slotId === sl.id && b.memberId === mid && ACTIVE.includes(b.status))) errs.push(`<b>${memberName(mid)}</b>: 이미 그 시간 회차에 예약이 있어요.`);
+      }
     }
     if (errs.length) {
       modal(`<h3>예약할 수 없어요</h3><p>선택 인원 전원이 가능해야 확정돼요 — 부분 확정은 하지 않아요.</p>
@@ -2264,19 +2339,32 @@
     };
     // v2.25 ②: 새 회차를 만들 때만 겹침 검사 — 기존 회차 합류는 이미 잡힌 시간이라 새 겹침이 안 생긴다.
     const hits = sl ? [] : overlapSlots(c.teacherId, d, t, c.duration, []);
-    if (hits.length) { overlapAsk(hits, finish); return; }
+    // v2.58 QA: 회원 본인 겹침도 예약·요청 경로와 같은 규칙으로 경고(차단 아님)
+    const at = sl ? [sl.date, sl.time] : [d, t];
+    const mh = mids.flatMap((mid) => memberBusyAt(mid, at[0], at[1], c.duration, []));
+    if (hits.length || mh.length) { overlapAsk(hits, finish, { mHits: mh }); return; }
     finish();
+  }
+  // v2.58 QA: 반복 설정 검증 — 종료일이 첫 회차보다 앞이거나, 첫 회차 요일이 반복 요일에 없으면 규칙이 어긋난 채 생긴다
+  function ccRecurCheck(U, c, d) {
+    if (!U || !U.rep || !ccRepOk(U, c)) return true;
+    if (U.endMode === "date" && (!U.endDate || U.endDate < d)) { toast("반복 종료일은 첫 회차 날짜 이후로 골라 주세요."); return false; }
+    if (!ccWdays(U).includes(dowOf(d))) { toast(`첫 회차 요일(${DOW[dowOf(d)]})이 반복 요일에 없어요 — 요일을 추가하거나 날짜를 바꿔 주세요.`); return false; }
+    return true;
   }
   // «자리 열어두고 신청 받기» — 회차만 열고 좌석은 비워 둔다. 회원이 «수업 예약»에서 신청하면 채워진다.
   function ccOpen(role, c, isNew) {
     const U = ccUI;
-    const d = U.date || addDays(DB.TODAY, 5);
-    const t = U.time || "11:00";
+    const d = U.date, t = U.time;
+    if (!d || !t) { toast("날짜와 시간을 입력해 주세요."); return; } // v2.58 QA
     if (new Date(`${d}T${t}:00+09:00`) <= NOW) { ccPastAsk(); return; }
+    if (!ccRecurCheck(U, c, d)) return;
     const elig = U.elig;
     const prodIds = [...document.querySelectorAll("#nc-prods .chip.on")].map((b) => b.dataset.v);
     const memIds = pkSelected("nc-mems");
-    if (!isNew) {
+    // v2.58 QA: 개설 권한 없는 선생님은 기존 수업에 «회차만» 연다 — 예약 자격·지정 회원은 바꾸지 않는다(수정 권한과 동일 규칙)
+    const noAuth = !isNew && role === "t" && !classAuth(teacher(DB.me.teacher)).ok;
+    if (!isNew && !noAuth) {
       if (elig !== "pass" && !memIds.length) { toast("지정 회원을 1명 이상 선택해 주세요."); return; }
       if (elig !== "list" && !prodIds.length) { toast("사용 가능한 멤버십을 1개 이상 선택해 주세요."); return; }
       // P2-2b 재검증: 신규 추가만 범위 검사 (기존 지정 회원은 소급 없이 유지 — updateClass와 같은 규칙)
@@ -2290,7 +2378,7 @@
     }
     const finish = () => {
       if (isNew) DB.classes.push(c);
-      else { c.eligibility = elig; c.eligibleProductIds = elig === "list" ? [] : prodIds; c.memberIds = elig === "pass" ? [] : memIds; }
+      else if (!noAuth) { c.eligibility = elig; c.eligibleProductIds = elig === "list" ? [] : prodIds; c.memberIds = elig === "pass" ? [] : memIds; }
       const sl = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true };
       DB.slots.push(sl);
       const rc = ccMakeRecur(role, c, sl);
@@ -2307,8 +2395,9 @@
     const qrOn = DB.policy.methodQr;
     const needSlots = tSlots().filter(slotNeedsReport).sort((x, y) => (y.date + y.time).localeCompare(x.date + x.time));
     const isNeed = (r) => r.status === "pending" && qrOn;
-    const need = DB.reports.filter(isNeed);
-    const rest = DB.reports.filter((r) => !isNeed(r));
+    const mineR = DB.reports.filter(rMine); // v2.58 QA: 다른 선생님 보고가 섞이지 않게(남의 수업 QR 발급 차단)
+    const need = mineR.filter(isNeed);
+    const rest = mineR.filter((r) => !isNeed(r));
     // v2.52: auto=자동확정 «완료»(rpBadge=종료) — 미확정이 아니라 기록이다. 진행 중은 결과가 아직 안 정해진 상태만.
     const INPROG = ["pending", "noshow_wait", "disputed"];
     const inprog = rest.filter((r) => INPROG.includes(r.status));
@@ -2454,7 +2543,7 @@
           items: DB.products.map((p) => ({ txt: `${p.name} ${p.kind === "private" ? "개인" : "그룹"} ${p.sessions}회`, date: null,
             html: `<div class="card"><div class="row"><span class="grow"><b>${p.name}</b>
               <div class="muted small mt4">${p.kind === "private" ? "개인" : "그룹"} · ${p.sessions}회 · ${p.validityDays ? p.validityDays + "일" : "기간 제한 없음"}</div></span>
-              <b>${won(p.price)}</b></div></div>` })) }] })}
+              <span style="text-align:right"><b>${won(p.salePrice != null && p.salePrice < p.price ? p.salePrice : p.price)}</b>${p.salePrice != null && p.salePrice < p.price ? `<div class="muted small"><s>${won(p.price)}</s> 이벤트 할인가</div>` : ""}</span></div></div>` })) }] })}
       </div><div>
       <div class="sec-title">멤버십 판매·등록</div>
       <div class="card">
@@ -2881,7 +2970,7 @@
   }
   function cbArrs() {
     return mArrs().filter((a) => {
-      if (a.status !== "pending") return false;
+      if (negoState(a) !== "pending") return false; // v2.58 QA: 희망일이 지난 요청은 «대기»가 아니다
       const c = cls(a.classId);
       if (!c) return false;
       if (cbUI.teacher !== "all" && c.teacherId !== cbUI.teacher) return false;
@@ -2965,7 +3054,7 @@
   // 세그 배지 N = 선생님 수락 대기 일정 요청 — «예약» 탭이 사라진 대신 세그 버튼이 그 노출을 보전한다(v2.36 문법).
   let cClsTab = "cal";
   function vCClsSeg() {
-    const n = mArrs().filter((a) => a.status === "pending").length;
+    const n = mArrs().filter((a) => negoState(a) === "pending").length;
     const btn = (key, label, extra) => `<button role="tab" aria-selected="${cClsTab === key}" class="${cClsTab === key ? "on" : ""}" onclick="App.cTab('${key}')">${label}${extra || ""}</button>`;
     return `<div class="seg book-seg" id="cc-seg" role="tablist">
       ${btn("cal", "예약 현황", n ? ` <i class="seg-n" aria-label="선생님 수락 대기 ${n}건">${n}</i>` : "")}
@@ -2985,7 +3074,7 @@
     return shell("c", "회차 상세", `
       <div class="card"><b>${c.title}</b>
         <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
-        <div class="mt8"><span class="badge ${s.status === "done" ? "b-gray" : "b-green"}">${s.status === "done" ? "종료" : "예정"}</span>
+        <div class="mt8"><span class="badge ${s.status === "canceled" ? "b-gray" : s.status === "done" || isPast(s) ? "b-gray" : "b-green"}">${s.status === "canceled" ? "취소됨" : s.status === "done" || isPast(s) ? "종료" : "예정"}</span>
         <span class="badge b-blue">${seats.length}/${c.capacity}명</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
       ${recurSlotHtml(s, "c")}
       ${ov.length ? `<div class="banner warn">${icb("alert")}<span>${teacher(c.teacherId).name} 선생님이 같은 시간대에 <b>${ov.map((o) => `${o.time} ${cls(o.classId).title}`).join(", ")}</b> 수업도 맡고 있어요.</span></div>` : ""}
@@ -2994,7 +3083,7 @@
         const bd = bkBadge(b);
         return `<div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b><div class="muted small">${pass(b.passId) ? pass(b.passId).name : "멤버십 미연결"}</div>${subHtml(bd)}</span>
           <span class="badge ${bd.badge}">${bd.label}</span>
-          ${b.status === "booked" && s.status === "scheduled" ? `<button class="btn sm ghost" onclick="App.centerCancelAsk('${b.id}')">취소</button>` : ""}</div>`;
+          ${b.status === "booked" && s.status === "scheduled" && !isPast(s) ? `<button class="btn sm ghost" onclick="App.centerCancelAsk('${b.id}')">취소</button>` : ""}</div>`;
       }).join("") : `<p class="muted">예약자가 없어요.</p>`}</div>
       ${w.length ? `<div class="sec-title">대기열</div><div class="card flat">${w.map((b) => `
         <div class="slot"><span class="grow"><b>${memberName(b.memberId)}</b></span><span class="badge b-warn">대기 ${b.pos}번</span></div>`).join("")}</div>
@@ -3186,7 +3275,7 @@
     })
       // v2.7: 선생님 수십 명 규모 — 이번 달 내역(정산 라인·노쇼)이 있는 선생님만 표시
       .filter((x) => x.elig.length || x.held.length || x.ns.length);
-    const hiddenN = DB.teachers.length - per.length;
+    const hiddenN = Math.max(0, activeTeachers().length - per.length); // v2.58 QA: 퇴사 프로필 제외
     // v2.40: 전 기간 집계였다 — 월 이동을 노출하는 순간 «7월 화면에 8월 노쇼 건수»가 섞여 보인다.
     const noshowN = DB.reports.filter((r) => ["noshow_wait", "noshow_final"].includes(r.status) && inYm(rpDate(r))).length;
     const rewardLabel = !rewardOn() ? "보상 없음 (기본)"
@@ -3608,6 +3697,8 @@
   // ── v2.13: 현장 일회용 QR (04 수단 B — PIN 폐지 대체) ──
   // 토큰=완료 보고(rpId) 1건 전용·발급 후 5분 만료 표기·확인 성립 즉시 무효화(used). 회원 본인 계정만 확인 가능.
   const qrTokens = {};
+  const QR_TTL_MS = 5 * 60000;
+  const qrExpired = (t) => !!t.at && Date.now() - t.at > QR_TTL_MS; // v2.58 QA: 안내대로 발급 5분 뒤 만료
   function qrSvg(token) {
     // 결정적 의사 QR — 토큰 문자열 해시로 데이터 셀 생성 (프로토타입 시각화용, 실서비스=실제 QR 라이브러리)
     const N = 21, cell = 8;
@@ -3634,7 +3725,7 @@
         <p class="muted mt8">${desc}</p></div>
       <a class="btn ghost" href="${backTo || "#/m/home"}">돌아가기</a>`, { back: true });
     const t = qrTokens[token];
-    if (!t) return errCard(IC.clock, "유효하지 않은 QR이에요", "만료됐거나 잘못된 코드예요.<br>선생님 화면에서 QR을 새로 띄워 주세요.");
+    if (!t || qrExpired(t)) return errCard(IC.clock, "유효하지 않은 QR이에요", "만료됐거나 잘못된 코드예요.<br>선생님 화면에서 QR을 새로 띄워 주세요.");
     if (t.used) return errCard(IC.lock, "이미 사용된 QR이에요", "QR은 일회용이라 확인이 끝나면 바로 만료돼요.<br>다시 쓸 수 없어요.");
     const r = DB.reports.find((x) => x.id === t.rpId);
     const b = r && r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
@@ -3696,12 +3787,13 @@
       const mid = pkSelected("af-inv")[0];
       if (!mid) return toast("초대할 계정을 검색해 선택해 주세요.");
       const role = (document.querySelector("#af-role .on") || { dataset: {} }).dataset.v || "teacher";
-      const subject = role === "teacher" ? ((document.getElementById("af-subject") || {}).value || "").trim() : "";
+      const subject = role === "teacher" ? clean((document.getElementById("af-subject") || {}).value || "").trim() : "";
       if (role === "teacher" && !subject) return toast("담당 과목을 입력해 주세요.");
       if (hasLiveStaffAffil(mid)) return toast("이미 재직 중이거나 초대가 진행 중인 계정이에요.");
       DB.affils.push({ id: nid("afx"), centerId: DB.center.id, memberId: mid, role,
         subject: subject || undefined, status: "invited", invitedAt: DB.TODAY, source: "invite" });
       const st = fltUI["c-staff"]; if (st) st.cat = "invited"; // 보낸 초대가 바로 보이게
+      delete pickers["af-inv"]; // v2.58 QA: 선택 잔류로 같은 사람 재초대 시도 방지
       toast(`${memberName(mid)} 계정에 초대를 보냈어요 — 상대방이 수락하면 소속돼요.`);
       render();
     },
@@ -3751,6 +3843,7 @@
     // ── v2.54 소속·권한: 선생님 측 (초대 수락·거절, 퇴사) ──
     tcAccept(id) {
       const a = affilById(id);
+      if (!a || a.status !== "invited") { toast("이미 처리됐거나 취소된 초대예요."); render(); return; } // v2.58 QA
       a.status = "active"; a.startedAt = DB.TODAY;
       toast(`${centerOf(a.centerId).name} 소속이 됐어요 🎉`);
       render();
@@ -3778,7 +3871,10 @@
     },
     tcLeave(id) {
       const a = affilById(id);
+      if (!a || a.status !== "active") { closeModal(); return; }
       a.status = "left"; a.endedAt = DB.TODAY; a.endedBy = "self";
+      // v2.58 QA: 개설 권한(P2-2)은 소속 전제 — 센터 해제(afRemove)와 같은 규칙으로 함께 회수
+      if (a.centerId === DB.center.id && a.role === "teacher") { const CA = DB.policy.classAuth.memberIds || []; const i = CA.indexOf(a.memberId); if (i >= 0) CA.splice(i, 1); }
       closeModal(); toast(`${centerOf(a.centerId).name} 퇴사 처리됐어요 — 기록은 그대로 남아요.`); render();
     },
     seg(btn) {
@@ -3795,7 +3891,9 @@
     },
     chip(btn) { btn.classList.toggle("on"); },
     buy(pid) {
+      if (buyLock) return; buyLock = true; setTimeout(() => { buyLock = false; }, 1200); // v2.58 QA: 더블탭 이중 결제 차단
       const p = DB.products.find((x) => x.id === pid);
+      if (!p) return;
       const id = nid("ps");
       const exp = p.validityDays ? addDays(DB.TODAY, p.validityDays) : null;
       // 회원 자가 구매 = 판매가 결제(이벤트 할인가 있으면 할인가) — 동일한 구매 시점 스냅샷 로직
@@ -3831,14 +3929,16 @@
       const exp = p.validityDays ? addDays(DB.TODAY, p.validityDays) : null;
       const unit = Math.floor(price / p.sessions);
       const np = { id, memberId: mid, productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: unit, purchasePrice: price, listPrice: p.price, expiresAt: exp, remaining: 0 };
+      const led = applyLedger(np, p.sessions, "purchase", `${p.name} · ${won(price)}${price < p.price ? ` (정가 ${won(p.price)} · 할인 등록)` : ""}`);
+      if (!led.ok) { toast("이 상품은 횟수가 잘못돼 등록할 수 없어요 — 상품을 확인해 주세요."); return; } // v2.58 QA: 원장 없는 멤버십 방지
       DB.passes.push(np);
-      applyLedger(np, p.sessions, "purchase", `${p.name} · ${won(price)}${price < p.price ? ` (정가 ${won(p.price)} · 할인 등록)` : ""}`);
       delete pickers["sell-mem"];
       render();
       toast(`${memberName(mid)} 회원에게 ${p.name} 등록 완료 — 회당 ${won(unit)} 기준으로 저장했어요.`);
     },
     book(slotId) {
       const s = slot(slotId);
+      if (!s || s.status === "canceled") { toast("취소된 회차라 예약할 수 없어요."); return; } // v2.58 QA
       const c = cls(s.classId);
       const g = bookGuard(c, DB.me.member);
       if (!g.ok) { toast(g.msg); return; }
@@ -3861,11 +3961,14 @@
     },
     joinWaitlist(slotId) {
       const s = slot(slotId);
+      if (!s || s.status === "canceled") { toast("취소된 회차라 대기할 수 없어요."); return; } // v2.58 QA
       const c = cls(s.classId);
       if (c.kind === "private") { toast("1:1 수업은 대기를 받지 않아요."); return; }
       if (!DB.policy.waitlist) { toast("이 센터는 대기를 받지 않아요."); return; }
+      if (isPast(s)) { toast("지난 회차는 대기할 수 없어요."); return; } // v2.58 QA
       const g = bookGuard(c, DB.me.member);
       if (!g.ok) { toast(g.msg); return; }
+      if (seatCount(slotId) < c.capacity) { toast("아직 자리가 있어요 — 바로 예약해 주세요."); render(); return; } // v2.58 QA
       if (DB.bookings.some((b) => b.slotId === slotId && b.memberId === DB.me.member && ACTIVE.includes(b.status))) { toast("이미 이 회차에 예약·대기가 있어요."); return; }
       const pos = waitBk(slotId).length + 1;
       const up = chosenPass(`s:${slotId}`, eligiblePasses(c, DB.me.member)) || g.pass;
@@ -3882,11 +3985,11 @@
       const t = document.getElementById("arr-time").value || ARR_T0;
       if (new Date(`${d}T${t}:00+09:00`) <= NOW) { toast("지난 일시로는 요청할 수 없어요."); return; }
       if (mArrs().some((a) => a.classId === classId && a.memberId === DB.me.member && a.status === "pending" && a.date === d && a.time === t)) { toast("같은 일시로 보낸 요청이 이미 있어요."); return; }
-      const note = (document.getElementById("arr-note") || { value: "" }).value.trim();
+      const note = clean((document.getElementById("arr-note") || { value: "" }).value).trim();
       const up = chosenPass(`c:${classId}`, eligiblePasses(c, DB.me.member)) || g.pass;
       const send = () => {
         DB.negos.push({ id: nid("ar"), initiator: "member", kind: "request", classId, teacherId: c.teacherId,
-          memberId: DB.me.member, passId: up.id, date: d, time: t, status: "pending", note, at: nowStamp });
+          memberId: DB.me.member, passId: up.id, date: d, time: t, status: "pending", note, at: stampOf() });
         toast(`${teacher(c.teacherId).name} 선생님에게 일정 요청을 보냈어요. 수락하면 예약이 확정돼요.`);
         location.hash = "#/m/book/mine";
       };
@@ -3898,7 +4001,7 @@
     },
     arrangeCancel(arId) {
       const a = DB.arranges.find((x) => x.id === arId);
-      if (!a || negoState(a) !== "pending") return;
+      if (!a || negoState(a) !== "pending") { toast("이미 처리됐거나 기한이 지난 요청이에요."); render(); return; } // v2.58 QA: 무반응 대신 안내
       a.status = "canceled"; a.canceledBy = "member"; // v2.30 A5: 같은 canceled라도 «누가 접었는지»를 남긴다
       render();
       toast(a.kind === "change" ? "변경 요청을 취소했어요. 원래 예약은 그대로예요." : "일정 요청을 취소했어요.");
@@ -3979,11 +4082,11 @@
       const key = (o) => o.date + o.time;
       const opts = raw.filter((o, i) => raw.findIndex((x) => key(x) === key(o)) === i)
         .sort((x, y) => key(x).localeCompare(key(y)));
-      const note = (document.getElementById("mc-note") || { value: "" }).value.trim();
+      const note = clean((document.getElementById("mc-note") || { value: "" }).value).trim();
       const send = () => {
         DB.negos.push({ id: nid("mc"), initiator: "member", kind: "change", classId: c.id, teacherId: c.teacherId, memberId: DB.me.member,
           bookingId: bkId, origDesc: `${dlabel(s.date)} ${s.time}`, date: opts[0].date, time: opts[0].time, opts,
-          note, status: "pending", at: nowStamp });
+          note, status: "pending", at: stampOf() });
         closeModal(true); render();
         toast(`${teacher(c.teacherId).name} 선생님에게 변경 요청을 보냈어요. 답이 올 때까지 지금 예약은 그대로예요.`);
       };
@@ -4049,14 +4152,23 @@
       const a = DB.negos.find((x) => x.id === id);
       if (!a || a.status !== "pending") { closeModal(); return; }
       a.status = "declined";
-      a.declineReason = (document.getElementById("mc-reason") || { value: "" }).value.trim() || "그 시간엔 수업이 어려워요";
+      a.declineReason = clean((document.getElementById("mc-reason") || { value: "" }).value).trim() || "그 시간엔 수업이 어려워요";
       closeModal(); render();
       toast("거절했어요. 회원 예약은 원래 시간 그대로 유지돼요.");
     },
     // «내 예약» «답변 필요» 섹션으로 스크롤 — 홈·알림·다른 섹션에서 오는 진입점이 전부 같은 곳에 닿게 한다.
-    scrollToNeed() {
+    scrollToNeed(fltKey) {
+      // v2.58 QA: «지난 예약» 카테고리에서 누르면 «답변 필요»로 카테고리를 먼저 바꿔야 제안이 보인다
+      const st = fltKey && fltUI[fltKey];
+      if (st && st.cat !== "need") { st.cat = "need"; render(); }
       const el = document.getElementById("m-need");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    // v2.58 QA: 딥링크·새 탭으로 들어와 뒤로 갈 곳이 없으면 그 역할의 홈으로
+    back() {
+      if (history.length > 1) { history.back(); return; }
+      const role = (location.hash.split("/")[1] || "");
+      location.hash = ["m", "t", "c"].includes(role) ? `#/${role}/home` : "#/";
     },
     arrangeAccept(arId) {
       const a = DB.arranges.find((x) => x.id === arId);
@@ -4064,13 +4176,21 @@
       const c = cls(a.classId);
       if (c.status === "closed") { a.status = "declined"; a.declineReason = "폐강된 수업"; render(); toast("폐강된 수업이라 자동 거절 처리했어요."); return; }
       if (new Date(`${a.date}T${a.time}:00+09:00`) <= NOW) { toast("이미 지난 일시라 수락할 수 없어요. 거절 후 다시 요청받아 주세요."); return; }
+      // v2.58 QA: 예약과 같은 자격 검사(지정 회원·멤버십)를 수락 시점에 다시 한다 — 요청 뒤 자격이 바뀌었을 수 있다
+      const gA = bookGuard(c, a.memberId);
+      if (!gA.ok) { toast(`${memberName(a.memberId)} 회원: ${gA.msg} 지금은 수락할 수 없어요.`); return; }
       let p = a.passId ? pass(a.passId) : null;
-      if (!p || !passUsable(p)) p = eligiblePass(c, a.memberId);
+      if (!p || !passUsable(p)) p = gA.pass;
       if (!p) { toast("회원 멤버십이 만료·소진돼 수락할 수 없어요. 회원에게 안내해 주세요."); return; }
       // v2.25 ②: 수락하면 그 시간에 회차가 생긴다 — 같은 선생님 수업과 겹치면 확인 후 강행 허용
       const accept = () => {
         const es = ensureSlot(c, a.date, a.time); // v2.30 C6: 같은 일시 회차가 있으면 재사용
         if (!es.ok) { closeModal(true); toast(es.msg); return; }
+        // v2.58 QA: 재사용 회차에 같은 회원 좌석이 이미 있으면 중복 좌석을 만들지 않는다
+        if (DB.bookings.some((b) => b.slotId === es.slot.id && b.memberId === a.memberId && ACTIVE.includes(b.status))) {
+          a.status = "accepted"; a.slotId = es.slot.id; closeModal(true); render();
+          toast(`${memberName(a.memberId)} 회원은 그 시간 회차에 이미 예약이 있어요 — 요청을 수락 처리하고 좌석은 그대로 뒀어요.`); return;
+        }
         DB.bookings.push({ id: nid("bk"), slotId: es.slot.id, memberId: a.memberId, passId: p.id, status: "booked", policySnap: snapPolicy(), fromNego: a.id });
         a.status = "accepted"; a.slotId = es.slot.id;
         closeModal(true); render();
@@ -4139,7 +4259,7 @@
     arrangeDecline(arId) {
       const a = DB.arranges.find((x) => x.id === arId);
       if (!a || a.status !== "pending") return;
-      const reason = (document.getElementById("ar-reason") || { value: "" }).value.trim() || "일정이 맞지 않아요";
+      const reason = clean((document.getElementById("ar-reason") || { value: "" }).value).trim() || "일정이 맞지 않아요";
       // v2.22 ③: 대안 시간이 있으면 거절과 함께 대안 제안 생성
       const ad = (document.getElementById("ar-alt-date") || { value: "" }).value;
       const at = (document.getElementById("ar-alt-time") || { value: "" }).value;
@@ -4148,7 +4268,7 @@
       a.status = "declined"; a.declineReason = reason;
       if (ad && at) {
         DB.negos.push({ id: nid("pp"), initiator: "teacher", kind: "alt", teacherId: cls(a.classId).teacherId, memberId: a.memberId,
-          classId: a.classId, parentId: a.id, date: ad, time: at, note: reason, status: "pending", at: nowStamp });
+          classId: a.classId, parentId: a.id, date: ad, time: at, note: reason, status: "pending", at: stampOf() });
         closeModal(); render();
         toast("거절하고 대안 시간을 함께 보냈어요. 회원이 수락하면 그 시간으로 예약이 확정돼요.");
         return;
@@ -4188,7 +4308,7 @@
       // v2.25 ②: 새 시간에 내 다른 수업이 있으면 경고 후 강행 허용 (회원에게는 남의 일정이 노출되지 않게 보낼 때 확인)
       const send = () => {
         DB.negos.push({ id: nid("pp"), initiator: "teacher", kind: "change", teacherId: c.teacherId, memberId: b.memberId, classId: c.id,
-          bookingId: bkId, origDesc: `${dlabel(s.date)} ${s.time}`, date: d, time: t, note: reason, status: "pending", at: nowStamp });
+          bookingId: bkId, origDesc: `${dlabel(s.date)} ${s.time}`, date: d, time: t, note: reason, status: "pending", at: stampOf() });
         closeModal(); render();
         toast(`${memberName(b.memberId)} 회원에게 변경 제안을 보냈어요. 수락하면 예약이 바뀌어요.`);
       };
@@ -4210,10 +4330,10 @@
       if (!d || !t) { toast("날짜와 시간을 입력해 주세요."); return; }
       if (new Date(`${d}T${t}:00+09:00`) <= NOW) { toast("지난 일시로는 제안할 수 없어요."); return; }
       if (DB.proposals.some((p) => p.memberId === mid && p.classId === c.id && p.date === d && p.time === t && propState(p) === "pending")) { toast("같은 일시로 보낸 제안이 이미 있어요."); return; }
-      const note = (document.getElementById("pp-note") || { value: "" }).value.trim();
+      const note = clean((document.getElementById("pp-note") || { value: "" }).value).trim();
       const send = () => {
         DB.negos.push({ id: nid("pp"), initiator: "teacher", kind: "slot", teacherId: DB.me.teacher, memberId: mid, classId: c.id,
-          date: d, time: t, note, status: "pending", at: nowStamp });
+          date: d, time: t, note, status: "pending", at: stampOf() });
         delete pickers["pp-member"];
         closeModal(true);
         toast(`${memberName(mid)} 회원에게 제안을 보냈어요. 수락하면 예약이 확정돼요.`);
@@ -4298,14 +4418,16 @@
     propDecline(ppId) {
       const p = DB.proposals.find((x) => x.id === ppId);
       if (!p || p.status !== "pending") return;
-      p.declineReason = (document.getElementById("pp-reason") || { value: "" }).value.trim() || "일정이 맞지 않아요";
+      p.declineReason = clean((document.getElementById("pp-reason") || { value: "" }).value).trim() || "일정이 맞지 않아요";
       p.status = "declined";
       closeModal(); render();
       toast(p.kind === "change" ? "거절했어요. 기존 예약은 그대로 유지돼요." : "거절했어요. 사유가 선생님에게 전달됐어요.");
     },
     askCancel(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
+      if (!b || !["booked", "waitlisted"].includes(b.status)) { toast("이 상태에서는 취소할 수 없어요."); return; } // v2.58 QA
       const s = slot(b.slotId);
+      if (b.status === "booked" && isPast(s)) { toast("수업 시간이 지나 취소할 수 없어요."); return; } // v2.58 QA
       if (b.status === "waitlisted") {
         modal(`<h3>대기를 취소할까요?</h3><p>${slotDesc(s)}<br>대기 취소는 횟수 차감이 없어요.</p>
           <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">아니요</button>
@@ -4332,7 +4454,10 @@
     },
     doCancel(bkId, forfeit) {
       const b = DB.bookings.find((x) => x.id === bkId);
+      // v2.58 QA: 상태 가드 — 이미 취소·보고된 예약엔 두 번 실행되지 않는다(이중 차감 방지)
+      if (!b || !["booked", "waitlisted"].includes(b.status)) { closeModal(); return; }
       const s = slot(b.slotId);
+      if (b.status === "booked" && isPast(s)) { closeModal(); toast("수업 시간이 지나 취소할 수 없어요."); return; }
       const wasSeat = b.status === "booked";
       if (b.status === "waitlisted") {
         const myPos = b.pos;
@@ -4343,6 +4468,7 @@
         b.status = "forfeited"; b.cancelBy = "member";
         const p = b.passId && pass(b.passId);
         const res = applyLedger(p, -1, "late_cancel_forfeit", slotDesc(s));
+        if (!res.ok) b.forfeitFailed = true; // v2.58 QA: 화면이 «1회 차감됐어요»라고 거짓말하지 않게 표식
         toast(res.ok ? "취소됐어요. 기한이 지나 1회가 차감됐어요." : "취소됐어요. 잔여 0회라 차감 대신 센터 예외처리로 넘어가요.");
       } else {
         b.status = "canceled"; b.cancelBy = "member";
@@ -4350,7 +4476,9 @@
       }
       if (wasSeat) promoteWaitlist(s.id);
       cleanupSlot(s);
-      closeModal(); render();
+      closeModal();
+      // v2.58 QA: 내 취소로 회차가 정리되면 상세 화면이 사라진다 — «취소됐어요» 토스트를 덮지 않게 내 예약으로 보낸다
+      if (s.status === "canceled" && location.hash.startsWith("#/m/slot/")) location.hash = "#/m/book/mine"; else render();
     },
     centerCancelAsk(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
@@ -4401,6 +4529,7 @@
     },
     askDispute(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
+      if (!disputeAllowed(b)) return;
       const pre = b && ["confirm_wait", "noshow_wait"].includes(b.status);
       modal(`<h3>어떤 문제가 있었나요?</h3><p class="mt4">${pre ? "이의제기가 접수되면 확인·차감 없이 센터가 심사해요." : "이미 차감된 회차예요. 접수되면 센터가 심사하고, 이의가 인정되면 횟수가 복원돼요."}</p>
         <div class="field mt12"><textarea id="dp-reason" rows="3" placeholder="예: 이 수업을 받은 적이 없어요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px"></textarea></div>
@@ -4409,8 +4538,10 @@
     },
     doDispute(bkId) {
       const b = DB.bookings.find((x) => x.id === bkId);
-      const reason = (document.getElementById("dp-reason") || { value: "" }).value.trim();
-      const r = DB.reports.find((x) => x.bookingId === bkId && ["pending", "confirmed", "auto", "noshow_wait"].includes(x.status));
+      if (!disputeAllowed(b)) { closeModal(); return; }
+      const reason = clean((document.getElementById("dp-reason") || { value: "" }).value).trim();
+      const r = DB.reports.find((x) => x.bookingId === bkId && ["pending", "confirmed", "auto", "noshow_wait"].includes(x.status) && !x.disputeRejected);
+      if (!r) { closeModal(); toast("이의를 낼 보고 기록이 없어요. 센터에 문의해 주세요."); return; } // v2.58 QA: 보고 없는 고아 이의 방지
       const pre = ["confirm_wait", "noshow_wait"].includes(b.status);
       if (r) {
         // v2.30 A3: 이의도 전이 함수를 경유해 이벤트 로그에 남긴다.
@@ -4429,6 +4560,8 @@
     // 선생님 완료 보고 — 회원별 참석/노쇼 (M-11), 수강확인 필수 정책 분기 (M-6)
     reportAsk(slotId) {
       const s = slot(slotId);
+      if (!s || s.status === "canceled") return;
+      if (!isPast(s)) { toast("수업이 끝난 뒤에 완료 보고할 수 있어요."); return; } // v2.58 QA: 미래 회차 보고 차단
       const c = cls(s.classId);
       const seats = DB.bookings.filter((b) => b.slotId === slotId && b.status === "booked");
       if (!seats.length) { toast("보고할 참석자가 없어요."); return; }
@@ -4449,10 +4582,13 @@
     },
     submitReport(slotId) {
       const s = slot(slotId);
+      if (!s || s.status === "canceled") { closeModal(); return; }
+      if (!isPast(s)) { closeModal(); toast("수업이 끝난 뒤에 완료 보고할 수 있어요."); return; } // v2.58 QA
       const c = cls(s.classId);
       const needConfirm = c.kind === "private" ? DB.policy.signPrivate : DB.policy.signGroup;
       const seats = DB.bookings.filter((b) => b.slotId === slotId && b.status === "booked");
-      let asked = 0, deducted = 0, noshow = 0;
+      if (!seats.length) { closeModal(); toast("이미 보고된 회차예요."); return; } // v2.58 QA: 재클릭 시 빈 토스트 방지
+      let asked = 0, deducted = 0, noshow = 0, held = 0;
       for (const b of seats) {
         const segEl = document.querySelector(`#att-${b.id} .on`);
         const v = segEl ? segEl.dataset.v : "attend";
@@ -4463,29 +4599,30 @@
             // 형 확정(08-17): 보고 즉시 회원 통지 → 무이의 시 자동 확정. unitPrice=보상 정산용 스냅샷(P9-1)
             // v2.30 B3: 이의기간·자동확정 시한·노쇼 차감 여부는 «보고 시점» 정책을 행에 스냅샷한다.
             const np = b.passId && pass(b.passId);
-            const nr = { id: nid("rp"), slotId, bookingId: b.id, passId: np ? np.id : null, memberId: b.memberId, member: memberName(b.memberId), teacherId: c.teacherId, date: s.date, unitPrice: np ? np.unitPrice : 0, noshow: true, status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: `${nowShort} 보고`, deducted: false, lineId: null, policySnap: snapReportPolicy() };
+            const nr = { id: nid("rp"), slotId, bookingId: b.id, passId: np ? np.id : null, memberId: b.memberId, member: memberName(b.memberId), teacherId: c.teacherId, date: s.date, unitPrice: np ? np.unitPrice : 0, noshow: true, status: "noshow_wait", method: null, label: "노쇼 보고 · 이의기간", at: `${shortOf()} 보고`, deducted: false, lineId: null, policySnap: snapReportPolicy() };
             DB.reports.unshift(nr);
-            DB.repEvents.push({ id: nid("ev"), reportId: nr.id, bookingId: b.id, type: "noshow_report", from: null, to: "noshow_wait", actor: "teacher", at: nowStamp });
+            DB.repEvents.push({ id: nid("ev"), reportId: nr.id, bookingId: b.id, type: "noshow_report", from: null, to: "noshow_wait", actor: "teacher", at: stampOf() });
           } else {
             b.status = "canceled"; b.cancelBy = "system"; b.cancelReason = "noshow_no_deduct";
           }
           continue;
         }
-        const r = { id: nid("rp"), slotId, bookingId: b.id, passId: b.passId || null, memberId: b.memberId, member: memberName(b.memberId), status: "pending", method: null, label: "회원 확인 대기", at: `${nowShort} 보고`, deducted: false, lineId: null, policySnap: snapReportPolicy() };
+        const r = { id: nid("rp"), slotId, bookingId: b.id, passId: b.passId || null, memberId: b.memberId, member: memberName(b.memberId), status: "pending", method: null, label: "회원 확인 대기", at: `${shortOf()} 보고`, deducted: false, lineId: null, policySnap: snapReportPolicy() };
         DB.reports.unshift(r);
-        DB.repEvents.push({ id: nid("ev"), reportId: r.id, bookingId: b.id, type: "report", from: null, to: "pending", actor: "teacher", at: nowStamp });
+        DB.repEvents.push({ id: nid("ev"), reportId: r.id, bookingId: b.id, type: "report", from: null, to: "pending", actor: "teacher", at: stampOf() });
         if (needConfirm) {
           b.status = "confirm_wait"; asked++;
         } else {
           const res = confirmTx(b, r, "attendance_check");
           if (res.ok) deducted++;
-          else { b.status = "confirm_wait"; r.label = "처리 보류 — " + res.msg; asked++; }
+          else { b.status = "confirm_wait"; r.label = "처리 보류 — " + res.msg; held++; }
         }
       }
       closeModal(); render();
       const parts = [];
       if (asked) parts.push(`확인 요청 ${asked}명`);
       if (deducted) parts.push(`출석 체크 차감 ${deducted}명`);
+      if (held) parts.push(`처리 보류 ${held}명 (잔여 0회 · 센터 확인 필요)`);
       if (noshow) parts.push(DB.policy.noshowDeduct ? `노쇼 ${noshow}명 (회원에게 알림 · 이의 없으면 자동확정)` : `노쇼 ${noshow}명 (차감 없이 종결)`);
       toast(`완료 보고했어요 — ${parts.join(" · ")}.`);
     },
@@ -4495,7 +4632,7 @@
       const b = r && r.bookingId && DB.bookings.find((x) => x.id === r.bookingId);
       if (!r || !b || r.status !== "pending" || b.status !== "confirm_wait") { toast("QR을 띄울 수 없는 상태예요 — 이미 처리됐어요."); return; }
       const token = "qt" + seq++;
-      qrTokens[token] = { rpId, used: false };
+      qrTokens[token] = { rpId, used: false, at: Date.now() }; // v2.58 QA: 발급 시각 — 5분 만료 실제 적용
       modal(`<h3>현장 QR 확인</h3>
         <p><b>${r.member}</b> 회원 · ${r.slotId ? slotDesc(slot(r.slotId)) : r.desc}</p>
         <div class="qr-wrap">${qrSvg(token)}
@@ -4508,7 +4645,7 @@
     qrOpen(token) { closeModal(true); location.hash = "#/m/qr/" + token; },
     qrConfirm(token) {
       const t = qrTokens[token];
-      if (!t || t.used) { toast("이미 사용됐거나 만료된 QR이에요."); render(); return; }
+      if (!t || t.used || qrExpired(t)) { toast("이미 사용됐거나 만료된 QR이에요."); render(); return; }
       const r = DB.reports.find((x) => x.id === t.rpId);
       const b = r && r.bookingId && DB.bookings.find((x) => x.id === r.bookingId);
       if (!r || !b || r.status !== "pending" || b.status !== "confirm_wait") { toast("이미 처리된 수업이에요."); render(); return; }
@@ -4601,6 +4738,8 @@
       U.wdaysTouched = true; // 직접 고른 뒤로는 날짜를 바꿔도 요일이 따라가지 않는다
       render();
     },
+    // v2.58 QA: 정원을 바꾸면 picker 한도가 바로 따라간다(제출 때만 거부되던 stale 한도 해소)
+    ccCap(role, v) { ccSync(); ccState(role).cap = v; App.ccTrim(role); const h = document.getElementById("qk-cap-hint"); if (h) h.innerHTML = qkHintHtml(ccLimit()); },
     ccDate(role, v) {
       ccSync();
       const U = ccState(role);
@@ -4685,16 +4824,16 @@
     recurSkip(slotId) {
       const sl = slot(slotId);
       const r = recurOf(sl);
-      if (!sl || !r) return;
+      if (!sl || !r || sl.status === "canceled") return; // v2.58 QA: 재클릭 가드
       let n = 0;
       DB.bookings.filter((b) => b.slotId === sl.id && ["booked", "waitlisted"].includes(b.status)).forEach((b) => {
-        b.status = "canceled"; b.cancelBy = "center"; b.cancelReason = "반복 회차 건너뛰기"; n++;
+        b.status = "canceled"; b.cancelBy = "center"; b.cancelReason = "recur_skip"; n++; // v2.58 QA: 라벨 맵 코드(회원 화면 전용 문구)
       });
       sl.status = "canceled"; sl.cancelReason = "반복 건너뛰기";
       if (!(r.skips || []).includes(sl.date)) (r.skips = r.skips || []).push(sl.date);
       DB.notices.filter((x) => x.slotId === sl.id && !x.resolved).forEach((x) => (x.resolved = true));
       closeModal();
-      history.back();
+      location.hash = location.hash.startsWith("#/c/") ? "#/c/classes" : "#/t/schedule"; // v2.58 QA: 딥링크여도 갈 곳이 있게
       toast(`${dlabel(sl.date)} ${sl.time} 회차를 건너뛰었어요.${n ? ` 예약 ${n}건 취소 · 회원 알림 발송.` : ""} 다음 회차부터 반복은 그대로예요.`);
     },
     // ── v2.28 회차 수정: 항상 «이 회차만 / 앞으로 전부» 선택 ──
@@ -4792,12 +4931,18 @@
       if (p) toast(`«${p.name}»으로 바꿨어요. 예약하면 이 멤버십에서 차감돼요.`);
     },
     createProduct() {
-      const name = document.getElementById("np-name").value.trim() || "새 멤버십";
+      // v2.58 QA: 조용한 기본값 대체 금지 — 이름 필수, 횟수·유효기간은 1 이상 정수, 가격은 0 이상 정수
+      const name = clean(document.getElementById("np-name").value).trim();
       const kind = document.querySelector("#np-kind .on").dataset.v;
-      const sessions = parseInt(document.getElementById("np-sessions").value, 10) || 10;
-      const price = parseInt(document.getElementById("np-price").value, 10) || 0;
+      const sessions = Number(document.getElementById("np-sessions").value);
+      const price = Number(document.getElementById("np-price").value);
       const noDays = document.getElementById("np-nodays").checked;
-      const days = noDays ? null : parseInt(document.getElementById("np-days").value, 10) || 90;
+      const days = noDays ? null : Number(document.getElementById("np-days").value);
+      if (!name) { toast("상품명을 입력해 주세요."); return; }
+      if (DB.products.some((p) => p.name === name)) { toast("같은 이름의 상품이 이미 있어요 — 이름을 다르게 해 주세요."); return; }
+      if (!(Number.isInteger(sessions) && sessions >= 1)) { toast("횟수는 1회 이상 정수로 입력해 주세요."); return; }
+      if (!(Number.isInteger(price) && price >= 0)) { toast("가격은 0원 이상 정수로 입력해 주세요."); return; }
+      if (!noDays && !(Number.isInteger(days) && days >= 1)) { toast("유효기간은 1일 이상 정수로 입력하거나 «유효기간 없음»을 선택해 주세요."); return; }
       DB.products.push({ id: nid("pr"), name, kind, sessions, price, validityDays: days });
       render();
       toast(`«${name}» 상품이 개설됐어요.`);
@@ -4814,7 +4959,7 @@
     updateClass(id, role) {
       if (!App.teachGuard(id, role)) return;
       const c = cls(id);
-      const title = document.getElementById("ec-title").value.trim() || c.title;
+      const title = clean(document.getElementById("ec-title").value).trim() || c.title;
       let cap = c.capacity;
       if (c.kind === "group") {
         cap = parseInt(document.getElementById("ec-cap").value, 10) || c.capacity;
@@ -4853,12 +4998,15 @@
     },
     closeClass(id, role) {
       if (!App.teachGuard(id, role)) return;
-      const reason = (document.getElementById("cc-reason") || { value: "" }).value.trim();
+      const reason = clean((document.getElementById("cc-reason") || { value: "" }).value).trim();
       if (!reason) { toast("폐강 사유를 입력해 주세요 — 필수 기록이에요."); return; }
       const c = cls(id);
-      c.status = "closed"; c.closedReason = reason; c.closedAt = nowStamp;
+      if (!c || c.status === "closed") { closeModal(); toast("이미 폐강된 수업이에요."); return; } // v2.58 QA
+      c.status = "closed"; c.closedReason = reason; c.closedAt = stampOf();
+      DB.recurs.filter((r) => r.classId === id && r.active).forEach((r) => { r.active = false; }); // v2.58 QA: 반복 규칙도 함께 중단
       let n = 0;
-      for (const s of DB.slots.filter((s) => s.classId === id && s.status === "scheduled")) {
+      // v2.58 QA: 모달이 말한 대로 «예정(앞으로의)» 회차만 취소 — 지난 미보고 회차는 보고·정산 경로를 남긴다
+      for (const s of DB.slots.filter((s) => s.classId === id && s.status === "scheduled" && !isPast(s))) {
         for (const b of DB.bookings.filter((b) => b.slotId === s.id && ["booked", "waitlisted"].includes(b.status))) {
           b.status = "class_closed"; b.closeReason = reason; n++;
           // 후차감 모델 — 예정 예약은 차감 전이라 복원할 횟수 없음. 위반취소·확정분(과거)은 건드리지 않음.
@@ -4926,19 +5074,22 @@
       if (accept) {
         // v2.30 C7: 차감 전(확인 대기 중) 이의를 인정하면 복원할 횟수가 없다 — «차감 없이 종결»로 라벨·상태를 분리한다.
         const wasDeducted = !!r.deducted;
+        let restored = false;
         if (wasDeducted) {
           const p = passForReport(r, b);
-          if (p) applyLedger(p, +1, "dispute_restore", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || "");
+          if (p) restored = applyLedger(p, +1, "dispute_restore", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || "").ok; // v2.58 QA: 실제 복원됐을 때만 «복원» 라벨
           if (l) l.status = "removed";
         }
-        if (b) b.restoreKind = wasDeducted ? "count" : "none";
-        repTx(r, b, { report: { status: "resolved", deducted: false, label: wasDeducted ? "이의 인정 · 횟수 복원" : "이의 인정 · 차감 없이 종결" }, booking: "restored" },
+        if (b) b.restoreKind = restored ? "count" : "none";
+        repTx(r, b, { report: { status: "resolved", deducted: false, label: restored ? "이의 인정 · 횟수 복원" : wasDeducted ? "이의 인정 · 정산 제외 (멤버십 미연결 · 복원 없음)" : "이의 인정 · 차감 없이 종결" }, booking: "restored" },
           { expect: "disputed", event: "dispute_accept", actor: "center" });
         closeModal(); render();
-        toast(wasDeducted
+        toast(restored
           ? "이의를 인정했어요. 횟수가 복원되고 정산에서 제외됐어요." + (l && l.pushed ? " 이미 전송된 회차는 샐리에서 정정해 주세요." : "")
+          : wasDeducted ? "이의를 인정했어요. 정산에서 제외됐고, 연결된 멤버십이 없어 횟수 복원은 없어요."
           : "이의를 인정했어요. 아직 차감 전이라 복원할 횟수 없이 종결돼요.");
       } else {
+        r.disputeRejected = true; // v2.58 QA: 같은 회차 재이의 차단
         if (r.deducted) {
           if (l && l.status === "held") l.status = "eligible";
           repTx(r, b, { report: { status: isAuto(r.method) ? "auto" : "confirmed", label: "기각 · 확정 유지" }, booking: "confirmed" },
@@ -4994,15 +5145,16 @@
       const l = r.lineId ? line(r.lineId) : null;
       if (l) l.status = "removed";
       const wasDeducted = !!r.deducted;
+      let restored = false;
       if (wasDeducted) {
         const p = passForReport(r, b);
-        if (p) applyLedger(p, +1, "auto_cancel_restore", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || "");
+        if (p) restored = applyLedger(p, +1, "auto_cancel_restore", r.slotId ? slotDesc(slot(r.slotId)) : r.desc || "").ok;
       }
-      if (b) b.restoreKind = wasDeducted ? "count" : "none";
-      repTx(r, b, { report: { status: "resolved", deducted: false, label: "자동확정 취소 · 복원" }, booking: "restored" },
+      if (b) b.restoreKind = restored ? "count" : "none"; // v2.58 QA: 실제 복원됐을 때만 «복원»
+      repTx(r, b, { report: { status: "resolved", deducted: false, label: restored ? "자동확정 취소 · 복원" : "자동확정 취소 · 정산 제외" }, booking: "restored" },
         { expect: "auto", event: "auto_override", actor: "center" });
       closeModal(); render();
-      toast("자동확정을 취소했어요. 횟수가 복원되고 정산에서 제외돼요." + (l && l.pushed ? " 이미 전송된 회차는 샐리에서 정정해 주세요." : ""));
+      toast((restored ? "자동확정을 취소했어요. 횟수가 복원되고 정산에서 제외돼요." : "자동확정을 취소했어요. 정산에서 제외됐고, 연결된 멤버십이 없어 횟수 복원은 없어요.") + (l && l.pushed ? " 이미 전송된 회차는 샐리에서 정정해 주세요." : ""));
     },
     // 형 확정(08-17): 이의기간 무이의 → 자동 확정·차감. 프로토타입은 기간 경과를 데모 버튼으로 시뮬레이션.
     noshowExpire(rpId) {
@@ -5048,7 +5200,7 @@
         <p>회차마다 <b>구매 시점의 회당 단가</b>가 그대로 전송돼요. 배분율·공제는 샐리가 계산해요.<br>같은 회차는 두 번 보내도 한 번만 반영돼요. 보낸 뒤 정정이 필요하면 샐리에서 처리해요.</p>
         <div class="pd-list">
           ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회</div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
-          ${rewards.length ? `<div class="pd-group"><div class="pd-ghead">노쇼 보상 ${rewards.length}건</div>${rewards.map((r) => `<div class="pd-row"><span class="grow"><b>${r.member}</b> <span class="muted small">${r.desc}</span><div class="muted small">노쇼 확정 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}</div></span><span class="pd-price">${won(noshowUnit(r))}</span></div>`).join("")}</div>` : ""}
+          ${rewards.length ? `<div class="pd-group"><div class="pd-ghead">노쇼 보상 ${rewards.length}건</div>${rewards.map((r) => `<div class="pd-row"><span class="grow"><b>${r.member}</b> <span class="muted small">${r.desc || (r.slotId && slot(r.slotId) ? slotDesc(slot(r.slotId)) : "")}</span><div class="muted small">노쇼 확정 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}</div></span><span class="pd-price">${won(noshowUnit(r))}</span></div>`).join("")}</div>` : ""}
         </div>
         <div class="row" style="justify-content:space-between;padding:4px 2px"><span class="muted">합계 ${lines.length}회${rewards.length ? ` + 보상 ${rewards.length}건` : ""}${held ? ` · 보류 ${held}건 제외` : ""}</span><b class="big">${won(total)}</b></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
@@ -5272,6 +5424,7 @@
     "#/t/inbox": "#/t/schedule", "#/m/proposals": "#/m/book/mine", "#/m/bookings": "#/m/book/mine",
     "#/m/pass": "#/m/home", "#/c/bookings": "#/c/classes" };
   function render() {
+    NOW = new Date(); // v2.58 QA: 판정 기준 시각은 항상 «지금»
     const h0 = location.hash || "#/";
     if (REDIRECTS[h0]) {
       if (h0 === "#/t/classes") tSchedTab = "classes";
