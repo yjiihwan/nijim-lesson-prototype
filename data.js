@@ -184,6 +184,10 @@ window.DB = {
     // 이의 건만 센터 중재. center_only=센터만 판정(대안 옵션). 이의기간 길이는 disputeDays(센터별, 기본 7일).
     noshowActor: "teacher_report",
     quickScope: "valid",        // P6-4 «회원 지정» 표시 범위: valid(유효 수업권 보유자만)/all/mine(담당만)
+    // v2.59 P5-5 형 확정(2026-09-06): 멤버십 «유효 기준»을 센터가 고른다.
+    //   class_date(기본) = 수업일 기준 — 멤버십 만료 뒤 날짜의 수업은 예약 불가.
+    //   booking_date    = 예약일 기준 — 예약하는 시점에 유효하면 만료 뒤 수업도 허용(v2.58까지의 동작).
+    passValidBasis: "class_date",
     signPrivate: true,          // P7-1 개인수업 수강확인 필수
     signGroup: false,           // P7-1 그룹수업
     methodApp: true, methodQr: true, // P7-2 (v2.13: PIN 전면 폐지 → 현장 일회용 QR)

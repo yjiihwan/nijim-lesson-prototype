@@ -752,3 +752,13 @@ button.stat:active { transform: scale(.97); }
 .mch-x { flex: 0 0 40px; width: 40px; min-height: 46px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text-muted); font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .mch-x:active { background: var(--surface-sunken); }
 .mch-add { display: block; background: none; border: none; padding: 8px 2px 0; color: var(--link); font-weight: 600; font-size: 13px; font-family: inherit; text-align: left; cursor: pointer; }
+
+/* v2.59: 정책 «멤버십 유효 기준» 설명 블록 — 기준별 차이를 한 줄씩 (토글 행 아래 붙는 설명) */
+.pol-basis { padding: 0 4px 12px; line-height: 1.55; }
+.pol-basis b { color: var(--text); }
+/* v2.59: 회원 홈 «멤버십 0장» 빈 상태 카드 */
+.mp-empty { text-align: center; padding: 28px 16px; }
+.mp-empty .btn { display: inline-flex; }
+/* v2.59: 기간 필터 뒤집힘 안내 (직접 지정 입력 바로 아래) */
+.flt-rev { margin: 6px 2px 0; color: var(--danger); font-weight: 600; font-size: 12.5px; line-height: 1.5; }
+.flt-rev:empty { display: none; }
