@@ -641,6 +641,9 @@ button.stat:active { transform: scale(.97); }
 /* 칩(카테고리)은 cb-chip 문법을, 검색·셀렉트는 pk-tools 문법을 그대로 따른다 — 새 모양을 만들지 않는다. */
 .flt { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
 .flt-cats { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+/* v2.59: 칩이 4개면 좁은 화면에서 가로로 넘친다(설계상 스크롤). 오른쪽 끝을 흐리게 해서
+   «잘린 것»이 아니라 «옆으로 더 있다»로 읽히게 한다. 다 들어오는 화면에선 빈 공간에 걸려 티가 안 난다. */
+.flt-cats { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); }
 .flt-cats::-webkit-scrollbar { display: none; }
 .flt-cat { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 8px 13px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); font-size: 13px; font-weight: 600; color: var(--text-muted); white-space: nowrap; transition: transform .12s var(--ease-out), background .15s ease, color .15s ease, border-color .15s ease; }
 .flt-cat:active { transform: scale(.95); }
