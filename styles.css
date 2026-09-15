@@ -96,6 +96,12 @@ a { color: var(--link); text-decoration: none; }
 
 /* 뱃지·칩 */
 .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .01em; border-radius: 999px; padding: 3px 9px; vertical-align: 1px; }
+
+/* v2.61 센터 태그 — 활성 소속 2곳 이상인 선생님에게만 뜬다(형 확정 ③).
+   상태 배지(.badge) 계열과 섞지 않는다: 센터명은 «상태»가 아니라 «소속»이라 톤을 낮춘다. */
+.ctr-tag { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 6px;
+  margin-right: 6px; background: var(--surface-blue); color: #1673ab; vertical-align: 1px;
+  max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .b-rose { background: var(--surface-rose); color: var(--cta); }
 .b-blue { background: var(--surface-blue); color: #1673ab; }
 .b-green { background: #e2f8ef; color: #067a56; }

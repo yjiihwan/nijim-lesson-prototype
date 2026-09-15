@@ -844,6 +844,37 @@ window.DB = {
   );
 })();
 
+// ══ v2.61 다중 센터 소속 (형 확정 2026-09-15 · DECISION §1·2·5) ══
+// 센터 축의 진실은 affils 하나뿐이다. 업무 레코드에는 «수업(classes)»에만 centerId를 둔다 —
+// 회차·예약은 수업에서 파생한다(booking → slot → class → centerId). 예약 행마다 중복 저장하면 불일치가 생긴다.
+// 멤버십(passes)·상품(products)에 centerId를 두는 이유: 형 확정 ①의 «수업의 센터 = 고른 멤버십의 센터»는
+// 멤버십이 자기 센터를 알아야만 성립한다. 정산라인 스냅샷(3순위)은 이번 범위가 아니지만 여기서 막지 않는다.
+(function seedCenterScope() {
+  const D = window.DB;
+  D.activeCenterId = D.center.id; // 전역 활동 센터 = 센터 역할 화면의 컨텍스트 (선생님 화면은 «내 활동 소속 전체»)
+
+  D.products.forEach((p) => { if (!p.centerId) p.centerId = "ct1"; });
+  D.passes.forEach((p) => { if (!p.centerId) p.centerId = "ct1"; });
+  D.classes.forEach((c) => { if (!c.centerId) c.centerId = "ct1"; });
+
+  const af = (o) => D.affils.push(Object.assign({ id: "af" + (D.affils.length + 1), centerId: "ct1" }, o));
+  // ct1 «회원» 소속 행 — 지금까지 선생님·직원·사장님 행만 있었다. 회원의 센터 귀속을 affils에서 파생하려면 필수.
+  const had = new Set(D.affils.filter((a) => a.role === "member").map((a) => a.centerId + "|" + a.memberId));
+  D.members.forEach((m) => {
+    if (m.staff || had.has("ct1|" + m.id)) return;
+    af({ memberId: m.id, role: "member", status: "active", startedAt: "2026-01-02", source: "purchase" });
+  });
+
+  // ── 다중 센터 회원 데모 — 김지은(m1)이 ct1·ct2 두 센터에 동시 등록 (DECISION §2 예시 그대로) ──
+  // 박코치(t1·m9)는 ct1·ct2 두 곳 active 선생님이라 두 센터 멤버십을 모두 고를 수 있다.
+  D.products.push({ id: "pr2c2", centerId: "ct2", name: "PT 20회", kind: "private", sessions: 20, price: 1800000, validityDays: 120 });
+  af({ centerId: "ct2", memberId: "m1", role: "member", status: "active", startedAt: "2026-06-01", source: "purchase" });
+  D.passes.push({ id: "psC2a", memberId: "m1", productId: "pr2c2", centerId: "ct2", name: "PT 20회", kind: "private",
+    total: 20, unitPrice: 90000, purchasePrice: 1800000, listPrice: 1800000, expiresAt: "2026-12-20", remaining: 20 });
+  // 잔여=Σ원장 불변식 유지 — 구매 행만 추가
+  D.ledger.push({ passId: "psC2a", delta: +20, reason: "purchase", detail: "PT 20회 · 1,800,000원", at: "2026-06-01 11:00" });
+})();
+
 // ── v2.50: 기준일 하드코딩 제거 — 로드 시 전체 시드를 «실제 오늘» 기준으로 시프트 ──
 // 시드 코드는 기준일(2026-08-17) 그대로 유지(상대 관계·요일 설계 보존), 여기서 한 번에
 // (실제 오늘 − 기준일)일만큼 모든 날짜를 이동한다. 반드시 data.js의 «마지막» IIFE여야 한다.

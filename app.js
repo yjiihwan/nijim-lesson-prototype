@@ -1,4 +1,12 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.61 (2026-09-15 형 확정 DECISION — 다중 센터 소속 구조, 1~2순위 구현):
+   ① 수업의 센터 = «고른 멤버십의 센터». 선생님이 고르는 드롭다운 UI는 만들지 않는다.
+   ② 회원 선택 = A안 «멤버십 단위 행 분리» — 행을 고르면 회원·멤버십·센터가 한 번에 확정. 추가 질문 UI 없음.
+   ③ 예약 카드 센터명(.ctr-tag)은 활성 소속 2곳 이상인 선생님에게만.
+   ④ 🔴 시간 겹침은 «센터 무관 전체 합산» — overlapSlots/teacherDaySlots/memberBusyAt에 ⛔센터 필터 금지.
+   ⑤ 범위 = 1순위(수업에 centerId + 전역 활동 센터) · 2순위(회원 센터 소속을 affils에서 파생).
+      3~4순위(slines 센터 스냅샷·집계 축 확장)는 이번 범위 밖 — 데이터 구조로 막지는 않았다.
+
    v2.60 (2026-09-15 형 확정 SPEC — «수업 만들기» = 일정 먼저, 내용 나중 2단계):
    ① [+ 수업 만들기] 진입 첫 화면 = «1단계 · 언제 할까요?» — 일정 탭 주간 스트립(mb-cal·점 범례)을 그대로
    재사용하고 그 아래 그 날 타임라인(30분 칸 · 기본 06:00~23:00 · 기존 수업이 범위 밖이면 자동 확장). 기존
@@ -316,6 +324,54 @@
     return passIdx.get(mid) || [];
   }
 
+  // ══ v2.61 다중 센터 소속 (형 확정 2026-09-15) ══
+  // ① 수업의 센터 = «고른 멤버십의 센터». 선생님이 센터를 고르는 드롭다운은 만들지 않는다.
+  // ② 회원 목록은 «멤버십 단위»로 행이 갈린다 — 행을 고르면 회원·멤버십·센터가 한 번에 확정된다.
+  // ③ 예약 카드 센터명은 활성 소속 2곳 이상인 선생님에게만.
+  // ④ 🔴 시간 겹침(overlapSlots/teacherDaySlots)은 «센터 무관 전체 합산»이다 — 선생님 몸은 하나다.
+  //    A센터 10시와 B센터 10시는 충돌이다. ⛔여기에 센터 필터를 걸지 마라 (이 개선 최대 함정).
+  const centerObj = (cid) => DB.centers.find((c) => c.id === cid) || { id: cid, name: cid, area: "" };
+  const centerNameOf = (cid) => centerObj(cid).name;
+  // 센터 미기재 옛 레코드는 운영 센터(ct1)로 읽는다 — 시드는 전부 채워 두지만 런타임 생성분 방어
+  const passCenter = (p) => (p && p.centerId) || DB.center.id;
+  const classCenter = (c) => (c && c.centerId) || DB.center.id;
+  const slotCenter = (s) => classCenter(cls((s || {}).classId));
+
+  // 회원 센터 소속 인덱스 — centerId → Set(memberId). 2,113명 규모라 회원마다 affils 선형 탐색을 걸면 안 된다.
+  // affils는 append-only(행 삭제 없음)이므로 길이 + 상태 변경 카운터로 무효화한다.
+  let _cmIdx = null, _cmKey = "";
+  const affilVer = () => DB.affils.length + ":" + (DB._affilRev || 0);
+  function centerMemberIdx() {
+    if (_cmIdx && _cmKey === affilVer()) return _cmIdx;
+    const idx = {};
+    for (const a of DB.affils) {
+      if (a.role !== "member" || a.status !== "active") continue;
+      (idx[a.centerId] || (idx[a.centerId] = new Set())).add(a.memberId);
+    }
+    _cmIdx = idx; _cmKey = affilVer();
+    return idx;
+  }
+  const centerMemberSet = (cid) => centerMemberIdx()[cid] || new Set();
+  const centerMembers = (cid) => DB.members.filter((m) => !m.staff && centerMemberSet(cid).has(m.id));
+
+  // 내(선생님) 활동 소속 센터 — 2곳 이상이면 «다중 소속». 카드마다 부르므로 캐시한다.
+  let _tcIds = null, _tcKey = "";
+  function myTeacherCenters() {
+    const key = affilVer() + ":" + DB.me.teacher;
+    if (_tcIds && _tcKey === key) return _tcIds;
+    const acc = (DB.teachers.find((t) => t.id === DB.me.teacher) || {}).memberId;
+    _tcIds = [...new Set(DB.affils.filter((a) => a.memberId === acc && a.role === "teacher" && a.status === "active").map((a) => a.centerId))];
+    if (!_tcIds.length) _tcIds = [DB.center.id];
+    _tcKey = key;
+    return _tcIds;
+  }
+  const isMultiCenterTeacher = () => myTeacherCenters().length >= 2;
+  // 선생님 역할이 회원·멤버십을 다룰 수 있는 센터 범위. 센터 역할은 자기 센터 한 곳.
+  const roleCenters = (role) => (role === "t" ? myTeacherCenters() : [DB.center.id]);
+  // ③ 센터명 태그 — 다중 소속 선생님에게만. 1곳 소속자에겐 매 줄 같은 이름이 반복돼 잡음이다.
+  const centerTag = (cid) => (isMultiCenterTeacher() ? `<span class="ctr-tag">${centerNameOf(cid)}</span>` : "");
+  const slotCenterTag = (s) => centerTag(slotCenter(s));
+
   // ── 수업 개설·관리 권한 (02 P2-2) — 센터가 지정한 선생님만 ──
   // 2026-08-19 형 확정: «자격 멤버십»(유효 수업권 보유 시 권한 자동 부여) 경로 폐기. 센터 지정(memberIds) 단일 경로.
   function classAuth(t) {
@@ -491,6 +547,15 @@
     if (c.status === "closed") return { ok: false, msg: "폐강된 수업이에요." };
     if (c.eligibility === "list" && !(c.memberIds || []).includes(mid))
       return { ok: false, msg: o.role === "t" || o.role === "c" ? LIST_ONLY_MSG_T : LIST_ONLY_MSG_M };
+    // v2.61 A안: 회원이 «어느 멤버십으로» 들어오는지 이미 골랐으면 그 권을 쓴다 — 자동 선택이 조용히 덮어쓰지 않게.
+    // 고른 권이 이 수업 자격에 안 맞으면 다른 권으로 몰래 대체하지 않고 그 사실을 말한다.
+    if (o.passId) {
+      const chosen = pass(o.passId);
+      if (!chosen || chosen.memberId !== mid) return { ok: false, msg: "고른 멤버십을 찾을 수 없어요. 목록에서 다시 골라 주세요." };
+      if (!eligiblePasses(c, mid, o.date).some((x) => x.id === chosen.id))
+        return { ok: false, msg: `«${chosen.name}»(으)로는 이 수업을 들을 수 없어요 — 다른 멤버십 줄을 골라 주세요.` };
+      return { ok: true, pass: chosen };
+    }
     const p = eligiblePass(c, mid, o.date);
     if (!p) {
       // v2.59: «수업일 기준»에서만 생기는 거절 — 오늘은 쓸 수 있는데 그 수업 날짜엔 만료된 경우를 따로 말한다
@@ -1956,7 +2021,7 @@
       <div class="card flat">${today.length ? today.map((s) => {
         // v2.29 U20: 종료됐는데 완료 보고가 안 된 회차는 «보고 필요»(대기 계열)로 표시
         return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/t/slot/${s.id}'"><span class="time">${s.time}</span>
-          <span class="grow"><span class="t">${cls(s.classId).title} ${recurBadge(s)}</span><div class="muted small">${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
+          <span class="grow"><span class="t">${cls(s.classId).title} ${recurBadge(s)}</span><div class="muted small">${slotCenterTag(s)}${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
           ${overlapBadge(s)}${slotNeedsReport(s) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
       }).join("") : `<p class="muted">오늘 수업이 없어요.</p>`}</div>
       <a class="btn primary mt8" href="#/t/create">${ici("plus")}수업 만들기</a>
@@ -2009,7 +2074,7 @@
         const c = cls(sl.classId);
         // v2.29 U20: 확정된 회차 목록의 «조율» 태그는 «아직 조율 중»으로 오독된다 — 일정 방식은 회차 상세에서만.
         return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/t/slot/${sl.id}'"><span class="time">${sl.time}</span>
-          <span class="grow"><span class="t">${c.title} ${recurBadge(sl)}</span><div class="muted small">${seatCount(sl.id)}명</div></span>
+          <span class="grow"><span class="t">${c.title} ${recurBadge(sl)}</span><div class="muted small">${slotCenterTag(sl)}${seatCount(sl.id)}명</div></span>
           ${overlapBadge(sl)}${slotNeedsReport(sl) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
       }).join("") : `<p class="muted">이 날은 잡힌 수업이 없어요.</p>`}</div>
       ${sel >= DB.TODAY ? `<button class="btn ghost mt8" onclick="App.ccFromDay('${sel}')">${ici("plus")}이 날 수업 만들기</button>
@@ -2120,11 +2185,11 @@
     const priv = isPrivateClass(c);
     return shell("t", "수업 상세", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${c.duration}분</div>
+        <div class="muted mt4">${centerTag(classCenter(c))}${dlabel(s.date)} ${s.time} · ${c.duration}분</div>
         <div class="mt8"><span class="badge ${done ? "b-gray" : "b-green"}">${done ? "종료" : "예정"}</span>
         <span class="badge ${priv ? "b-rose" : "b-blue"}">${priv ? "개인 1:1" : `그룹 · ${seats.length}/${c.capacity}명`}</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
       ${recurSlotHtml(s, "t")}
-      ${ov.length ? `<div class="banner warn">${icb("alert")}<span>같은 시간대에 <b>${ov.map((o) => `${o.time} ${cls(o.classId).title}`).join(", ")}</b> 수업이 함께 잡혀 있어요. 확인하고 진행해 주세요.</span></div>` : ""}
+      ${ov.length ? `<div class="banner warn">${icb("alert")}<span>같은 시간대에 <b>${ov.map((o) => `${o.time} ${cls(o.classId).title}${isMultiCenterTeacher() ? ` (${centerNameOf(slotCenter(o))})` : ""}`).join(", ")}</b> 수업이 함께 잡혀 있어요. 확인하고 진행해 주세요.</span></div>` : ""}
       <div class="sec-title">참석자</div>
       <div class="card flat">${seats.length ? seats.map((b) => {
         const bd = bkBadge(b, done && b.status === "booked"); // v2.58 QA: 종료 회차의 미보고 좌석은 «확정»이 아니라 «보고 대기»
@@ -2143,8 +2208,22 @@
         : `<button class="btn ghost" disabled style="color:var(--text-disabled)">수업 종료 후 완료 보고할 수 있어요</button>`}`, { back: true });
   }
   // B3: «회원 지정해서 바로 확정» — 회원 필터(센터 정책), 기존 회차 합류, 과거 차단(S-2)
+  // v2.61: A안은 «고른 행이 곧 차감 대상»이라, 못 쓰는 멤버십 줄을 보여 주고 제출 때 거절하면 안 된다.
+  // 수업이 이미 정해졌으면 그 수업에 실제로 쓸 수 있는 멤버십 줄만, 센터도 그 수업 센터로 좁힌다.
+  // (제출 시 재검증은 그대로 둔다 — UI 필터만 믿지 않는다. 04 원칙)
+  function qkPickScope(role, c) {
+    const U = ccUI || {};
+    const joinDate = U.slotSel && U.slotSel !== "new" ? (slot(U.slotSel) || {}).date : null;
+    return c
+      ? { eligFor: c, eligDate: joinDate || U.date || DB.TODAY, centerIds: [classCenter(c)] }
+      : { centerIds: roleCenters(role) };
+  }
   function quickMembers(role) {
-    let list = DB.members.filter((m) => !m.staff); // 선생님 계정은 수강 회원 목록에서 제외
+    // v2.61: 센터 조건과 teacherScope는 «직교»다 — 둘 다 통과한 회원만 후보.
+    // 센터 조건 = 내가 활동 중인 소속 센터(들)에 «회원»으로 등록된 계정 (인덱스 조회, 회원당 O(1)).
+    const cids = roleCenters(role);
+    const inAnyCenter = (mid) => cids.some((cid) => centerMemberSet(cid).has(mid));
+    let list = DB.members.filter((m) => !m.staff && inAnyCenter(m.id)); // 선생님 계정은 수강 회원 목록에서 제외
     const scope = DB.policy.quickScope;
     if (scope === "valid") list = list.filter((m) => passesOf(m.id).some(passUsable));
     else if (scope === "mine" && role === "t") {
@@ -2407,7 +2486,7 @@
         <div class="divider"></div>
         ${U.fill === "assign" ? `
         <div class="field"><label>회원 <span class="badge b-gray">${scopeLabel} · 센터 정책</span>${scoped ? ' <span class="badge b-rose">내 지정범위 적용</span>' : ""}</label>
-          ${pickerHtml("qk-member", { multi: true, pool: quickMembers(r), limit: ccLimit })}
+          ${pickerHtml("qk-member", Object.assign({ multi: true, byPass: true, pool: quickMembers(r), limit: ccLimit }, qkPickScope(r, c)))}
           <div class="hint" id="qk-cap-hint">${qkHintHtml(lim)}</div>
           <div class="hint">회원 목록은 니짐내짐(호스트 앱) 회원 명단과 연동돼요. 표시 범위는 센터 설정에서 바꿔요.${scoped ? ` 센터가 설정한 내 «지정 가능 회원 범위»(${tScopeLabel(DB.me.teacher)})가 함께 적용돼요.` : ""}</div></div>
         <button class="btn primary" onclick="App.ccSubmit('${r}')">${isNew ? "수업 만들고 바로 확정" : "바로 예약 확정"}</button>` : `
@@ -2457,7 +2536,8 @@
     // «회원 지정해서 바로 확정»으로 만드는 수업은 고른 회원이 곧 예약 자격 — 별도 자격 설정을 묻지 않는다
     const elig = U.fill === "assign" ? "list" : U.elig;
     const prodIds = U.fill === "assign" ? [] : [...document.querySelectorAll("#nc-prods .chip.on")].map((b) => b.dataset.v);
-    const memIds = U.fill === "assign" ? pkSelected("qk-member") : pkSelected("nc-mems");
+    // v2.61: «바로 확정» 선택은 «회원|멤버십» 키다 — 수업의 memberIds는 회원 id만 담는다.
+    const memIds = U.fill === "assign" ? [...new Set(pkSelected("qk-member").map(pkMid))] : pkSelected("nc-mems");
     if (elig !== "pass" && !memIds.length) { toast(U.fill === "assign" ? "회원을 검색해 선택해 주세요." : "지정 회원을 1명 이상 선택해 주세요."); return null; }
     if (elig !== "list" && !prodIds.length) { toast("사용 가능한 멤버십을 1개 이상 선택해 주세요."); return null; }
     // P2-2b 재검증: 선생님은 «지정 가능 회원 범위» 안의 회원만 (UI 필터만으론 부족 — 04 원칙)
@@ -2465,9 +2545,35 @@
       const bad = memIds.filter((mid) => !inTScope(DB.me.teacher, mid));
       if (bad.length) { toast(`내 «지정 가능 회원 범위» 밖 회원이에요: ${bad.map(memberName).join(", ")} — 센터에 범위 확대를 요청해 주세요.`); return null; }
     }
-    return { id: nid("c"), title: clean(U.title).trim(), teacherId, kind, capacity,
+    // v2.61 (형 확정 ①): 수업의 센터 = «고른 멤버십의 센터». 선생님이 고르는 드롭다운은 없다.
+    // 「자리 열어두고 신청 받기」처럼 멤버십을 아직 안 고른 경로는 내 활동 센터가 1곳이면 그곳으로,
+    // 2곳 이상이면 «어느 센터 멤버십으로 열 수업인지»를 자격 멤버십(상품)의 센터가 정한다.
+    const ctr = ccPickCenter(role, prodIds);
+    if (!ctr.ok) { toast(ctr.msg); return null; }
+    return { id: nid("c"), title: clean(U.title).trim(), teacherId, kind, capacity, centerId: ctr.centerId,
       schedule: U.sched, scheduleLabel: U.sched === "fixed" ? "매주 고정 (시간표 설정)" : "회원과 일정 맞춤", duration: 50,
       eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" };
+  }
+  // 새 수업의 센터를 정한다 — 유일한 근거는 «고른 멤버십»(assign) 또는 «고른 자격 상품»(open)이다.
+  function ccPickCenter(role, prodIds) {
+    const U = ccUI;
+    const mine = roleCenters(role);
+    const uniq = (xs) => [...new Set(xs)];
+    let cids = [];
+    if (U.fill === "assign") {
+      cids = uniq(pkSelected("qk-member").map(pkPid).filter(Boolean).map((pid) => passCenter(pass(pid))));
+    } else {
+      cids = uniq((prodIds || []).map((id) => (DB.products.find((p) => p.id === id) || {}).centerId).filter(Boolean));
+    }
+    if (cids.length > 1) {
+      return { ok: false, msg: `한 수업은 한 센터에만 속해요 — ${cids.map(centerNameOf).join(" · ")} 멤버십이 섞였어요. 같은 센터끼리 골라 주세요.` };
+    }
+    if (cids.length === 1) {
+      if (!mine.includes(cids[0])) return { ok: false, msg: `«${centerNameOf(cids[0])}» 소속이 아니라 그 센터 수업은 만들 수 없어요.` };
+      return { ok: true, centerId: cids[0] };
+    }
+    // 멤버십 근거가 없는 경우(유효 멤버십 없는 회원만 골랐을 때 등) — 뒤이은 bookGuard가 어차피 막는다.
+    return { ok: true, centerId: mine.length === 1 ? mine[0] : DB.center.id };
   }
   const ccPastAsk = () => modal(`<h3>지난 일시로는 만들 수 없어요</h3><p>수업은 앞으로의 일시로만 만들 수 있어요. 지난 수업 처리(보고 누락 등)는 센터 관리자에게 사유와 함께 요청해 주세요 — 모든 예외 처리는 기록으로 남아요.</p>
     <div class="btn-row"><button class="btn primary" onclick="App.closeModal()">확인</button></div>`);
@@ -2499,17 +2605,24 @@
   // «회원 지정해서 바로 확정» — 통합 전 «바로 확정»과 동일 규칙: 자격은 회원별 검증, 전원 통과해야 확정(부분 확정 없음)
   function ccAssign(role, c, isNew) {
     const U = ccUI;
-    const mids = pkSelected("qk-member");
-    if (!mids.length) { toast("회원을 검색해 선택해 주세요."); return; }
+    // v2.61 A안: 선택은 «회원|멤버십» 행이다 — 어느 권을 깎을지가 선택 시점에 이미 정해져 있다.
+    const keys = pkSelected("qk-member");
+    if (!keys.length) { toast("회원을 검색해 선택해 주세요."); return; }
+    const mids = [...new Set(keys.map(pkMid))];
     const joinId = !isNew && U.slotSel && U.slotSel !== "new" ? U.slotSel : null;
     const lim = qkLimitOf(c, joinId || "new");
     if (mids.length > lim.max) { toast(lim.msg); return; }
     const errs = [];
     const passOf = {};
-    for (const mid of mids) {
+    const cCtr = classCenter(c);
+    for (const k of keys) {
+      const mid = pkMid(k), pid = pkPid(k);
       const m = member(mid);
       if (role === "t" && !inTScope(DB.me.teacher, mid)) { errs.push(`<b>${m.name}</b>: 내 «지정 가능 회원 범위» 밖이에요 — 센터에 범위 확대를 요청해 주세요.`); continue; }
-      const g = bookGuard(c, mid, { date: joinId ? (slot(joinId) || {}).date : U.date, role });
+      // ① 고른 멤버십의 센터 ≠ 이 수업의 센터면 거절 — A센터 수업에 B센터 멤버십이 붙는 사고를 막는 유일한 지점
+      const pCtr = pid ? passCenter(pass(pid)) : cCtr;
+      if (pCtr !== cCtr) { errs.push(`<b>${m.name}</b>: «${centerNameOf(pCtr)}» 멤버십이라 «${centerNameOf(cCtr)}» 수업엔 쓸 수 없어요.`); continue; }
+      const g = bookGuard(c, mid, { date: joinId ? (slot(joinId) || {}).date : U.date, role, passId: pid });
       if (!g.ok) { errs.push(`<b>${m.name}</b>: ${g.msg}`); continue; }
       passOf[mid] = g.pass;
     }
@@ -2756,7 +2869,7 @@
       </div><div>
       <div class="sec-title">멤버십 판매·등록</div>
       <div class="card">
-        <div class="field"><label>회원</label>${pickerHtml("sell-mem", { multi: false, pool: DB.members.filter((m) => !m.staff) })}</div>
+        <div class="field"><label>회원</label>${pickerHtml("sell-mem", { multi: false, pool: centerMembers(DB.center.id) })}</div>
         <div class="field"><label>상품</label><select id="sell-prod" onchange="App.sellProd(this.value)">
           ${DB.products.map((p) => `<option value="${p.id}">${p.name} · 정가 ${won(p.price)}</option>`).join("")}</select></div>
         <div class="field"><label>실구매가 (원)</label><input type="number" id="sell-price" min="0" value="${p0.price}" oninput="App.sellPreview()">
@@ -2803,27 +2916,76 @@
     if (q) list = list.filter((m) => m.name.includes(q) || (qd.length >= 2 && m.phone.replace(/-/g, "").includes(qd)));
     return list;
   }
+  // ── v2.61 A안 (형 확정 ②): 멤버십 단위로 행을 나눈다 ──
+  // 「김지은 · 엔짐 개봉점 PT 10회」 / 「김지은 · 코어핏 강남 PT 20회」 — 행을 고르는 순간
+  // 회원·멤버십·센터가 동시에 확정된다. 고른 뒤 «어느 멤버십 쓸까요?» 추가 질문 UI는 만들지 않는다.
+  // 선택 키는 "<memberId>|<passId>". byPass가 아닌 피커는 키=memberId 그대로라 기존 호출부가 안 깨진다.
+  const PK_SEP = "|";
+  const pkKey = (mid, pid) => mid + PK_SEP + (pid || "");
+  const pkMid = (k) => String(k).split(PK_SEP)[0];
+  const pkPid = (k) => String(k).split(PK_SEP)[1] || null;
+  // 행 전개. passesOf는 memberId 인덱스라 회원당 O(1) — affils 선형 탐색을 걸지 않는다.
+  function pkRowsOf(st) {
+    const ms = pkMatches(st);
+    if (!st.opts.byPass) return ms.map((m) => ({ key: m.id, m, p: null }));
+    const cids = st.opts.centerIds || null;
+    const ec = st.opts.eligFor || null;
+    const out = [];
+    for (const m of ms) {
+      const base = ec ? eligiblePasses(ec, m.id, st.opts.eligDate) : byExpiry(passesOf(m.id).filter(passUsable));
+      const ps = base.filter((p) => !cids || cids.includes(passCenter(p)));
+      if (!ps.length) { out.push({ key: pkKey(m.id, null), m, p: null }); continue; }
+      for (const p of ps) out.push({ key: pkKey(m.id, p.id), m, p });
+    }
+    return out;
+  }
+  // 행 부제 — 멤버십명(+다중 소속 선생님에게만 센터명). 1곳 소속자에겐 매 행 같은 센터라 잡음이다(③과 같은 규칙).
+  function pkRowSub(r, st) {
+    if (!r.p) return st && st.opts.eligFor ? "이 수업에 쓸 수 있는 멤버십 없음" : "유효 멤버십 없음";
+    const ctr = isMultiCenterTeacher() ? `${centerNameOf(passCenter(r.p))} · ` : "";
+    return `${ctr}${r.p.name} <span class="muted">잔여 ${r.p.remaining}회</span>`;
+  }
   function pkListHtml(id, st) {
-    const all = pkMatches(st);
-    const rows = all.slice(0, st.shown).map((m) => {
-      const on = st.sel.has(m.id);
-      const ps = passesOf(m.id).filter(passUsable);
-      return `<button class="pk-row${on ? " on" : ""}" onclick="App.pkToggle('${id}','${m.id}')">
-        <span class="grow"><b>${m.name}</b> <span class="muted small">${m.phone}</span>
-          <div class="muted small">${ps.length ? ps.map((p) => p.name).join(" · ") : "유효 멤버십 없음"}</div></span>
+    const all = pkRowsOf(st);
+    const rows = all.slice(0, st.shown).map((r) => {
+      const on = st.sel.has(r.key);
+      const sub = st.opts.byPass ? pkRowSub(r, st)
+        : (passesOf(r.m.id).filter(passUsable).map((p) => p.name).join(" · ") || "유효 멤버십 없음");
+      return `<button class="pk-row${on ? " on" : ""}" onclick="App.pkToggle('${id}','${r.key}')">
+        <span class="grow"><b>${r.m.name}</b> <span class="muted small">${r.m.phone}</span>
+          <div class="muted small">${sub}</div></span>
         <span class="pk-check">${on ? "✓" : "+"}</span></button>`;
     }).join("");
+    const unit = st.opts.byPass ? "건" : "명";
     return `${rows || '<p class="muted small" style="padding:12px">검색 결과가 없어요.</p>'}
-      ${all.length > st.shown ? `<button class="pk-more" onclick="App.pkMore('${id}')">더 보기 (${st.shown}/${all.length.toLocaleString("ko-KR")}명)</button>` : ""}`;
+      ${all.length > st.shown ? `<button class="pk-more" onclick="App.pkMore('${id}')">더 보기 (${st.shown}/${all.length.toLocaleString("ko-KR")}${unit})</button>` : ""}`;
+  }
+  // 선택 칩도 «회원 · 멤버십»으로 적는다 — 무엇이 차감될지가 선택 즉시 보이게
+  function pkChipLabel(st, k) {
+    if (!st.opts.byPass) return memberName(k);
+    const p = pkPid(k) ? pass(pkPid(k)) : null;
+    return `${memberName(pkMid(k))}${p ? ` · ${p.name}` : ""}`;
   }
   function pkSelbarHtml(id, st) {
     if (!st.opts.multi) {
-      const m = st.sel.size ? member([...st.sel][0]) : null;
-      return m ? `<span class="pk-count">선택</span><button class="chip on sm" onclick="App.pkToggle('${id}','${m.id}')">${m.name} (${m.phone}) ✕</button>`
+      const k = st.sel.size ? [...st.sel][0] : null;
+      const m = k ? member(pkMid(k)) : null;
+      return m ? `<span class="pk-count">선택</span><button class="chip on sm" onclick="App.pkToggle('${id}','${k}')">${st.opts.byPass ? pkChipLabel(st, k) : `${m.name} (${m.phone})`} ✕</button>`
         : '<span class="muted small">아래에서 검색해 회원을 선택해 주세요.</span>';
     }
-    const chips = [...st.sel].map((mid) => `<button class="chip on sm" onclick="App.pkToggle('${id}','${mid}')">${memberName(mid)} ✕</button>`).join("");
-    return `<span class="pk-count">선택 ${st.sel.size.toLocaleString("ko-KR")}명</span>${chips || '<span class="muted small">선택된 회원이 없어요.</span>'}`;
+    const chips = [...st.sel].map((k) => `<button class="chip on sm" onclick="App.pkToggle('${id}','${k}')">${pkChipLabel(st, k)} ✕</button>`).join("");
+    return `<span class="pk-count">선택 ${st.sel.size.toLocaleString("ko-KR")}${st.opts.byPass ? "건" : "명"}</span>${chips || '<span class="muted small">선택된 회원이 없어요.</span>'}`;
+  }
+  // v2.61: A안은 행 수가 «멤버십 수»라 «총 N명»만으론 목록 길이를 설명하지 못한다 — 두 수를 같이 적는다.
+  function pkTotalLabel(st) {
+    const n = st.opts.pool.length.toLocaleString("ko-KR");
+    if (!st.opts.byPass) return `총 ${n}명 — 검색·필터로 좁혀 선택해 주세요`;
+    const rows = pkRowsOf({ opts: Object.assign({}, st.opts, { byPass: true }), query: "", prod: "" }).filter((r) => r.p).length;
+    const m = rows.toLocaleString("ko-KR");
+    // 수업이 이미 정해졌으면 센터도 이미 정해진 것 — «고르면 그 센터 수업이 된다»고 말하면 거짓말이 된다
+    return st.opts.eligFor
+      ? `총 ${n}명 · 이 수업에 쓸 수 있는 멤버십 ${m}건 — 멤버십마다 한 줄이에요.`
+      : `총 ${n}명 · 멤버십 ${m}건 — 멤버십마다 한 줄이에요. 고르면 그 멤버십의 센터 수업으로 만들어져요.`;
   }
   function pickerHtml(id, opts) {
     const st = pkState(id, opts);
@@ -2834,7 +2996,7 @@
         <select onchange="App.pkProd('${id}', this.value)" aria-label="멤버십 필터"><option value="">멤버십 전체</option>
           ${DB.products.map((p) => `<option value="${p.id}"${st.prod === p.id ? " selected" : ""}>${p.name}</option>`).join("")}</select>
       </div>
-      <div class="pk-total">총 ${st.opts.pool.length.toLocaleString("ko-KR")}명 — 검색·필터로 좁혀 선택해 주세요</div>
+      <div class="pk-total">${pkTotalLabel(st)}</div>
       <div class="pk-results" onscroll="App.pkScroll('${id}', this)"><div id="${id}-list">${pkListHtml(id, st)}</div></div>
     </div>`;
   }
@@ -2995,7 +3157,10 @@
     const mode = modeOverride || (c ? c.eligibility : "pass");
     const scoped = role === "t" && tScope(DB.me.teacher).mode === "custom";
     // 기존 지정 회원은 범위 밖이어도 표시·유지 (저장 시 조용히 빠지는 사고 방지)
-    const pool = DB.members.filter((m) => !m.staff && (!scoped || inTScope(DB.me.teacher, m.id) || selM.includes(m.id)));
+    // v2.61: 센터 조건 ∧ teacherScope (직교). 기존 지정 회원은 둘 중 무엇에 걸려도 표시·유지 — 저장 시 조용히 빠지는 사고 방지.
+    const eCids = c ? [classCenter(c)] : roleCenters(role);
+    const inCtr = (mid) => eCids.some((cid) => centerMemberSet(cid).has(mid));
+    const pool = DB.members.filter((m) => !m.staff && (inCtr(m.id) || selM.includes(m.id)) && (!scoped || inTScope(DB.me.teacher, m.id) || selM.includes(m.id)));
     return `
       <div class="field" id="${prefix}-prod-wrap"${mode === "list" ? ' style="display:none"' : ""}><label>사용 가능 멤버십 (예약자격)</label>
         <div class="chips" id="${prefix}-prods">${DB.products.map((p) => `<button class="chip${selP.includes(p.id) ? " on" : ""}" data-v="${p.id}" onclick="App.chip(this)">${p.name}</button>`).join("")}</div>
@@ -3078,7 +3243,7 @@
     const list = isT ? DB.classes.filter((c) => c.teacherId === DB.me.teacher) : DB.classes;
     const card = (c) => `<${auth.ok ? `button class="card card-tap" onclick="location.hash='#/${role}/class/${c.id}'"` : `div class="card"`}>
         <div class="row"><span class="grow"><b>${c.title}</b>${c.status === "closed" ? ' <span class="badge b-danger">폐강</span>' : ""}
-        <div class="muted small mt4">${teacher(c.teacherId).name} · ${c.scheduleLabel}</div>
+        <div class="muted small mt4">${centerTag(classCenter(c))}${teacher(c.teacherId).name} · ${c.scheduleLabel}</div>
         <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 ${c.capacity}명`}</span>
         <span class="badge b-gray">${eligLabel(c)}</span>
         <span class="badge ${c.schedule === "fixed" ? "b-green" : "b-warn"}">${c.schedule === "fixed" ? "고정 시간표" : "일정 맞춤"}</span>${clsRecurBadge(c)}</div>
@@ -3801,7 +3966,7 @@
               return `<button class="chip${full ? " on" : ""}" onclick="App.scopeProduct('${tid}','${p.id}')">${p.name} 전체 (${holdersOf(p.id).length.toLocaleString("ko-KR")}명)</button>`;
             }).join("")}</div>
             <div class="hint">«전체»를 켜면 그 멤버십의 유효 멤버십 보유 회원 전체가 범위에 들어요. 일부 회원만 지정하려면 «전체»를 끄고 아래에서 검색해 개별 추가해 주세요.</div>
-            <div class="mt8">${pickerHtml("scope-" + tid, { multi: true, selected: S.memberIds || [], pool: DB.members.filter((m) => !m.staff), commit: (mid) => App.scopeMember(tid, mid) })}</div>
+            <div class="mt8">${pickerHtml("scope-" + tid, { multi: true, selected: S.memberIds || [], pool: centerMembers(DB.center.id), commit: (mid) => App.scopeMember(tid, mid) })}</div>
           </div>` : ""}
           <div class="muted small mt4">현재 범위: <b>${tScopeLabel(tid)}</b></div>
         </div>
@@ -3920,7 +4085,7 @@
         <div class="row"><span class="grow"><b>${c.name}</b> <span class="muted small">${c.area}</span>
           <div class="muted small mt4">${rolesLine(cid)} · ${afDate(a.startedAt)}부터</div>
           ${a.hist ? `<div class="muted small">여기서 한 수업 ${a.hist.lessons}회 · 최근 ${afDate(a.hist.lastAt)}</div>` : ""}
-          ${here ? "" : `<div class="muted small">센터를 전환하면 같은 계정으로 이 센터의 일정·보고·정산을 봐요 — 이 체험판에선 ${DB.center.name} 화면만 열려요.</div>`}</span>
+          ${here ? "" : `<div class="muted small">여기서 만든 수업·예약도 내 «일정»에 함께 보여요 — 줄마다 센터 이름이 붙어요.</div>`}</span>
         <button class="btn sm ghost" onclick="App.tcLeaveAsk('${a.id}')">퇴사하기</button></div></div>`;
     });
     const leftCards = mine.filter((a) => isStaffRole(a.role) && a.status === "left").map((a) => { const c = centerOf(a.centerId);
@@ -3932,6 +4097,7 @@
         한 계정으로 여러 센터의 회원·선생님·직원·사장님 역할을 동시에 가질 수 있어요. 소속이 끝나도 그 센터에서의 기록은 끊기지 않고 남아요.</div></div>
       ${invCards.length ? `<div class="sec-title">수락을 기다리는 초대 <span class="badge b-warn">${invCards.length}</span></div><div class="cards">${invCards.join("")}</div>` : ""}
       <div class="sec-title">소속 센터 · ${activeCards.length}곳</div>
+      ${activeCards.length > 1 ? `<p class="muted small" style="margin:-4px 0 10px">소속이 2곳 이상이면 «일정»에 모든 센터 수업이 한 화면에 모여요 — 줄마다 센터 이름이 붙고, <b>시간 겹침도 센터를 넘어 함께 확인</b>해요. 몸은 하나니까요.</p>` : ""}
       ${activeCards.length ? `<div class="cards">${activeCards.join("")}</div>` : `<div class="card"><p class="muted" style="margin:0">소속된 센터가 없어요. 센터의 초대를 수락하면 여기에 나타나요.</p></div>`}
       ${leftCards.length ? `<div class="sec-title">지난 소속</div><div class="cards">${leftCards.join("")}</div>` : ""}`, { back: true });
   }
@@ -4003,11 +4169,16 @@
     fltReset(key) { const st = fltUI[key]; if (!st) return; st.q = ""; st.period = "all"; st.from = ""; st.to = ""; render(); },
     pkScroll(id, el) {
       const st = pickers[id]; if (!st) return;
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60 && st.shown < pkMatches(st).length) { st.shown += PK_PAGE; pkRefresh(id); }
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60 && st.shown < pkRowsOf(st).length) { st.shown += PK_PAGE; pkRefresh(id); }
     },
     pkToggle(id, mid) {
       const st = pickers[id]; if (!st) return;
       if (st.opts.commit) { st.opts.commit(mid); return; } // controlled(P2-2b): DB가 진실 — 커밋이 재렌더
+      // v2.61 A안: 같은 회원의 다른 멤버십 행을 고르면 «교체»다 — 한 회원이 한 회차에 두 번 들어갈 수 없다.
+      if (st.opts.byPass && st.opts.multi && !st.sel.has(mid)) {
+        const same = pkMid(mid);
+        [...st.sel].forEach((k) => { if (pkMid(k) === same) st.sel.delete(k); });
+      }
       if (!st.opts.multi) st.sel = st.sel.has(mid) ? new Set() : new Set([mid]);
       else if (st.sel.has(mid)) st.sel.delete(mid);
       else {
@@ -4048,7 +4219,7 @@
     },
     afInviteCancel(id) {
       const a = affilById(id);
-      a.status = "canceled"; a.canceledAt = DB.TODAY; a.canceledBy = "center";
+      a.status = "canceled"; a.canceledAt = DB.TODAY; a.canceledBy = "center"; DB._affilRev = (DB._affilRev || 0) + 1;
       closeModal(); toast("초대를 취소했어요."); render();
     },
     afRemoveAsk(id) {
@@ -4066,7 +4237,7 @@
     },
     afRemove(id) {
       const a = affilById(id);
-      a.status = "left"; a.endedAt = DB.TODAY; a.endedBy = "center";
+      a.status = "left"; a.endedAt = DB.TODAY; a.endedBy = "center"; DB._affilRev = (DB._affilRev || 0) + 1;
       // 개설 권한(P2-2)은 소속 전제 — 함께 회수. 이미 만든 수업·회차·정산 라인은 손대지 않는다.
       const CA = DB.policy.classAuth.memberIds || [];
       const i = CA.indexOf(a.memberId);
@@ -4087,7 +4258,7 @@
     tcAccept(id) {
       const a = affilById(id);
       if (!a || a.status !== "invited") { toast("이미 처리됐거나 취소된 초대예요."); render(); return; } // v2.58 QA
-      a.status = "active"; a.startedAt = DB.TODAY;
+      a.status = "active"; a.startedAt = DB.TODAY; DB._affilRev = (DB._affilRev || 0) + 1;
       toast(`${centerOf(a.centerId).name} 소속이 됐어요 🎉`);
       render();
     },
@@ -4099,7 +4270,7 @@
     },
     tcDecline(id) {
       const a = affilById(id);
-      a.status = "declined"; a.declinedAt = DB.TODAY;
+      a.status = "declined"; a.declinedAt = DB.TODAY; DB._affilRev = (DB._affilRev || 0) + 1;
       closeModal(); toast("초대를 거절했어요."); render();
     },
     tcLeaveAsk(id) {
@@ -4115,7 +4286,7 @@
     tcLeave(id) {
       const a = affilById(id);
       if (!a || a.status !== "active") { closeModal(); return; }
-      a.status = "left"; a.endedAt = DB.TODAY; a.endedBy = "self";
+      a.status = "left"; a.endedAt = DB.TODAY; a.endedBy = "self"; DB._affilRev = (DB._affilRev || 0) + 1;
       // v2.58 QA: 개설 권한(P2-2)은 소속 전제 — 센터 해제(afRemove)와 같은 규칙으로 함께 회수
       if (a.centerId === DB.center.id && a.role === "teacher") { const CA = DB.policy.classAuth.memberIds || []; const i = CA.indexOf(a.memberId); if (i >= 0) CA.splice(i, 1); }
       closeModal(); toast(`${centerOf(a.centerId).name} 퇴사 처리됐어요 — 기록은 그대로 남아요.`); render();
