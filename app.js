@@ -1,4 +1,15 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.60 (2026-09-15 형 확정 SPEC — «수업 만들기» = 일정 먼저, 내용 나중 2단계):
+   ① [+ 수업 만들기] 진입 첫 화면 = «1단계 · 언제 할까요?» — 일정 탭 주간 스트립(mb-cal·점 범례)을 그대로
+   재사용하고 그 아래 그 날 타임라인(30분 칸 · 기본 06:00~23:00 · 기존 수업이 범위 밖이면 자동 확장). 기존
+   확정 회차는 블록으로 깔리고 빈 칸을 탭해 시각을 고른다. 지난 시간대는 비활성(지난 일시 생성 금지 규칙 그대로).
+   ② 겹침 가드 = 고른 시각이 겹치면 확인 모달 [취소]/[그래도 만들기]. 기본은 취소. 판정은 overlapSlots —
+   일정 탭 «시간 겹침» 점과 같은 기준이고 새 판정 로직을 만들지 않았다.
+   ③ «2단계 · 수업 내용» = 기존 폼 그대로. 날짜·시간 입력 필드만 빼고 상단에 요약 바(«9/16 (수) 오전 11:00 · 변경»).
+   [변경]은 ccUI·picker를 그대로 둔 채 화면만 1단계로 되돌린다 → 왕복해도 입력값 유실 0.
+   ④ «기존 회차에 붙이기»(1단계 하단) = 1단계를 건너뛰고 2단계로. 요약 바는 «기존 회차 사용 · 날짜·시간은 회차 일정을 따름».
+   ⑤ 일정 탭 그 날 목록 아래 «+ 이 날 수업 만들기» = 그 날짜·첫 빈 시각 프리필로 2단계 직행.
+   ⑥ 오늘 탭 [+ 수업 만들기] 위치·문구·예약/확정/알림 로직·«지정 확정 / 자리 열기» 분기는 손대지 않았다.
    v2.59 (2026-09-06 형 확정 — 최종 QA 보고서 §4 «형 판단» 17건 전부 A안 + 시정 1건):
    ① «확정 예약» 카테고리 → «다가오는 예약»(v2.37 4섹션 구조·내용 불변) / ② 캘린더 목록 배지도 회원 4종
    (mBkBadge) SSOT로 통일 / ③ «수강 확인»·«예약 대기» 띄어쓰기 전수 통일(센터 제목 «수강 확인 관리» 포함) /
@@ -460,10 +471,10 @@
     const sum = [hits.length ? `선생님 수업 ${hits.length}건` : "", mh.length ? `회원님 예약 ${mh.length}건` : ""].filter(Boolean).join(" · ");
     modal(`<h3>${hits.length && !mh.length ? "선생님 시간이 겹쳐요" : "이 시간에 겹치는 일정이 있어요"}</h3>
       ${mh.length ? `<p class="muted small">${sum}</p>` : ""}
-      <p>${tl.concat(ml).join("<br>")}<br>그래도 진행할까요?</p>
+      <p>${tl.concat(ml).join("<br>")}<br>${o.askText || "그래도 진행할까요?"}</p>
       ${hits.length ? `<p class="muted small mt8">진행하면 두 회차 모두 선생님·센터 화면에 «시간 겹침»으로 표시돼요.</p>` : ""}
       <div class="btn-row"><button class="btn ghost" onclick="App.overlapCancel()">취소</button>
-      <button class="btn primary" onclick="App.overlapGo()">그래도 진행</button></div>`);
+      <button class="btn primary" onclick="App.overlapGo()">${o.goLabel || "그래도 진행"}</button></div>`);
   }
 
   // ── v2.25 ① 일정 변경 제안 = 1:1(개인) 수업 전용 (형 확정 A) ──
@@ -2000,7 +2011,9 @@
         return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/t/slot/${sl.id}'"><span class="time">${sl.time}</span>
           <span class="grow"><span class="t">${c.title} ${recurBadge(sl)}</span><div class="muted small">${seatCount(sl.id)}명</div></span>
           ${overlapBadge(sl)}${slotNeedsReport(sl) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
-      }).join("") : `<p class="muted">이 날은 잡힌 수업이 없어요.</p>`}</div>`);
+      }).join("") : `<p class="muted">이 날은 잡힌 수업이 없어요.</p>`}</div>
+      ${sel >= DB.TODAY ? `<button class="btn ghost mt8" onclick="App.ccFromDay('${sel}')">${ici("plus")}이 날 수업 만들기</button>
+        <p class="muted small mt4" style="text-align:center">이 날 비어 있는 가장 이른 시간으로 «수업 내용»부터 채워요.</p>` : ""}`);
   }
   // B4: 일정 요청함
   // v2.29 §B8 (U7): 발신 입구 3곳 분산 → 화면 상단 고정 «＋ 일정 제안하기» 단일 진입 → [새 일정 / 기존 예약 변경] 분기.
@@ -2173,6 +2186,8 @@
       const list = ccClasses(role);
       const first = list[0] || null;
       ccUI = { role, fill: "assign", classId: first ? first.id : "new", slotSel: "new",
+        // v2.60: 진입 첫 화면은 «1단계 — 언제 할까요?». 일시는 1단계에서 고른 뒤에야 «고름»(picked)이 된다.
+        step: "when", wkSel: DB.TODAY, picked: false,
         date: addDays(DB.TODAY, 5), time: "11:00", title: "", teacherId: (DB.teachers[0] || {}).id,
         kind: "group", cap: "6", sched: "fixed", elig: first ? first.eligibility : "pass",
         // v2.28 반복 — wdays=null이면 «고른 날짜의 요일»을 따라간다(요일을 직접 건드리면 그때부터 고정)
@@ -2209,6 +2224,124 @@
     if (!ccUI) return qkLimit();
     return qkLimitOf(ccDraftClass(ccUI.role), ccUI.classId === "new" ? "new" : ccUI.slotSel);
   }
+  // ══ v2.60 (형 확정 09-15 SPEC — «일정 먼저, 내용 나중» 2단계) ══
+  // 선생님은 자기 주간 일정에서 빈 시간을 찾은 뒤 수업을 잡는다. 그 순서대로 1단계(언제)→2단계(내용)로 나눈다.
+  // 겹침 판정은 새로 만들지 않는다 — overlapSlots/overlapAsk를 그대로 쓴다(일정 탭 «시간 겹침» 점과 같은 기준).
+  const CC_TL_FROM = 6 * 60, CC_TL_TO = 23 * 60;
+  const hm2m = (t) => { const [h, m] = String(t).split(":").map(Number); return h * 60 + m; };
+  const m2hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  // 시각 표기 — 요약 바·1단계 선택 라벨 전용. 목록·배지의 24시간 표기(09:00)는 그대로 둔다.
+  // (없앤 time input이 «오전 11:00»으로 보여 주던 자리를 그대로 이어받는다.)
+  const tlabel = (t) => { const m = hm2m(t), h = Math.floor(m / 60);
+    return `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}:${String(m % 60).padStart(2, "0")}`; };
+  const ccRole = () => (location.hash.startsWith("#/c/") ? "c" : "t");
+  const ccTeacherId = (role) => { const U = ccState(role);
+    if (role === "t") return DB.me.teacher;
+    const c = U.classId === "new" ? null : cls(U.classId);
+    return c ? c.teacherId : (U.teacherId || (DB.teachers[0] || {}).id); };
+  const ccDuration = (role) => { const U = ccState(role); const c = U.classId === "new" ? null : cls(U.classId); return (c && c.duration) || 50; };
+  const ccPastAt = (d, t) => new Date(`${d}T${t}:00+09:00`) <= NOW;
+  // 타임라인 행 = 30분 칸. 기본 06:00~23:00이고, 기존 수업이 그 밖이면 그 회차가 보이도록 범위를 넓힌다.
+  function ccRows(role, date) {
+    const ss = teacherDaySlots(ccTeacherId(role), date);
+    const durOf = (s) => (cls(s.classId) || {}).duration || 50;
+    let from = CC_TL_FROM, to = CC_TL_TO;
+    ss.forEach((s) => { const a = hm2m(s.time), b = a + durOf(s);
+      from = Math.min(from, Math.floor(a / 30) * 30); to = Math.max(to, Math.ceil(b / 30) * 30); });
+    const rows = [];
+    for (let m = from; m < to; m += 30) {
+      const t = m2hm(m);
+      const on = ss.filter((s) => hm2m(s.time) < m + 30 && hm2m(s.time) + durOf(s) > m);
+      rows.push({ t, on, head: on.find((s) => hm2m(s.time) >= m && hm2m(s.time) < m + 30) || null, past: ccPastAt(date, t) });
+    }
+    return rows;
+  }
+  // 프리필용 «첫 빈 시간» — 지나지 않았고 겹치지도 않는 가장 이른 30분 칸
+  function ccFirstFree(role, date) {
+    const rows = ccRows(role, date);
+    const free = rows.find((r) => !r.past && !overlapSlots(ccTeacherId(role), date, r.t, ccDuration(role), []).length);
+    return (free || rows.find((r) => !r.past) || rows[0] || { t: "09:00" }).t;
+  }
+  // «기존 회차에 붙이기»로 고를 수 있는 회차 — 내 수업의 앞으로 남은 자리 있는 회차
+  function ccJoinable(role) {
+    const out = [];
+    ccClasses(role).forEach((c) => DB.slots.forEach((x) => {
+      if (x.classId === c.id && x.status === "scheduled" && !isPast(x) && seatCount(x.id) < c.capacity) out.push({ c, s: x });
+    }));
+    return out.sort((a, b) => (a.s.date + a.s.time).localeCompare(b.s.date + b.s.time));
+  }
+  const ccStepsHtml = (n) => `<div class="cc-steps" aria-label="2단계 중 ${n}단계">
+    <span class="${n === 1 ? "on" : ""}">1단계 · 언제 할까요?</span><span class="${n === 2 ? "on" : ""}">2단계 · 수업 내용</span></div>`;
+  // 2단계 상단 요약 바 — 없앤 날짜·시간 입력을 대신한다. [변경]은 입력값을 유지한 채 1단계로 돌아간다.
+  function ccSumHtml(role) {
+    const U = ccState(role);
+    const c = U.classId === "new" ? null : cls(U.classId);
+    const joining = U.fill === "assign" && c && U.slotSel && U.slotSel !== "new" && slot(U.slotSel);
+    const txt = joining ? "기존 회차 사용 · 날짜·시간은 회차 일정을 따름"
+      : U.picked ? `${dlabel(U.date)} ${tlabel(U.time)}` : "날짜·시간을 아직 안 골랐어요";
+    return `<span class="grow"><i>언제</i><b>${txt}</b></span>
+      <button type="button" onclick="App.ccBackWhen('${role}')">${U.picked || joining ? "변경" : "고르기"}</button>`;
+  }
+  // ── 1단계 «언제 할까요?» — 일정 탭 주간 스트립(mb-cal) 재사용 + 그 날 타임라인 ──
+  function vCcWhen(role) {
+    const r = role === "c" ? "c" : "t";
+    const U = ccState(r);
+    const sel = U.wkSel || DB.TODAY;
+    const days = Array.from({ length: 7 }, (_, i) => addDays(mbWeekStart(sel), i));
+    const selDt = new Date(sel + "T12:00:00+09:00");
+    const tid = ccTeacherId(r);
+    const onDay = (d) => teacherDaySlots(tid, d);
+    const rows = ccRows(r, sel);
+    const picked = U.picked && U.date === sel ? U.time : null;
+    const joinN = ccJoinable(r).length;
+    const rowHtml = (row) => {
+      const on = picked === row.t;
+      const busy = row.on.length > 0;
+      let body;
+      if (row.head) {
+        const c = cls(row.head.classId), who = attendeeNames(row.head.id);
+        body = `<b>${esc(c.title)} <span class="cc-span">${slotSpanLabel(row.head)}</span></b><i>${who.length ? esc(who.join(", ")) : "예약자 없음"}</i>`;
+      } else if (busy) body = `<span class="cc-cont">이어지는 수업</span>`;
+      else if (row.past) body = `<span class="cc-past">지난 시간</span>`;
+      else body = `<span class="cc-free">비어 있음</span>`;
+      const cl = ["cc-row", row.past ? "past" : busy ? "busy" : "free", on ? "on" : ""].filter(Boolean).join(" ");
+      return `<button type="button" class="${cl}"${row.past ? " disabled" : ""} onclick="App.ccPick('${r}','${row.t}')"
+        aria-label="${row.t} ${row.past ? "지난 시간" : busy ? "수업 있음" : "비어 있음"}"><span class="cc-rt">${row.t}</span>
+        <span class="cc-rb">${body}${on ? ` <span class="cc-on">선택됨</span>` : ""}</span></button>`;
+    };
+    return shell(r, "수업 만들기", `
+      ${ccStepsHtml(1)}
+      <p class="muted" style="margin-bottom:12px">먼저 <b>언제 할지</b> 골라요. 내 주간 일정에서 빈 시간을 확인하고 고르면 돼요. 지난 일시로는 만들 수 없어요.</p>
+      <div class="card mb-cal">
+        <div class="mb-head">
+          <button class="mb-nav" onclick="App.ccWeek(-1)" aria-label="이전 주">‹</button>
+          <button class="mb-month" onclick="App.ccMonthSheet()">${selDt.getFullYear()}년 ${selDt.getMonth() + 1}월 <span class="car">▾</span></button>
+          <button class="mb-nav" onclick="App.ccWeek(1)" aria-label="다음 주">›</button>
+        </div>
+        <div class="mb-strip cc-strip">${days.map((d) => {
+          const dt = new Date(d + "T12:00:00+09:00");
+          const ss = onDay(d);
+          return `<button type="button" class="mb-day${d === sel ? " on" : ""}${d === DB.TODAY ? " today" : ""}${d < DB.TODAY ? " past" : ""}" onclick="App.ccDay('${d}')" aria-label="${dlabel(d)}${ss.length ? ` · 수업 ${ss.length}건` : ""}">
+            <span class="dw">${DOW[dt.getDay()]}</span><span class="dn">${dt.getDate()}</span>
+            <span class="mb-dots">${ss.length ? `<i class="av"></i>` : ""}${ss.some((x) => slotOverlaps(x).length) ? `<i class="ov"></i>` : ""}${ss.some(slotNeedsReport) ? `<i class="rp"></i>` : ""}</span></button>`;
+        }).join("")}</div>
+        <div class="mb-legend"><span><i class="av"></i>수업 있음</span><span><i class="ov"></i>시간 겹침</span><span><i class="rp"></i>보고 필요</span></div>
+      </div>
+      <div class="sec-title">${dlabel(sel)} 타임라인${sel === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}</div>
+      <div class="card flat cc-tl-card"><div class="cc-tl" id="cc-tl">${rows.map(rowHtml).join("")}</div></div>
+      <div class="card">
+        <div class="field" style="margin-bottom:0"><label>시간 직접 고르기</label>
+          <div class="cc-direct"><input type="time" id="cc-time" value="${picked || U.time}" step="1800" aria-label="시작 시간">
+            <button class="btn sm ghost" onclick="App.ccPickInput('${r}')">이 시간으로</button></div>
+          <div class="hint">타임라인에 없는 시각도 직접 넣을 수 있어요.</div></div>
+      </div>
+      ${joinN ? `<button class="btn ghost" onclick="App.ccUseSlot('${r}')">기존 회차에 붙이기</button>
+        <p class="muted small mt4" style="text-align:center">이미 잡아 둔 회차에 회원만 더 넣을 때 — 날짜·시간은 그 회차 일정을 따라요.</p>` : ""}
+      <div class="cc-next">
+        <div class="cc-next-lab">${picked ? `<i>고른 시간</i><b>${dlabel(sel)} ${tlabel(picked)}</b>` : `<span class="muted">타임라인에서 시간을 골라 주세요</span>`}</div>
+        <button class="btn primary" onclick="App.ccNext('${r}')"${picked ? "" : " disabled"}>다음</button>
+      </div>`, { back: true });
+  }
   function vCreate(role) {
     const r = role === "c" ? "c" : "t";
     const U = ccState(r);
@@ -2223,6 +2356,8 @@
         <div class="banner warn">${icb("lock")}<span><b>새 수업을 만들 권한이 없어요.</b> 센터관리자에게 수업 개설 권한을 요청해야 해요.${classes.length ? " 이미 있는 내 수업에는 회차를 만들 수 있어요." : ""}</span></div>
         ${classes.length ? `<button class="btn primary" onclick="App.ccClass('${r}','${classes[0].id}')">내 수업으로 만들기</button>` : ""}`, { back: true });
     }
+    // v2.60: 진입 첫 화면은 «1단계 — 언제 할까요?». 2단계(내용)는 일시를 고른 뒤에 온다.
+    if (U.step === "when") return vCcWhen(r);
     const draft = ccDraftClass(r);
     const lim = ccLimit();
     const repOk = ccRepOk(U, c);   // v2.28: 조율형 수업은 반복 대상이 아니라 토글 자체를 내린다
@@ -2234,7 +2369,9 @@
     const fillOpt = (v, title, desc) => `<button type="button" class="fill-opt${U.fill === v ? " on" : ""}" role="radio" aria-checked="${U.fill === v}" data-v="${v}" onclick="App.ccFill('${r}','${v}')">
       <span class="fo-dot" aria-hidden="true"></span><span class="grow"><b>${title}</b><span class="fo-d">${desc}</span></span></button>`;
     return shell(r, "수업 만들기", `
-      <p class="muted" style="margin-bottom:12px">수업을 하나 만들어요. <b>회원을 지정해 바로 확정</b>하거나, <b>자리만 열어두고 신청</b>을 받을 수 있어요. 지난 일시로는 만들 수 없어요.</p>
+      ${ccStepsHtml(2)}
+      <div class="cc-sum" id="cc-sum">${ccSumHtml(r)}</div>
+      <p class="muted" style="margin-bottom:12px">이제 <b>수업 내용</b>을 정해요. <b>회원을 지정해 바로 확정</b>하거나, <b>자리만 열어두고 신청</b>을 받을 수 있어요.</p>
       ${r === "t" && !auth.ok ? `<div class="banner warn">${icb("lock")}<span>새 수업을 만들 권한이 없어서 <b>이미 있는 내 수업</b>만 고를 수 있어요.</span></div>` : ""}
       <div class="card">
         <div class="field"><label>수업 종류</label>
@@ -2259,9 +2396,7 @@
         ${U.fill === "assign" && c ? `<div class="field"><label>회차</label><select id="qk-slot" onchange="App.ccSlot('${r}', this.value)">
           ${opt("new", "새 일시로 만들기", U.slotSel === "new")}
           ${joinable.map((x) => opt(x.id, `${dlabel(x.date)} ${x.time} 기존 회차 합류 (${seatCount(x.id)}/${c.capacity}명)`, x.id === U.slotSel)).join("")}</select>
-          <div class="hint">기존 회차를 고르면 아래 날짜·시간은 무시돼요.</div></div>` : ""}
-        <div class="field"><label>날짜</label><input type="date" id="qk-date" value="${U.date}" min="${DB.TODAY}" onchange="App.ccDate('${r}', this.value)"></div>
-        <div class="field"><label>시간</label><input type="time" id="qk-time" value="${U.time}"></div>
+          <div class="hint">기존 회차를 고르면 위 요약의 날짜·시간 대신 그 회차 일정을 따라요.</div></div>` : ""}
       </div>
       <div class="sec-title">회원을 어떻게 채울까요?</div>
       <div class="card">
@@ -4795,6 +4930,8 @@
       App.ccTrim(role);
       const h = document.getElementById("qk-cap-hint");
       if (h) h.innerHTML = qkHintHtml(ccLimit());
+      const sm = document.getElementById("cc-sum"); // v2.60: «기존 회차 사용» 표기는 요약 바가 진다
+      if (sm) sm.innerHTML = ccSumHtml(role);
       pkRefresh("qk-member");
     },
     ccFill(role, v) {
@@ -4821,10 +4958,60 @@
       const st = pickers["qk-member"];
       if (st && st.sel.size > lim.max) { st.sel = new Set([...st.sel].slice(0, lim.max)); toast(lim.msg); }
     },
+    // ── v2.60 1단계 «언제 할까요?» 액션 ──
+    ccDay(d) { ccState(ccRole()).wkSel = d; render(); },
+    ccWeek(delta) { const U = ccState(ccRole()); U.wkSel = addDays(U.wkSel || DB.TODAY, delta * 7); render(); },
+    ccGoto(d) { ccState(ccRole()).wkSel = d; closeModal(); render(); },
+    ccMonthSheet() { monthSheet((ccState(ccRole()).wkSel || DB.TODAY).slice(0, 7), "ccGoto"); },
+    // 시간 선택 — 겹치면 «일정 탭 시간 겹침» 점과 같은 판정으로 확인 모달. 기본은 취소(모달을 닫으면 아무 일도 없다).
+    ccPick(role, t) {
+      const U = ccState(role);
+      const d = U.wkSel || DB.TODAY;
+      if (ccPastAt(d, t)) { ccPastAsk(); return; }
+      const go = () => { U.date = d; U.time = t; U.picked = true; U.useSlot = false; U.slotSel = "new";
+        if (!U.wdaysTouched) U.wdays = [dowOf(d)]; // 반복 요일 기본값은 «고른 날짜의 요일»을 따른다(구 ccDate와 같은 규칙)
+        render(); };
+      const hits = overlapSlots(ccTeacherId(role), d, t, ccDuration(role), []);
+      if (hits.length) { overlapAsk(hits, go, { goLabel: "그래도 만들기", askText: "그래도 만들까요?" }); return; }
+      go();
+    },
+    ccPickInput(role) {
+      const el = document.getElementById("cc-time");
+      const t = el && el.value;
+      if (!t) { toast("시간을 입력해 주세요."); return; }
+      App.ccPick(role, t);
+    },
+    ccNext(role) { const U = ccState(role); if (!U.picked) { toast("시간을 먼저 골라 주세요."); return; } U.step = "form"; render(); },
+    // [변경] — 이미 입력한 값(수업 종류·회원 선택 등)은 ccUI·picker에 그대로 남는다. 화면만 1단계로 되돌린다.
+    ccBackWhen(role) { ccSync(); const U = ccState(role); U.wkSel = U.picked ? U.date : (U.wkSel || DB.TODAY); U.step = "when"; render(); },
+    // «기존 회차에 붙이기» — 1단계를 건너뛰고 2단계로. 날짜·시간은 그 회차 일정을 따른다.
+    ccUseSlot(role) {
+      const j = ccJoinable(role)[0];
+      if (!j) { toast("붙일 수 있는 기존 회차가 없어요."); return; }
+      const U = ccState(role);
+      if (U.classId !== j.c.id) delete pickers["nc-mems"];
+      U.classId = j.c.id; U.elig = j.c.eligibility; U.fill = "assign"; U.slotSel = j.s.id;
+      U.useSlot = true; U.picked = false; U.step = "form";
+      App.ccTrim(role);
+      render();
+    },
+    // 일정 탭 «+ 이 날 수업 만들기» — 그 날짜·시각을 프리필한 채 2단계로 직행
+    ccFromDay(d) {
+      ccUI = null;
+      const U = ccState("t");
+      U.wkSel = d;
+      const t = ccFirstFree("t", d);
+      if (ccPastAt(d, t)) { U.step = "when"; U.picked = false; }
+      else { U.date = d; U.time = t; U.picked = true; U.step = "form"; }
+      location.hash = "#/t/create";
+    },
     ccSubmit(role) {
       ccSync();
       const U = ccState(role);
       const isNew = U.classId === "new" || !cls(U.classId);
+      // v2.60: 일시는 1단계에서만 고른다 — 안 고른 채 제출되면 조용히 기본값으로 만들지 않고 1단계로 돌려보낸다.
+      const joining = U.fill === "assign" && !isNew && U.slotSel && U.slotSel !== "new";
+      if (!joining && !U.picked) { toast("언제 할지 먼저 골라 주세요."); U.step = "when"; U.wkSel = U.wkSel || DB.TODAY; render(); return; }
       let c;
       if (isNew) {
         c = ccBuildClass(role); // 아직 DB에 넣지 않는다 — 검증을 모두 통과해야 만들어진다
@@ -5605,7 +5792,7 @@
   let mbSw = null, mbSwipedAt = 0;
   document.addEventListener("pointerdown", (e) => {
     const cal = e.target.closest(".mb-strip, .cb-grid");
-    mbSw = cal ? { x: e.clientX, y: e.clientY, fn: cal.classList.contains("cs-grid") ? "csMonth" : cal.classList.contains("cb-grid") ? "cbMonth" : cal.classList.contains("ts-strip") ? "tsWeek" : "mbWeek" } : null;
+    mbSw = cal ? { x: e.clientX, y: e.clientY, fn: cal.classList.contains("cs-grid") ? "csMonth" : cal.classList.contains("cb-grid") ? "cbMonth" : cal.classList.contains("ts-strip") ? "tsWeek" : cal.classList.contains("cc-strip") ? "ccWeek" : "mbWeek" } : null;
   }, { passive: true });
   document.addEventListener("pointerup", (e) => {
     if (!mbSw) return;

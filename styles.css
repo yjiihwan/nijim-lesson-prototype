@@ -765,3 +765,40 @@ button.stat:active { transform: scale(.97); }
 /* v2.59: 기간 필터 뒤집힘 안내 (직접 지정 입력 바로 아래) */
 .flt-rev { margin: 6px 2px 0; color: var(--danger); font-weight: 600; font-size: 12.5px; line-height: 1.5; }
 .flt-rev:empty { display: none; }
+
+/* ══ v2.60 «수업 만들기» 2단계 플로우 — 1단계 타임라인 · 2단계 요약 바 ══ */
+.cc-steps { display: flex; gap: 6px; margin-bottom: 14px; }
+.cc-steps span { flex: 1; text-align: center; font-size: 12px; font-weight: 700; color: var(--text-muted); background: var(--surface-sunken); border-radius: 999px; padding: 7px 8px; }
+.cc-steps span.on { background: var(--surface-rose); color: var(--cta); }
+.cc-tl-card { padding: 6px 10px; max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.cc-row { display: grid; grid-template-columns: 50px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 6px; border-radius: 10px; border-bottom: 1px solid var(--border); transition: transform .12s var(--ease-out), background .15s ease; }
+.cc-row:last-child { border-bottom: 0; }
+.cc-rt { font-size: 12.5px; font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.cc-rb { min-width: 0; font-size: 13px; }
+.cc-rb b { display: block; font-size: 13.5px; font-weight: 800; }
+.cc-rb i { display: block; font-style: normal; font-size: 12px; color: var(--text-muted); }
+.cc-span { font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+.cc-free { color: var(--text-muted); }
+.cc-cont { font-size: 12px; color: var(--text-muted); }
+.cc-row.busy { background: var(--surface-sunken); }
+.cc-row.past { opacity: .55; cursor: default; }
+.cc-past { color: var(--text-disabled); }
+.cc-row.on { background: var(--surface-rose); box-shadow: inset 0 0 0 1.5px var(--cta); }
+.cc-row.on .cc-rt { color: var(--cta); }
+.cc-on { font-size: 11.5px; font-weight: 800; color: var(--cta); }
+.cc-row:not(.past):active { transform: scale(.985); }
+.cc-direct { display: flex; gap: 8px; align-items: center; }
+.cc-direct input[type=time] { flex: 1 1 auto; min-width: 0; }
+.cc-direct .btn { flex: 0 0 auto; }
+.cc-next { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 10px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.cc-next-lab { flex: 1; min-width: 0; font-size: 13.5px; }
+.cc-next-lab i { display: block; font-style: normal; font-size: 11px; font-weight: 700; color: var(--text-muted); }
+.cc-next-lab b { font-size: 14px; font-weight: 800; }
+.cc-next .btn { width: auto; flex: 0 0 auto; min-height: 44px; padding: 11px 20px; }
+.cc-sum { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 11px 14px; border-radius: 14px; background: var(--surface-rose); }
+.cc-sum .grow { flex: 1; min-width: 0; }
+.cc-sum i { display: block; font-style: normal; font-size: 11px; font-weight: 700; color: var(--cta); }
+.cc-sum b { font-size: 14px; font-weight: 800; letter-spacing: -0.01em; }
+.cc-sum button { flex: 0 0 auto; font-size: 13px; font-weight: 800; color: var(--cta); background: var(--surface); padding: 8px 12px; border-radius: 10px; }
+.cc-sum button:active { background: var(--surface-sunken); }
+@media (prefers-reduced-motion: reduce) { .cc-row:not(.past):active { transform: none; } }
