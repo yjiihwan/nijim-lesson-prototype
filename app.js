@@ -1,4 +1,10 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.62 (2026-09-15 형 확정 2건 — 시각 표기 통일 · 타임라인 전일):
+   ① 시각 표기 = 전 화면 «오전/오후» 12시간. 포맷터는 t12/t12span/t12text 셋(SSOT)뿐 — 화면마다 따로
+      조립하지 않는다. 내부 데이터·정렬·비교·겹침 판정은 계속 24시간 "HH:MM"(문자열 정렬이 깨지므로).
+   ③ 1단계 타임라인 = 00:00~24:00 전일 48칸(늦은 밤·새벽 레슨). 자동 확장 로직 제거, 대신 카드를 열면
+      낮 시간대(첫 기존 수업 또는 오전 8시)가 맨 위에 오게 내부 스크롤을 맞춘다. 접기/숨기기는 쓰지 않는다.
+
    v2.61 (2026-09-15 형 확정 DECISION — 다중 센터 소속 구조, 1~2순위 구현):
    ① 수업의 센터 = «고른 멤버십의 센터». 선생님이 고르는 드롭다운 UI는 만들지 않는다.
    ② 회원 선택 = A안 «멤버십 단위 행 분리» — 행을 고르면 회원·멤버십·센터가 한 번에 확정. 추가 질문 UI 없음.
@@ -264,7 +270,7 @@
   const pass = (id) => DB.passes.find((p) => p.id === id);
   const member = (id) => DB.members.find((m) => m.id === id);
   const memberName = (id) => (member(id) || { name: "회원" }).name;
-  const slotDesc = (s) => { const c = cls(s.classId); return `${dlabel(s.date)} ${s.time} · ${c.title}`; };
+  const slotDesc = (s) => { const c = cls(s.classId); return `${dlabel(s.date)} ${t12(s.time)} · ${c.title}`; };
   const slotAt = (s) => new Date(`${s.date}T${s.time}:00+09:00`);
   const isPast = (s) => slotAt(s) <= NOW;
   function hoursUntil(s) { return (slotAt(s) - NOW) / 3600000; }
@@ -285,6 +291,27 @@
   const stampOf = () => { const d = new Date(); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
   // v2.55: 보고·확인 행의 짧은 표시용 시각 ("M/D HH:MM") — 시드의 표기 규칙과 동일
   const shortOf = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+
+  // ══ v2.62 (형 확정 09-15 ①) — 시각 표기 SSOT ══
+  // 화면에 보이는 모든 시각은 t12/t12span/t12text 셋 중 하나를 반드시 지난다. 화면마다 문자열을 따로
+  // 조립하면 «요약 바만 오전 11:00, 목록은 11:00» 같은 혼재가 다시 생긴다(v2.60에서 실제로 났다).
+  // ⛔ 내부 데이터·정렬·비교·겹침 판정은 계속 24시간 "HH:MM" — 12시간 문자열끼리 localeCompare 하면
+  //    "오전 9:00" > "오후 1:00" 이 되어 정렬이 틀어진다. 저장·비교는 24h, 표시만 12h.
+  // 경계: 00:00→오전 12:00 · 00:30→오전 12:30 · 12:00→오후 12:00 · 12:30→오후 12:30 · 23:59→오후 11:59
+  const t12 = (t) => {
+    const m = String(t == null ? "" : t).trim().match(/^(\d{1,2}):([0-5]\d)$/);
+    if (!m) return String(t == null ? "" : t);
+    const h = Number(m[1]);
+    if (h > 23) return String(t);
+    return `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}:${m[2]}`;
+  };
+  const mer12 = (t) => (Number(String(t).split(":")[0]) < 12 ? "오전" : "오후");
+  // 구간 표기 — 오전/오후를 넘나들면 양쪽 다 적는다(오전 11:30–오후 12:20). 같은 쪽이면 앞에만.
+  const t12span = (a, b) => `${t12(a)}\u2013${mer12(a) === mer12(b) ? t12(b).replace(/^(오전|오후) /, "") : t12(b)}`;
+  // 시각이 박힌 자유 문자열(desc·scheduleLabel·기록 시각)의 표시용 변환 — 규칙을 다시 짜지 않고 t12를 태운다.
+  const t12text = (x) => { const src = String(x == null ? "" : x);
+    return src.replace(/(^|[^\d:])([01]?\d|2[0-3]):([0-5]\d)(?![\d:])/g, (m0, p, h, mi, off) =>
+      (/(오전|오후)\s*$/.test(src.slice(0, off + p.length)) ? m0 : `${p}${t12(`${h}:${mi}`)}`)); };
 
   // ── 좌석·대기 파생 (bookings가 단일 진실) ──
   const SEAT = ["booked", "confirm_wait", "noshow_wait", "confirmed", "disputed"];
@@ -450,7 +477,7 @@
   const spanHits = (s, st, en) => slotAt(s) < en && slotEndAt(s) > st;
   // 시:분 문자열 연산 — 표시용 종료 시각은 타임존을 타지 않게 문자열로 계산한다
   const addMin = (t, m) => { const [h, mi] = t.split(":").map(Number); const x = h * 60 + mi + (m || 0); return `${String(Math.floor(x / 60) % 24).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`; };
-  const slotSpanLabel = (s) => `${s.time}\u2013${addMin(s.time, (cls(s.classId) || {}).duration || 50)}`;
+  const slotSpanLabel = (s) => t12span(s.time, addMin(s.time, (cls(s.classId) || {}).duration || 50));
   // 그 선생님의 그 날 «유효 회차» — 취소 회차·폐강 수업 제외, 시간 오름차순
   function teacherDaySlots(teacherId, date) {
     return DB.slots.filter((s) => {
@@ -518,7 +545,7 @@
       const c = cls(s.classId);
       if (anon) return `선생님은 <b>${slotSpanLabel(s)}</b>에 이미 수업이 있어요.`;
       const who = attendeeNames(s.id);
-      return `이미 <b>${s.time}</b>에 <b>${who.length ? `${who.join(", ")} 회원` : "예약자 없는"}</b> 수업(${c.title} · ${c.duration}분)이 있어요.`;
+      return `이미 <b>${t12(s.time)}</b>에 <b>${who.length ? `${who.join(", ")} 회원` : "예약자 없는"}</b> 수업(${c.title} · ${c.duration}분)이 있어요.`;
     });
     const ml = mh.map((b) => {
       const s = slot(b.slotId), c = cls(s.classId);
@@ -825,7 +852,7 @@
   // v2.42: 수업 카드용 — 이 수업에 켜져 있는 반복 규칙이 있으면 «반복 설정으로 회차가 저절로 생기는 수업»이라는 뜻
   const clsRecurBadge = (c) => (c && DB.recurs.some((r) => r.classId === c.id && r.active) ? `<span class="badge b-rc">🔁 반복</span>` : "");
   const recurDowLabel = (r) => r.weekdays.slice().sort().map((d) => DOW[d]).join("·");
-  const recurLabel = (r) => `매주 ${recurDowLabel(r)} ${r.time}`;
+  const recurLabel = (r) => `매주 ${recurDowLabel(r)} ${t12(r.time)}`;
   const recurEndLabel = (r) => (r.endMode === "date" && r.endDate ? `${r.endDate.replaceAll("-", ".")}까지` : "중단할 때까지");
   const recurAnchor = () => DB.TODAY; // v2.42: 데모 «한 주 지나가기»(rollAnchor) 폐지 — 기준일=오늘
   const recurHorizon = () => addDays(recurAnchor(), ROLL_WEEKS * 7);
@@ -1054,16 +1081,16 @@
   const isArrReq = (a) => (a.kind || "request") === "request";
   const mArrs = () => DB.arranges.filter(isArrReq);            // 일정 요청만
   const mChgs = () => DB.arranges.filter((a) => a.kind === "change"); // 일정 변경 요청만
-  const optsLabel = (n) => negoOpts(n).map((o) => `${dlabel(o.date)} ${o.time}`).join(" · ");
+  const optsLabel = (n) => negoOpts(n).map((o) => `${dlabel(o.date)} ${t12(o.time)}`).join(" · ");
   // 일정 요청(회원발) — §C: 상태 표현으로서의 «조율 대기»·«선생님 확인 중»은 폐기, «수락 대기»로 통일
   function arrBadge(a) {
     const st = negoState(a); // v2.30 A5: 만료는 제안과 같은 공통 파생 규칙
     const chg = a.kind === "change"; // v2.36: 변경 요청은 «원래 예약이 어떻게 되는지»를 항상 함께 적는다
-    if (st === "accepted") return st4("ok", chg ? `선생님이 수락해 ${dlabel(a.date)} ${a.time}로 옮겨졌어요` : "선생님이 수락했어요");
+    if (st === "accepted") return st4("ok", chg ? `선생님이 수락해 ${dlabel(a.date)} ${t12(a.time)}로 옮겨졌어요` : "선생님이 수락했어요");
     if (st === "declined") return st4("end", `선생님이 거절했어요${a.declineReason ? ` · 사유: ${a.declineReason}` : ""}${chg ? " · 원래 예약은 그대로예요" : ""}`);
     if (st === "canceled") return st4("end", chg ? "변경 요청을 취소했어요" : "요청을 취소했어요");
     if (st === "expired") return st4("end", chg ? "희망하신 시간이 모두 지나 종료됐어요 · 원래 예약은 그대로예요" : "희망하신 시간이 지나 요청이 만료됐어요");
-    return st4("wait", chg ? `선생님 답변을 기다리는 중 · ${optsLabel(a)} 희망` : `선생님 수락을 기다리는 중 · ${dlabel(a.date)} ${a.time} 희망`);
+    return st4("wait", chg ? `선생님 답변을 기다리는 중 · ${optsLabel(a)} 희망` : `선생님 수락을 기다리는 중 · ${dlabel(a.date)} ${t12(a.time)} 희망`);
   }
   // ══ v2.36 §2: 회원 «내 예약» 상태 배지 = 4종만 ══
   // 답변 필요(내가 눌러야 넘어감) / 확정 / 대기 중(상대·센터를 기다림) / 종료. 같은 뜻에 다른 단어를 쓰지 않는다.
@@ -1089,12 +1116,12 @@
     switch (r.status) {
       // v2.58 QA: 출석 체크 차감이 실패한 건(잔여 0회)은 «처리 보류» 사유가 먼저 보여야 한다
       case "pending": return `${(r.label || "").startsWith("처리 보류") ? `${esc(r.label)} · ` : ""}${DB.policy.methodApp ? "회원 폰으로 확인 요청이 갔어요" : "현장 QR 확인 대기 — 회원 폰 스캔으로 확인돼요"} · ${auto ? `응답이 없으면 보고 ${auto}시간 뒤 자동확정` : "자동확정 없음 — 센터 수동 처리"}`;
-      case "confirmed": return `${r.at}${r.method ? ` · 수단: ${methodLabel(r.method)}` : ""}`;
+      case "confirmed": return `${t12text(r.at)}${r.method ? ` · 수단: ${methodLabel(r.method)}` : ""}`;
       case "auto": return `회원이 응답하지 않아 자동확정됐어요 · 수단: ${methodLabel(r.method || "auto")}`;
       case "noshow_wait": return `${noshowDeadline(r).replaceAll("-", ".")}까지 이의가 없으면 자동확정되고 횟수가 차감돼요`;
-      case "disputed": return `${r.at}${r.disputeReason ? ` · 사유: ${esc(r.disputeReason)}` : ""}`;
+      case "disputed": return `${t12text(r.at)}${r.disputeReason ? ` · 사유: ${esc(r.disputeReason)}` : ""}`;
       // v2.59: 차감 없음 정책으로 종결된 노쇼 — «기록» 탭에만 남는 종결 행
-      case "noshow_no_deduct": return `${r.at} · 센터 정책이 «노쇼 차감 없음»이라 차감 없이 종결됐어요`;
+      case "noshow_no_deduct": return `${t12text(r.at)} · 센터 정책이 «노쇼 차감 없음»이라 차감 없이 종결됐어요`;
       case "noshow_final": return r.autoFinal ? "이의 없이 자동확정 · 1회 차감"
         : (r.label || "").indexOf("기각") >= 0 ? "센터가 이의를 기각했어요 · 1회 차감" : "센터가 노쇼로 확정했어요 · 1회 차감";
       default: return r.label || "";
@@ -1159,9 +1186,9 @@
     const arr = negoParent(p);
     return `<div class="tl-item"><span class="grow"><b>${who}</b> · ${c ? c.title : ""} <span class="badge ${kb}">${kl}</span>
       <div class="pp-shift">${p.kind === "change" ? `<span class="old">${p.origDesc || "기존 일정"}</span><span class="arw">→</span>`
-        : arr ? `<span class="old">희망 ${dlabel(arr.date)} ${arr.time}</span><span class="arw">→</span>` : ""}<span class="new">${dlabel(p.date)} ${p.time}</span></div>
+        : arr ? `<span class="old">희망 ${dlabel(arr.date)} ${t12(arr.time)}</span><span class="arw">→</span>` : ""}<span class="new">${dlabel(p.date)} ${t12(p.time)}</span></div>
       ${p.note ? `<div class="muted small mt4">"${p.note}"</div>` : ""}
-      <div class="muted small">${p.at} 제안</div>
+      <div class="muted small">${t12text(p.at)} 제안</div>
       ${st === "pending" && side === "m" ? `<div class="mt4"><span class="badge b-rose">답변 필요</span></div>
         <div class="btn-row">
         <button class="btn sm primary" onclick="App.propAccept('${p.id}')">수락${p.kind === "change" ? " (예약 변경)" : " (예약 확정)"}</button>
@@ -1406,7 +1433,7 @@
       return `<div class="card confirm-req" onclick="location.hash='#/m/confirms'" style="cursor:pointer">
         <div class="row"><span class="grow"><span class="badge b-rose">수강 확인 요청 ${confirmWait.length}건</span></span><span class="muted small">선생님 완료 보고</span></div>
         <b class="mt8" style="display:block;font-size:15px">확인을 기다리는 수업이 ${confirmWait.length}건 있어요</b>
-        <div class="muted small mt4">${c0.title} · ${dlabel(s0.date)} ${s0.time} 외 ${confirmWait.length - 1}건</div>
+        <div class="muted small mt4">${c0.title} · ${dlabel(s0.date)} ${t12(s0.time)} 외 ${confirmWait.length - 1}건</div>
         <button class="btn primary mt12" onclick="location.hash='#/m/confirms'">한 건씩 확인하기</button>
         <div class="muted small mt8" style="text-align:center">${DB.policy.methodApp ? "확인하면 멤버십이 차감돼서, 한 건씩만 확인할 수 있어요" : "이 센터는 현장에서 QR로만 수강 확인을 받아요"}</div>
       </div>`;
@@ -1417,7 +1444,7 @@
       return `<div class="card confirm-req">
         <div class="row"><span class="grow"><span class="badge b-rose">수강 확인 요청</span></span><span class="muted small">선생님 완료 보고</span></div>
         <b class="mt8" style="display:block;font-size:15px">${c.title}</b>
-        <div class="muted small mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted small mt4">${dlabel(s.date)} ${t12(s.time)} · ${teacher(c.teacherId).name} 선생님</div>
         ${DB.policy.methodApp
           ? `<button class="btn primary mt12" onclick="App.confirmAttendAsk('${b.id}')">받았어요 (수강 확인)</button>`
           : qrOnlyNote("mt12")}
@@ -1621,7 +1648,7 @@
       const md = mine ? mBkBadge(mine) : null; // v2.59: 회원 화면 배지는 4종(mBkBadge) 하나로 — 캘린더만 12종을 쓰던 어휘 이탈 해소
       return `<div class="slot mb-item tapable" role="button" tabindex="0" onclick="location.hash='#/m/slot/${s.id}'">
         <span class="mb-main">
-          <span class="time">${s.time}</span>
+          <span class="time">${t12(s.time)}</span>
           <span class="grow"><span class="t">${c.title}</span>
             <div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.duration}분 · ${past ? "지난 회차" : full ? `정원 마감${w ? ` · 대기 ${w}명` : ""}` : `잔여 ${c.capacity - n}자리`}</div>
             <div class="mt4 mb-badges"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span><span class="badge b-gray">${eligLabel(c)}</span>${md ? `<span class="badge ${md.badge}">${md.label}</span>` : ""}</div></span>
@@ -1704,7 +1731,7 @@
         : `<div class="banner warn">${icb("ban")}<span>${g.msg}</span></div>
            <a class="btn primary" href="#/m/shop">멤버십 구매하러 가기</a>`}
         ${myArrs.length ? `<div class="sec-title">보낸 요청</div><div class="card flat">${myArrs.map((a) => `
-          <div class="slot"><span class="grow"><b>${dlabel(a.date)} ${a.time}</b><div class="muted small">선생님 수락을 기다리는 중</div></span>
+          <div class="slot"><span class="grow"><b>${dlabel(a.date)} ${t12(a.time)}</b><div class="muted small">선생님 수락을 기다리는 중</div></span>
           <span class="badge b-warn">대기</span>
           <button class="btn sm ghost" onclick="App.arrangeCancel('${a.id}')">요청 취소</button></div>`).join("")}</div>` : ""}`, { back: true });
     }
@@ -1716,13 +1743,13 @@
     const laterSlots = slots.filter((s) => s.date > HORIZON);
     const shown = mcMore ? slots : nearSlots;
     return shell("m", c.title, `
-      <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · 정원 ${c.capacity}명 · ${eligLabel(c)}</div></div>
+      <div class="card flat"><div class="muted small">${teacher(c.teacherId).name} 선생님 · ${t12text(c.scheduleLabel)} · 정원 ${c.capacity}명 · ${eligLabel(c)}</div></div>
       ${g.ok ? "" : `<div class="banner warn">${icb("ban")}<span>${g.msg}</span></div>`}
       <div class="sec-title">예약 가능 회차 <span class="muted small" style="font-weight:600">— «예약»을 누르면 상세를 확인한 뒤 예약해요</span></div>
       <div class="card flat">${shown.length ? shown.map((s) => {
         const n = seatCount(s.id); const w = waitBk(s.id).length;
         const full = n >= c.capacity;
-        return `<div class="slot"><span class="time">${s.time}</span>
+        return `<div class="slot"><span class="time">${t12(s.time)}</span>
           <span class="grow"><span class="t">${dlabel(s.date)}</span>
             <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (n / c.capacity) * 100)}%"></i></div>
             <div class="muted small mt4">${n}/${c.capacity}명${w ? ` · 대기 ${w}명` : ""}</div></span>
@@ -1781,7 +1808,7 @@
     }
     return shell("m", "수업 상세", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${c.duration}분 · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted mt4">${dlabel(s.date)} ${t12(s.time)} · ${c.duration}분 · ${teacher(c.teacherId).name} 선생님</div>
         <div class="mt8"><span class="badge ${full ? "b-danger" : "b-green"}">${full ? `정원 마감${isPrivateClass(c) ? "" : ` · 대기 ${waitBk(s.id).length}명`}` : `잔여 ${c.capacity - n}자리`}</span></div>
         <div class="divider"></div>
         ${mine
@@ -1841,7 +1868,7 @@
         : canAct && b.status === "booked" && !priv ? CHANGE_GROUP_HINT : "";
       // 버튼이 2개 붙으면 좁은 화면에서 본문 칸이 눌린다 — 그때만 액션을 아랫줄로 내린다(.slot2)
       return `<div class="slot${chgBtn ? " slot2" : ""}"><span class="grow"><span class="t">${c.title}</span>
-        <div class="muted small">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted small">${dlabel(s.date)} ${t12(s.time)} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="muted small">${bp ? `${["confirmed", "forfeited", "noshow_final"].includes(b.status) ? "차감" : "사용"} 멤버십: ${bp.name}` : "멤버십 미연결"}</div>${subHtml(bd)}
         ${chgNote ? `<div class="muted small mt4">${chgNote}</div>` : ""}</span>
         ${mOverlapBadge(b)}<span class="badge ${bd.badge}">${bd.label}</span>
@@ -1856,7 +1883,7 @@
       const c = cls(a.classId); const bd = mArrBadge(a); const chg = a.kind === "change";
       const alt = negoState(a) === "declined" ? DB.proposals.find((p) => p.parentId === a.id && negoState(p) === "pending") : null;
       return `<div class="slot"><span class="grow"><span class="t">${c ? c.title : ""} <span class="badge ${chg ? "b-rose" : "b-blue"}">${chg ? "일정 변경 요청" : "일정 요청"}</span></span>
-        <div class="muted small">${chg ? `${a.origDesc || "기존 일정"} → ${optsLabel(a)} 희망` : `${dlabel(a.date)} ${a.time} 희망`}</div>${subHtml(bd)}</span>
+        <div class="muted small">${chg ? `${a.origDesc || "기존 일정"} → ${optsLabel(a)} 희망` : `${dlabel(a.date)} ${t12(a.time)} 희망`}</div>${subHtml(bd)}</span>
         <span class="badge ${bd.badge}">${bd.label}</span>
         ${negoState(a) === "pending" ? `<button class="btn sm ghost" onclick="App.arrangeCancel('${a.id}')">요청 취소</button>` : ""}
         ${alt ? `<button class="btn sm primary" onclick="App.scrollToNeed('m-mine')">받은 제안 보기</button>` : ""}</div>`;
@@ -1869,9 +1896,9 @@
     const asc = (x, y) => (x.date || "").localeCompare(y.date || "");
     const desc = (x, y) => (y.date || "").localeCompare(x.date || "");
     const bkTxt = (b) => { const s0 = slot(b.slotId); const c = s0 && cls(s0.classId);
-      return `${c ? c.title : ""} ${c ? teacher(c.teacherId).name : ""} ${s0 ? dlabel(s0.date) + " " + s0.time : ""} ${b.passId && pass(b.passId) ? pass(b.passId).name : ""}`; };
+      return `${c ? c.title : ""} ${c ? teacher(c.teacherId).name : ""} ${s0 ? dlabel(s0.date) + " " + t12(s0.time) + " " + s0.time : ""} ${b.passId && pass(b.passId) ? pass(b.passId).name : ""}`; };
     const negoTxt = (a) => { const c = cls(a.classId);
-      return `${c ? c.title : ""} ${c ? teacher(c.teacherId).name : ""} ${dlabel(a.date)} ${a.time} ${a.origDesc || ""} ${a.note || ""}`; };
+      return `${c ? c.title : ""} ${c ? teacher(c.teacherId).name : ""} ${dlabel(a.date)} ${t12(a.time)} ${a.origDesc || ""} ${a.note || ""}`; };
     const bkIt = (b, withActions, endedRow) => ({ txt: bkTxt(b), date: bkDate(b), html: item(b, withActions, endedRow) });
     const negoIt = (a, html) => ({ txt: negoTxt(a), date: a.date || "", html });
     const needItems = props.map((p) => negoIt(p, propItemHtml(p, "m"))).concat(need.map((b) => bkIt(b, false))).sort(desc);
@@ -1936,7 +1963,7 @@
     const auto = autoConfirmHoursOf(rp); // v2.58 QA: 보고 시점 스냅샷
     return shell("m", "수강 확인", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted mt4">${dlabel(s.date)} ${t12(s.time)} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
         <p style="font-size:15px">수업을 이상 없이 받으셨나요?<br><span class="muted small">확인하면 멤버십 1회가 차감되고 수업 기록이 남아요.</span></p></div>
       <div class="banner">${icb("lock")}<span>확인은 <b>회원 본인 계정</b>에서만 가능해요 — 선생님·센터가 대신 확인할 수 없어요. ${auto ? `${auto}시간 안에 응답이 없으면 자동확정되며,` : `자동확정 없이 센터가 수동 처리하며,`} 문제가 있으면 ${DB.policy.disputeDays}일 안에 이의제기할 수 있어요.</span></div>
@@ -1953,10 +1980,10 @@
     // v2.39 E: 확인 대기는 카테고리가 하나뿐이다 — 화면 재편 금지(형 명시). 검색·기간 필터만 얹는다.
     const items = list.slice().sort((a, b) => (slot(b.slotId).date || "").localeCompare(slot(a.slotId).date || "")).map((b) => {
       const s0 = slot(b.slotId); const c = cls(s0.classId);
-      return { txt: `${c.title} ${teacher(c.teacherId).name} ${dlabel(s0.date)} ${s0.time}`, date: s0.date,
+      return { txt: `${c.title} ${teacher(c.teacherId).name} ${dlabel(s0.date)} ${t12(s0.time)}`, date: s0.date,
         html: `<div class="cfm-row">
         <div class="row"><span class="grow"><b style="font-size:15px">${c.title}</b></span><span class="badge b-warn">대기</span></div>
-        <div class="muted small mt4">${dlabel(s0.date)} ${s0.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted small mt4">${dlabel(s0.date)} ${t12(s0.time)} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="row mt12" style="gap:8px">
           ${DB.policy.methodApp
             ? `<button class="btn primary grow" onclick="App.confirmAttendAsk('${b.id}')">받았어요 (수강 확인)</button>
@@ -1991,11 +2018,11 @@
       wrap: (rows) => `<div class="card flat"><ul class="ledger">${rows}</ul></div>`,
       empty: "이 멤버십에는 아직 사용 기록이 없어요.",
       items: DB.ledger.filter((l) => l.passId === p.id).slice().reverse().map((l) => ({
-        txt: `${ledgerLabel(l)} ${l.detail || ""} ${l.at || ""}`,
+        txt: `${ledgerLabel(l)} ${l.detail || ""} ${l.at || ""} ${t12text(l.at || "")}`,
         date: (l.at || "").slice(0, 10),
         html: `<li><span class="delta ${l.delta < 0 ? "minus" : "plus"}">${l.delta > 0 ? "+" + l.delta : l.delta}</span>
           <span class="grow"><b>${ledgerLabel(l)}</b><div class="muted small">${l.detail}</div></span>
-          <span class="muted small">${l.at.slice(5, 16)}</span></li>`,
+          <span class="muted small">${t12text(l.at.slice(5, 16))}</span></li>`,
       })),
     }));
     return shell("m", "이용 내역", `
@@ -2020,7 +2047,7 @@
       <div class="sec-title">오늘 일정 · ${dlabel(DB.TODAY)}</div>
       <div class="card flat">${today.length ? today.map((s) => {
         // v2.29 U20: 종료됐는데 완료 보고가 안 된 회차는 «보고 필요»(대기 계열)로 표시
-        return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/t/slot/${s.id}'"><span class="time">${s.time}</span>
+        return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/t/slot/${s.id}'"><span class="time">${t12(s.time)}</span>
           <span class="grow"><span class="t">${cls(s.classId).title} ${recurBadge(s)}</span><div class="muted small">${slotCenterTag(s)}${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
           ${overlapBadge(s)}${slotNeedsReport(s) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
       }).join("") : `<p class="muted">오늘 수업이 없어요.</p>`}</div>
@@ -2073,7 +2100,7 @@
       <div class="card flat">${list.length ? list.map((sl) => {
         const c = cls(sl.classId);
         // v2.29 U20: 확정된 회차 목록의 «조율» 태그는 «아직 조율 중»으로 오독된다 — 일정 방식은 회차 상세에서만.
-        return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/t/slot/${sl.id}'"><span class="time">${sl.time}</span>
+        return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/t/slot/${sl.id}'"><span class="time">${t12(sl.time)}</span>
           <span class="grow"><span class="t">${c.title} ${recurBadge(sl)}</span><div class="muted small">${slotCenterTag(sl)}${seatCount(sl.id)}명</div></span>
           ${overlapBadge(sl)}${slotNeedsReport(sl) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
       }).join("") : `<p class="muted">이 날은 잡힌 수업이 없어요.</p>`}</div>
@@ -2101,8 +2128,8 @@
     const reqItem = (a) => {
       const c = cls(a.classId);
       return `<div class="tl-item"><span class="grow"><b>${memberName(a.memberId)}</b> · ${c.title} <span class="badge b-blue">일정 요청</span>
-        <div class="muted small mt4">${dlabel(a.date)} ${a.time} 희망${a.note ? ` · "${a.note}"` : ""}</div>
-        <div class="muted small">${a.at} 보냄</div>
+        <div class="muted small mt4">${dlabel(a.date)} ${t12(a.time)} 희망${a.note ? ` · "${a.note}"` : ""}</div>
+        <div class="muted small">${t12text(a.at)} 보냄</div>
         ${negoState(a) === "pending" ? `<div class="btn-row col">
           <button class="btn sm primary" onclick="App.arrangeAccept('${a.id}')">수락 (예약 확정)</button>
           <span class="btn-row half"><button class="btn sm ghost" onclick="App.arrangeAltAsk('${a.id}')">다른 시간 제안</button>
@@ -2119,7 +2146,7 @@
         <div class="pp-shift"><span class="old">${a.origDesc || "기존 일정"}</span><span class="arw">→</span><span class="new">${optsLabel(a)}</span></div>
         ${negoOpts(a).length > 1 ? `<div class="muted small">희망 시간을 ${negoOpts(a).length}개 보냈어요 — 수락할 때 하나를 고르면 돼요.</div>` : ""}
         ${a.note ? `<div class="muted small mt4">"${a.note}"</div>` : ""}
-        <div class="muted small">${a.at} 보냄</div>
+        <div class="muted small">${t12text(a.at)} 보냄</div>
         ${negoState(a) === "pending" ? `<div class="btn-row">
           <button class="btn sm primary" onclick="App.mchAcceptAsk('${a.id}')">수락 (일정 옮기기)</button>
           <button class="btn sm ghost" onclick="App.mchDeclineAsk('${a.id}')">거절 (기존 유지)</button></div>` : stRow(a)}
@@ -2133,7 +2160,7 @@
     // 묶음 자체(받은 일정 요청 / 받은 일정 변경 요청 / 보낸 제안 / 처리됨)는 그대로다. 한 번에 하나만 날짜순으로 볼 뿐이다.
     // «처리됨»은 세 갈래의 종결분을 한 줄기로 합쳐 최신순 — 지난 건은 어느 갈래였는지보다 «언제»가 중요하다.
     const nTxt = (a) => { const c = cls(a.classId);
-      return `${memberName(a.memberId)} ${c ? c.title : ""} ${dlabel(a.date)} ${a.time} ${a.origDesc || ""} ${a.note || ""} ${a.declineReason || ""}`; };
+      return `${memberName(a.memberId)} ${c ? c.title : ""} ${dlabel(a.date)} ${t12(a.time)} ${a.origDesc || ""} ${a.note || ""} ${a.declineReason || ""}`; };
     const it = (a, html) => ({ txt: nTxt(a), date: a.date || "", html });
     const newest = (x, y) => (y.date || "").localeCompare(x.date || "");
     const oldest = (x, y) => (x.date || "").localeCompare(y.date || "");
@@ -2185,11 +2212,11 @@
     const priv = isPrivateClass(c);
     return shell("t", "수업 상세", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${centerTag(classCenter(c))}${dlabel(s.date)} ${s.time} · ${c.duration}분</div>
+        <div class="muted mt4">${centerTag(classCenter(c))}${dlabel(s.date)} ${t12(s.time)} · ${c.duration}분</div>
         <div class="mt8"><span class="badge ${done ? "b-gray" : "b-green"}">${done ? "종료" : "예정"}</span>
         <span class="badge ${priv ? "b-rose" : "b-blue"}">${priv ? "개인 1:1" : `그룹 · ${seats.length}/${c.capacity}명`}</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
       ${recurSlotHtml(s, "t")}
-      ${ov.length ? `<div class="banner warn">${icb("alert")}<span>같은 시간대에 <b>${ov.map((o) => `${o.time} ${cls(o.classId).title}${isMultiCenterTeacher() ? ` (${centerNameOf(slotCenter(o))})` : ""}`).join(", ")}</b> 수업이 함께 잡혀 있어요. 확인하고 진행해 주세요.</span></div>` : ""}
+      ${ov.length ? `<div class="banner warn">${icb("alert")}<span>같은 시간대에 <b>${ov.map((o) => `${t12(o.time)} ${cls(o.classId).title}${isMultiCenterTeacher() ? ` (${centerNameOf(slotCenter(o))})` : ""}`).join(", ")}</b> 수업이 함께 잡혀 있어요. 확인하고 진행해 주세요.</span></div>` : ""}
       <div class="sec-title">참석자</div>
       <div class="card flat">${seats.length ? seats.map((b) => {
         const bd = bkBadge(b, done && b.status === "booked"); // v2.58 QA: 종료 회차의 미보고 좌석은 «확정»이 아니라 «보고 대기»
@@ -2306,13 +2333,12 @@
   // ══ v2.60 (형 확정 09-15 SPEC — «일정 먼저, 내용 나중» 2단계) ══
   // 선생님은 자기 주간 일정에서 빈 시간을 찾은 뒤 수업을 잡는다. 그 순서대로 1단계(언제)→2단계(내용)로 나눈다.
   // 겹침 판정은 새로 만들지 않는다 — overlapSlots/overlapAsk를 그대로 쓴다(일정 탭 «시간 겹침» 점과 같은 기준).
-  const CC_TL_FROM = 6 * 60, CC_TL_TO = 23 * 60;
+  // v2.62 (형 확정 09-15 ③): 타임라인은 00:00~24:00 전일. 늦은 밤·새벽 레슨도 실제로 고를 수 있어야 한다.
+  // 48칸이라 길지만 «접어서 숨기기»는 쓰지 않는다 — 요구는 «선택 가능성»이고, 대신 첫 스크롤 위치를 낮으로 맞춘다.
+  const CC_TL_FROM = 0, CC_TL_TO = 24 * 60;
   const hm2m = (t) => { const [h, m] = String(t).split(":").map(Number); return h * 60 + m; };
   const m2hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-  // 시각 표기 — 요약 바·1단계 선택 라벨 전용. 목록·배지의 24시간 표기(09:00)는 그대로 둔다.
-  // (없앤 time input이 «오전 11:00»으로 보여 주던 자리를 그대로 이어받는다.)
-  const tlabel = (t) => { const m = hm2m(t), h = Math.floor(m / 60);
-    return `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}:${String(m % 60).padStart(2, "0")}`; };
+  // v2.62: 화면 전용 포맷터를 여기 또 두지 않는다 — 전 화면이 t12(SSOT) 하나만 쓴다.
   const ccRole = () => (location.hash.startsWith("#/c/") ? "c" : "t");
   const ccTeacherId = (role) => { const U = ccState(role);
     if (role === "t") return DB.me.teacher;
@@ -2320,20 +2346,28 @@
     return c ? c.teacherId : (U.teacherId || (DB.teachers[0] || {}).id); };
   const ccDuration = (role) => { const U = ccState(role); const c = U.classId === "new" ? null : cls(U.classId); return (c && c.duration) || 50; };
   const ccPastAt = (d, t) => new Date(`${d}T${t}:00+09:00`) <= NOW;
-  // 타임라인 행 = 30분 칸. 기본 06:00~23:00이고, 기존 수업이 그 밖이면 그 회차가 보이도록 범위를 넓힌다.
+  // 타임라인 행 = 30분 칸, 00:00~24:00 전일 48칸.
+  // v2.62: «기존 수업이 범위 밖이면 자동 확장» 로직은 범위가 전일로 고정되며 불필요해져 제거했다.
   function ccRows(role, date) {
     const ss = teacherDaySlots(ccTeacherId(role), date);
     const durOf = (s) => (cls(s.classId) || {}).duration || 50;
-    let from = CC_TL_FROM, to = CC_TL_TO;
-    ss.forEach((s) => { const a = hm2m(s.time), b = a + durOf(s);
-      from = Math.min(from, Math.floor(a / 30) * 30); to = Math.max(to, Math.ceil(b / 30) * 30); });
     const rows = [];
-    for (let m = from; m < to; m += 30) {
+    for (let m = CC_TL_FROM; m < CC_TL_TO; m += 30) {
       const t = m2hm(m);
       const on = ss.filter((s) => hm2m(s.time) < m + 30 && hm2m(s.time) + durOf(s) > m);
       rows.push({ t, on, head: on.find((s) => hm2m(s.time) >= m && hm2m(s.time) < m + 30) || null, past: ccPastAt(date, t) });
     }
     return rows;
+  }
+  // v2.62: 카드를 처음 열었을 때 보이는 위치 — 그 날 첫 기존 수업, 없으면 오전 8시.
+  // 그 칸이 이미 지났으면(오늘) 지나지 않은 첫 칸으로 내려, 열자마자 «지난 시간»만 보이는 일이 없게 한다.
+  function ccTlAnchor(role, date, picked) {
+    const rows = ccRows(role, date);
+    if (picked) return picked;
+    const ss = teacherDaySlots(ccTeacherId(role), date);
+    const base = ss.length ? m2hm(Math.floor(hm2m(ss[0].time) / 30) * 30) : "08:00";
+    if (!ccPastAt(date, base)) return base;
+    return (rows.find((r) => !r.past) || rows[rows.length - 1] || { t: base }).t;
   }
   // 프리필용 «첫 빈 시간» — 지나지 않았고 겹치지도 않는 가장 이른 30분 칸
   function ccFirstFree(role, date) {
@@ -2357,7 +2391,7 @@
     const c = U.classId === "new" ? null : cls(U.classId);
     const joining = U.fill === "assign" && c && U.slotSel && U.slotSel !== "new" && slot(U.slotSel);
     const txt = joining ? "기존 회차 사용 · 날짜·시간은 회차 일정을 따름"
-      : U.picked ? `${dlabel(U.date)} ${tlabel(U.time)}` : "날짜·시간을 아직 안 골랐어요";
+      : U.picked ? `${dlabel(U.date)} ${t12(U.time)}` : "날짜·시간을 아직 안 골랐어요";
     return `<span class="grow"><i>언제</i><b>${txt}</b></span>
       <button type="button" onclick="App.ccBackWhen('${role}')">${U.picked || joining ? "변경" : "고르기"}</button>`;
   }
@@ -2384,8 +2418,8 @@
       else if (row.past) body = `<span class="cc-past">지난 시간</span>`;
       else body = `<span class="cc-free">비어 있음</span>`;
       const cl = ["cc-row", row.past ? "past" : busy ? "busy" : "free", on ? "on" : ""].filter(Boolean).join(" ");
-      return `<button type="button" class="${cl}"${row.past ? " disabled" : ""} onclick="App.ccPick('${r}','${row.t}')"
-        aria-label="${row.t} ${row.past ? "지난 시간" : busy ? "수업 있음" : "비어 있음"}"><span class="cc-rt">${row.t}</span>
+      return `<button type="button" class="${cl}" data-t="${row.t}"${row.past ? " disabled" : ""} onclick="App.ccPick('${r}','${row.t}')"
+        aria-label="${t12(row.t)} ${row.past ? "지난 시간" : busy ? "수업 있음" : "비어 있음"}"><span class="cc-rt">${t12(row.t)}</span>
         <span class="cc-rb">${body}${on ? ` <span class="cc-on">선택됨</span>` : ""}</span></button>`;
     };
     return shell(r, "수업 만들기", `
@@ -2407,7 +2441,7 @@
         <div class="mb-legend"><span><i class="av"></i>수업 있음</span><span><i class="ov"></i>시간 겹침</span><span><i class="rp"></i>보고 필요</span></div>
       </div>
       <div class="sec-title">${dlabel(sel)} 타임라인${sel === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}</div>
-      <div class="card flat cc-tl-card"><div class="cc-tl" id="cc-tl">${rows.map(rowHtml).join("")}</div></div>
+      <div class="card flat cc-tl-card" data-anchor="${ccTlAnchor(r, sel, picked)}"><div class="cc-tl" id="cc-tl">${rows.map(rowHtml).join("")}</div></div>
       <div class="card">
         <div class="field" style="margin-bottom:0"><label>시간 직접 고르기</label>
           <div class="cc-direct"><input type="time" id="cc-time" value="${picked || U.time}" step="1800" aria-label="시작 시간">
@@ -2417,7 +2451,7 @@
       ${joinN ? `<button class="btn ghost" onclick="App.ccUseSlot('${r}')">기존 회차에 붙이기</button>
         <p class="muted small mt4" style="text-align:center">이미 잡아 둔 회차에 회원만 더 넣을 때 — 날짜·시간은 그 회차 일정을 따라요.</p>` : ""}
       <div class="cc-next">
-        <div class="cc-next-lab">${picked ? `<i>고른 시간</i><b>${dlabel(sel)} ${tlabel(picked)}</b>` : `<span class="muted">타임라인에서 시간을 골라 주세요</span>`}</div>
+        <div class="cc-next-lab">${picked ? `<i>고른 시간</i><b>${dlabel(sel)} ${t12(picked)}</b>` : `<span class="muted">타임라인에서 시간을 골라 주세요</span>`}</div>
         <button class="btn primary" onclick="App.ccNext('${r}')"${picked ? "" : " disabled"}>다음</button>
       </div>`, { back: true });
   }
@@ -2458,7 +2492,7 @@
             ${classes.map((x) => opt(x.id, `${x.title} · ${x.kind === "private" ? "개인 1:1" : `그룹 ${x.capacity}명`}`, x.id === U.classId)).join("")}
             ${auth.ok ? opt("new", "＋ 새 수업 만들기", isNew) : ""}
           </select>
-          ${c ? `<div class="hint">${teacher(c.teacherId).name} 선생님 · ${c.scheduleLabel} · ${eligLabel(c)}</div>`
+          ${c ? `<div class="hint">${teacher(c.teacherId).name} 선생님 · ${t12text(c.scheduleLabel)} · ${eligLabel(c)}</div>`
               : `<div class="hint">새 수업을 만들면서 첫 회차까지 한 번에 만들어요.</div>`}</div>
         ${isNew ? `
         <div class="field"><label>수업명</label><input type="text" id="nc-title" value="${(U.title || "").replaceAll('"', "&quot;")}" placeholder="예: 저녁 요가 클래스"></div>
@@ -2474,7 +2508,7 @@
           <div class="hint">보통 그룹=고정, 개인=일정 맞춤이지만 자유롭게 선택할 수 있어요.</div></div>` : ""}
         ${U.fill === "assign" && c ? `<div class="field"><label>회차</label><select id="qk-slot" onchange="App.ccSlot('${r}', this.value)">
           ${opt("new", "새 일시로 만들기", U.slotSel === "new")}
-          ${joinable.map((x) => opt(x.id, `${dlabel(x.date)} ${x.time} 기존 회차 합류 (${seatCount(x.id)}/${c.capacity}명)`, x.id === U.slotSel)).join("")}</select>
+          ${joinable.map((x) => opt(x.id, `${dlabel(x.date)} ${t12(x.time)} 기존 회차 합류 (${seatCount(x.id)}/${c.capacity}명)`, x.id === U.slotSel)).join("")}</select>
           <div class="hint">기존 회차를 고르면 위 요약의 날짜·시간 대신 그 회차 일정을 따라요.</div></div>` : ""}
       </div>
       <div class="sec-title">회원을 어떻게 채울까요?</div>
@@ -2512,7 +2546,7 @@
         <div class="divider"></div>
         <div class="field"><label>반복 요일</label>
           <div class="chips" id="rp-wdays">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<button class="chip${wdays.includes(d) ? " on" : ""}" data-v="${d}" onclick="App.ccWday('${r}',${d})">${DOW[d]}</button>`).join("")}</div>
-          <div class="hint">고른 요일마다 <b>${U.time}</b>에 회차가 만들어져요. 날짜를 바꾸면 그 날 요일이 기본으로 잡혀요.</div></div>
+          <div class="hint">고른 요일마다 <b>${t12(U.time)}</b>에 회차가 만들어져요. 날짜를 바꾸면 그 날 요일이 기본으로 잡혀요.</div></div>
         <div class="field"><label>언제까지 반복할까요?</label><div class="seg" id="rp-endmode">
           <button class="${U.endMode === "until" ? "on" : ""}" data-v="until" onclick="App.ccSeg('${r}',this,'endMode')">중단할 때까지</button>
           <button class="${U.endMode === "date" ? "on" : ""}" data-v="date" onclick="App.ccSeg('${r}',this,'endMode')">종료일 지정</button></div>
@@ -2657,7 +2691,7 @@
       for (const mid of mids) DB.bookings.push({ id: nid("bk"), slotId: sl.id, memberId: mid, passId: passOf[mid].id, status: "booked", policySnap: snapPolicy() });
       const who = mids.length === 1 ? `${memberName(mids[0])} 회원` : `${memberName(mids[0])} 외 ${mids.length - 1}명`;
       const rc = joinId ? null : ccMakeRecur(role, c, sl); // 기존 회차 합류엔 반복을 걸지 않는다
-      ccDone(role, `${who} ${dlabel(sl.date)} ${sl.time} 예약 확정! 회원에게 알림을 보냈어요.${ccRecurMsg(rc)}`, sl.date);
+      ccDone(role, `${who} ${dlabel(sl.date)} ${t12(sl.time)} 예약 확정! 회원에게 알림을 보냈어요.${ccRecurMsg(rc)}`, sl.date);
     };
     // v2.25 ②: 새 회차를 만들 때만 겹침 검사 — 기존 회차 합류는 이미 잡힌 시간이라 새 겹침이 안 생긴다.
     const hits = sl ? [] : overlapSlots(c.teacherId, d, t, c.duration, []);
@@ -2704,7 +2738,7 @@
       const sl = { id: nid("s"), classId: c.id, date: d, time: t, status: "scheduled", adhoc: true };
       DB.slots.push(sl);
       const rc = ccMakeRecur(role, c, sl);
-      ccDone(role, `«${c.title}» ${dlabel(d)} ${t} 자리를 열었어요. 조건에 맞는 회원이 «수업 예약»에서 신청할 수 있어요.${ccRecurMsg(rc)}`, d);
+      ccDone(role, `«${c.title}» ${dlabel(d)} ${t12(t)} 자리를 열었어요. 조건에 맞는 회원이 «수업 예약»에서 신청할 수 있어요.${ccRecurMsg(rc)}`, d);
     };
     const hits = overlapSlots(c.teacherId, d, t, c.duration || 50, []);
     if (hits.length) { overlapAsk(hits, finish); return; }
@@ -3194,7 +3228,7 @@
           const cnt = recurSlots(r).filter((x) => !isPast(x)).length;
           return `<div class="toggle-row"><span class="grow"><div class="tl">${c.title}</div>
             <div class="td"><b>${recurLabel(r)}</b> · ${recurEndLabel(r)}</div>
-            <div class="td">${r.active ? `앞으로 ${cnt}회차 · 다음 ${nx ? `${dlabel(nx.date)} ${nx.time}` : "없음"}` : "중단됨 — 새 회차를 만들지 않아요"}${(r.skips || []).length ? ` · 건너뛴 날 ${r.skips.length}일` : ""}</div></span>
+            <div class="td">${r.active ? `앞으로 ${cnt}회차 · 다음 ${nx ? `${dlabel(nx.date)} ${t12(nx.time)}` : "없음"}` : "중단됨 — 새 회차를 만들지 않아요"}${(r.skips || []).length ? ` · 건너뛴 날 ${r.skips.length}일` : ""}</div></span>
             <button class="sw${r.active ? " on" : ""}" onclick="App.recurToggle('${r.id}','${role}')" aria-label="${c.title} 반복" aria-pressed="${r.active}"></button></div>`;
         }).join("")}
         `
@@ -3210,7 +3244,7 @@
       .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0];
     if (!rows.length) return { text: "반복 수업 없음", on: 0, total: 0 };
     if (!act.length) return { text: `반복 수업 ${rows.length}건 · 모두 꺼짐`, on: 0, total: rows.length };
-    return { text: `반복 수업 ${act.length}건 켜짐${nx ? ` · 다음 ${dlabel(nx.date)} ${nx.time}` : ""}`, on: act.length, total: rows.length };
+    return { text: `반복 수업 ${act.length}건 켜짐${nx ? ` · 다음 ${dlabel(nx.date)} ${t12(nx.time)}` : ""}`, on: act.length, total: rows.length };
   }
   const recurEntryHtml = (role) => `<a class="btn ghost" href="#/c/policy/recur" style="margin-bottom:14px" id="recur-entry">🔁 ${recurSummary(role).text} ›</a>`;
 
@@ -3274,7 +3308,7 @@
       const c = cls(s.classId) || {};
       const who = attendeeNames(s.id);
       return `<button type="button" class="ov-line" onclick="location.hash='#/${role}/slot/${s.id}'">
-        <span class="grow"><span class="t"><b>${s.time}</b> ${c.title || "-"}</span>
+        <span class="grow"><span class="t"><b>${t12(s.time)}</b> ${c.title || "-"}</span>
         <div class="muted small mt4">${c.duration || 50}분 · ${who.length ? `${who.join(", ")} 회원` : "예약자 없음"}</div></span>
         <span class="chev" aria-hidden="true">›</span></button>`;
     };
@@ -3291,7 +3325,7 @@
     // v2.39 E: 겹침 쌍도 운영이 길어지면 쌓인다 — [처리 필요][의도한 겹침] 두 카테고리 + 검색·기간(전 화면 공통 문법).
     const pTxt = (x) => { const c = cls(x.a.classId) || {}; const c2 = cls(x.b.classId) || {};
       const t = teacher(c.teacherId) || {};
-      return `${t.name || ""} ${c.title || ""} ${c2.title || ""} ${dlabel(x.a.date)} ${x.a.time} ${x.b.time}`; };
+      return `${t.name || ""} ${c.title || ""} ${c2.title || ""} ${dlabel(x.a.date)} ${t12(x.a.time)} ${x.b.time}`; };
     const pIt = (x) => ({ txt: pTxt(x), date: x.a.date || "", html: card(x) });
     const byDate = (x, y) => (x.date || "").localeCompare(y.date || "");
     return shell(role, "시간이 겹친 수업", `
@@ -3392,7 +3426,7 @@
       // v2.29 §A3: «종료»·«마감»·«상세»는 전부 같은 동작(상세 이동)이라 셰브론으로 통일.
       // 마감 여부는 정원 게이지와 «n/정원명»이 이미 말하고 있고, 종결 여부만 4계열 배지로 남긴다.
       const ended = s.status === "done" || isPast(s);
-      return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/c/slot/${s.id}'"><span class="time">${s.time}</span>
+      return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/c/slot/${s.id}'"><span class="time">${t12(s.time)}</span>
         <span class="grow"><span class="t">${c.title} ${recurBadge(s)}</span>
           <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (n / c.capacity) * 100)}%"></i></div>
           <div class="muted small mt4">${teacher(c.teacherId).name} · ${n}/${c.capacity}명${w ? ` · 대기 ${w}` : ""}${full && !ended ? " · 정원 마감" : ""}</div></span>
@@ -3400,7 +3434,7 @@
     };
     const arrItem = (a) => {
       const c = cls(a.classId); const bd = arrBadge(a);
-      return `<div class="slot"><span class="time">${a.time}</span>
+      return `<div class="slot"><span class="time">${t12(a.time)}</span>
         <span class="grow"><span class="t">${memberName(a.memberId)} · ${c.title}</span>
         <div class="muted small">${dlabel(a.date)} 희망 · ${teacher(c.teacherId).name} 선생님 일정 요청함</div>${subHtml(bd)}</span>
         <span class="badge ${bd.badge}">${bd.label}</span></div>`;
@@ -3458,11 +3492,11 @@
     const ov = slotOverlaps(s);
     return shell("c", "회차 상세", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted mt4">${dlabel(s.date)} ${t12(s.time)} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="mt8"><span class="badge ${s.status === "canceled" ? "b-gray" : s.status === "done" || isPast(s) ? "b-gray" : "b-green"}">${s.status === "canceled" ? "취소됨" : s.status === "done" || isPast(s) ? "종료" : "예정"}</span>
         <span class="badge b-blue">${seats.length}/${c.capacity}명</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
       ${recurSlotHtml(s, "c")}
-      ${ov.length ? `<div class="banner warn">${icb("alert")}<span>${teacher(c.teacherId).name} 선생님이 같은 시간대에 <b>${ov.map((o) => `${o.time} ${cls(o.classId).title}`).join(", ")}</b> 수업도 맡고 있어요.</span></div>` : ""}
+      ${ov.length ? `<div class="banner warn">${icb("alert")}<span>${teacher(c.teacherId).name} 선생님이 같은 시간대에 <b>${ov.map((o) => `${t12(o.time)} ${cls(o.classId).title}`).join(", ")}</b> 수업도 맡고 있어요.</span></div>` : ""}
       <div class="sec-title">예약자</div>
       <div class="card flat">${seats.length ? seats.map((b) => {
         const bd = bkBadge(b);
@@ -4145,7 +4179,7 @@
     const s = slot(b.slotId); const c = cls(s.classId);
     return shell("m", "QR 수강 확인", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${dlabel(s.date)} ${s.time} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted mt4">${dlabel(s.date)} ${t12(s.time)} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="divider"></div>
         <p style="font-size:15px">현장에서 QR로 확인 중이에요.<br><span class="muted small">확인하면 멤버십 1회가 차감되고 수업 기록이 남아요.</span></p></div>
       <div class="banner">${icb("lock")}<span>이 QR은 <b>이 수업 1건 전용</b>이에요 · 발급 후 <b>5분 만료</b> · 확인이 끝나면 바로 만료돼 다시 쓸 수 없어요. 확인은 <b>회원 본인 계정</b>에서만 할 수 있어요.</span></div>
@@ -4440,7 +4474,7 @@
         <input type="date" id="mc-d${i}" ${i ? "" : `value="${s.date}"`} min="${DB.TODAY}" style="flex:1" oninput="App.mchSync()">
         <input type="time" id="mc-t${i}" ${i ? "" : `value="${s.time}"`} style="flex:1" oninput="App.mchSync()">
         ${i ? `<button type="button" class="mch-x" onclick="App.mchSlotDel(${i})" aria-label="이 희망 시간 지우기">&times;</button>` : ""}</div>`;
-      modal(`<h3>시간 변경 요청</h3><p><b>${c.title}</b> · 지금 일정 ${dlabel(s.date)} ${s.time}<br>
+      modal(`<h3>시간 변경 요청</h3><p><b>${c.title}</b> · 지금 일정 ${dlabel(s.date)} ${t12(s.time)}<br>
         희망하는 시간을 알려 주시면 ${teacher(c.teacherId).name} 선생님이 확인하고 답해요.</p>
         <div class="field mt12"><label>희망 일시</label>
           ${row(0)}${row(1)}${row(2)}
@@ -4499,7 +4533,7 @@
       const note = clean((document.getElementById("mc-note") || { value: "" }).value).trim();
       const send = () => {
         DB.negos.push({ id: nid("mc"), initiator: "member", kind: "change", classId: c.id, teacherId: c.teacherId, memberId: DB.me.member,
-          bookingId: bkId, origDesc: `${dlabel(s.date)} ${s.time}`, date: opts[0].date, time: opts[0].time, opts,
+          bookingId: bkId, origDesc: `${dlabel(s.date)} ${t12(s.time)}`, date: opts[0].date, time: opts[0].time, opts,
           note, status: "pending", at: stampOf() });
         closeModal(true); render();
         toast(`${teacher(c.teacherId).name} 선생님에게 변경 요청을 보냈어요. 답이 올 때까지 지금 예약은 그대로예요.`);
@@ -4521,7 +4555,7 @@
       if (!opts.length) { toast("희망하신 시간이 모두 지났어요. 다른 시간을 제안해 주세요."); render(); return; }
       modal(`<h3>어느 시간으로 옮길까요?</h3><p><b>${memberName(a.memberId)}</b> 회원 · ${a.origDesc || "기존 일정"} → 아래 중 하나로 옮겨져요.</p>
         ${opts.map((o, i) => `<button class="fill-opt mt8" onclick="App.mchAccept('${a.id}',${i})">
-          <span class="fo-dot"></span><span class="grow"><b>${dlabel(o.date)} ${o.time}</b>
+          <span class="fo-dot"></span><span class="grow"><b>${dlabel(o.date)} ${t12(o.time)}</b>
           <span class="fo-d">${overlapSlots(cls(a.classId).teacherId, o.date, o.time, cls(a.classId).duration, []).length ? "이 시간엔 내 다른 수업이 있어요" : "이 시간엔 잡힌 수업이 없어요"}</span></span></button>`).join("")}
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button></div>`);
     },
@@ -4547,7 +4581,7 @@
         a.status = "accepted"; a.slotId = es.slot.id; a.date = o.date; a.time = o.time;
         promoteWaitlist(s0.id); cleanupSlot(s0);
         closeModal(true); render();
-        toast(`${memberName(a.memberId)} 회원 예약을 ${dlabel(o.date)} ${o.time}로 옮겼어요. 횟수 차감은 없어요.`);
+        toast(`${memberName(a.memberId)} 회원 예약을 ${dlabel(o.date)} ${t12(o.time)}로 옮겼어요. 횟수 차감은 없어요.`);
       };
       const hits = overlapSlots(c.teacherId, o.date, o.time, c.duration, [s0.id]);
       const mh = memberBusyAt(a.memberId, o.date, o.time, c.duration, [b.id]);
@@ -4627,7 +4661,7 @@
     arrangeAltAsk(arId) {
       const a = DB.arranges.find((x) => x.id === arId);
       if (!a || a.status !== "pending") return;
-      modal(`<h3>다른 시간을 제안할게요</h3><p>${memberName(a.memberId)} 회원이 희망한 <b>${dlabel(a.date)} ${a.time}</b> 대신 가능한 시간을 골라 주세요. 회원이 수락하면 그 시간으로 예약이 확정돼요.</p>
+      modal(`<h3>다른 시간을 제안할게요</h3><p>${memberName(a.memberId)} 회원이 희망한 <b>${dlabel(a.date)} ${t12(a.time)}</b> 대신 가능한 시간을 골라 주세요. 회원이 수락하면 그 시간으로 예약이 확정돼요.</p>
         <div class="field mt12"><label>제안할 일시</label>
           <div class="row" style="gap:8px"><input type="date" id="ar-alt-date" min="${DB.TODAY}" style="flex:1"><input type="time" id="ar-alt-time" style="flex:1"></div></div>
         <div class="field"><label>메모 (선택 · 회원에게 전달)</label>
@@ -4663,7 +4697,7 @@
       modal(`<h3>어떤 예약을 옮길까요?</h3><p>확정된 1:1 예약만 시간을 옮기자고 제안할 수 있어요.</p>
         <div class="card flat mt8">${mine.map((b) => {
           const sl = slot(b.slotId);
-          return `<div class="slot tapable" role="button" tabindex="0" onclick="App.propChangeAsk('${b.id}')"><span class="time">${sl.time}</span>
+          return `<div class="slot tapable" role="button" tabindex="0" onclick="App.propChangeAsk('${b.id}')"><span class="time">${t12(sl.time)}</span>
             <span class="grow"><span class="t">${memberName(b.memberId)} · ${cls(sl.classId).title}</span>
             <div class="muted small">${dlabel(sl.date)}${pendingChangeFor(b.id) ? " · 이미 답변 대기 중인 변경 제안이 있어요" : ""}</div></span>
             <span class="chev" aria-hidden="true">›</span></div>`;
@@ -4722,7 +4756,7 @@
       // v2.25 ②: 새 시간에 내 다른 수업이 있으면 경고 후 강행 허용 (회원에게는 남의 일정이 노출되지 않게 보낼 때 확인)
       const send = () => {
         DB.negos.push({ id: nid("pp"), initiator: "teacher", kind: "change", teacherId: c.teacherId, memberId: b.memberId, classId: c.id,
-          bookingId: bkId, origDesc: `${dlabel(s.date)} ${s.time}`, date: d, time: t, note: reason, status: "pending", at: stampOf() });
+          bookingId: bkId, origDesc: `${dlabel(s.date)} ${t12(s.time)}`, date: d, time: t, note: reason, status: "pending", at: stampOf() });
         closeModal(); render();
         toast(`${memberName(b.memberId)} 회원에게 변경 제안을 보냈어요. 수락하면 예약이 바뀌어요.`);
       };
@@ -4764,7 +4798,7 @@
       if (!p || negoState(p) !== "pending") return;
       const c = cls(p.classId);
       modal(`<h3>${memberName(p.memberId)} 회원에게 보낸 제안을 철회할까요?</h3>
-        <p>${c ? c.title : ""} · ${dlabel(p.date)} ${p.time}<br>제안이 사라지고 회원에게 알림이 가요. 아직 예약이 만들어지지 않아서 <b>멤버십 차감은 0회</b>예요 — 회원 횟수는 움직이지 않아요.</p>
+        <p>${c ? c.title : ""} · ${dlabel(p.date)} ${t12(p.time)}<br>제안이 사라지고 회원에게 알림이 가요. 아직 예약이 만들어지지 않아서 <b>멤버십 차감은 0회</b>예요 — 회원 횟수는 움직이지 않아요.</p>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.propCancel('${ppId}')">제안 철회</button></div>`);
     },
@@ -4797,7 +4831,7 @@
           p.status = "accepted"; p.slotId = es.slot.id;
           promoteWaitlist(s0.id); cleanupSlot(s0);
           render();
-          toast(`예약이 ${dlabel(p.date)} ${p.time}로 변경됐어요. 선생님에게 알림이 갔어요.`);
+          toast(`예약이 ${dlabel(p.date)} ${t12(p.time)}로 변경됐어요. 선생님에게 알림이 갔어요.`);
         };
         // v2.33 D-2(d): 옮겨 갈 시간에 회원 본인 다른 예약이 있으면 경고 — 옮기는 예약 자신은 제외.
         const mhC = memberBusyAt(DB.me.member, p.date, p.time, c.duration, [b.id]);
@@ -4814,7 +4848,7 @@
         DB.bookings.push({ id: nid("bk"), slotId: es.slot.id, memberId: DB.me.member, passId: g.pass.id, status: "booked", policySnap: snapPolicy(), fromNego: p.id });
         p.status = "accepted"; p.slotId = es.slot.id;
         render();
-        toast(`수락했어요! ${dlabel(p.date)} ${p.time} 예약이 확정됐어요.`);
+        toast(`수락했어요! ${dlabel(p.date)} ${t12(p.time)} 예약이 확정됐어요.`);
       };
       // v2.33 D-2(d): 같은 일시 중복은 위에서 이미 막았고, 여기선 «구간이 겹치는» 본인 예약을 경고만 한다.
       const mhP = memberBusyAt(DB.me.member, p.date, p.time, c.duration, []);
@@ -5294,7 +5328,7 @@
       if (!App.teachGuard(sl.classId, role)) return;
       const n = seatBk(sl.id).length + waitBk(sl.id).length;
       modal(`<h3>이 회차만 건너뛸까요?</h3>
-        <p><b>${dlabel(sl.date)} ${sl.time} · ${cls(sl.classId).title}</b> 한 회차만 빼요. 공휴일·휴무처럼 그 주만 쉬는 경우예요.</p>
+        <p><b>${dlabel(sl.date)} ${t12(sl.time)} · ${cls(sl.classId).title}</b> 한 회차만 빼요. 공휴일·휴무처럼 그 주만 쉬는 경우예요.</p>
         <p class="muted small mt8">${recurLabel(r)} 반복은 그대로 계속돼요. 건너뛴 날은 다시 만들어지지 않아요.${n ? ` <b>예약 ${n}건이 취소되고 회원에게 알림이 가요.</b> 아직 차감 전이라 횟수 손실은 없어요.` : ""}</p>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.recurSkip('${slotId}','${role || ""}')">이번만 건너뛰기</button></div>`);
@@ -5313,7 +5347,7 @@
       DB.notices.filter((x) => x.slotId === sl.id && !x.resolved).forEach((x) => (x.resolved = true));
       closeModal();
       location.hash = location.hash.startsWith("#/c/") ? "#/c/classes" : "#/t/schedule"; // v2.58 QA: 딥링크여도 갈 곳이 있게 (선생님=주간 일정에서 빈 자리를 바로 확인)
-      toast(`${dlabel(sl.date)} ${sl.time} 회차를 건너뛰었어요.${n ? ` 예약 ${n}건 취소 · 회원 알림 발송.` : ""} 다음 회차부터 반복은 그대로예요.`);
+      toast(`${dlabel(sl.date)} ${t12(sl.time)} 회차를 건너뛰었어요.${n ? ` 예약 ${n}건 취소 · 회원 알림 발송.` : ""} 다음 회차부터 반복은 그대로예요.`);
     },
     // ── v2.28 회차 수정: 항상 «이 회차만 / 앞으로 전부» 선택 ──
     slotEditAsk(slotId, role) {
@@ -5348,7 +5382,7 @@
         sl.date = d; sl.time = t; sl.detached = true; // 규칙에서 떼어 낸 회차 — 이후 «앞으로 전부» 변경에 휩쓸리지 않는다
         if (!(r.skips || []).includes(from)) (r.skips = r.skips || []).push(from);
         closeModal(); render();
-        toast(`이 회차만 ${dlabel(d)} ${t}로 옮겼어요. 나머지 반복은 그대로예요.${seatBk(sl.id).length ? " 예약한 회원에게 변경 알림을 보냈어요." : ""}`);
+        toast(`이 회차만 ${dlabel(d)} ${t12(t)}로 옮겼어요. 나머지 반복은 그대로예요.${seatBk(sl.id).length ? " 예약한 회원에게 변경 알림을 보냈어요." : ""}`);
         return;
       }
       r.time = t;
@@ -5356,7 +5390,7 @@
       let moved = 0, told = 0;
       targets.forEach((x) => { if (x.time !== t) { x.time = t; moved++; told += seatBk(x.id).length; } });
       closeModal(); render();
-      toast(`앞으로의 반복 회차 ${moved}개 시간을 ${t}로 바꿨어요.${told ? ` 예약 ${told}건에 변경 알림을 보냈어요.` : ""}`);
+      toast(`앞으로의 반복 회차 ${moved}개 시간을 ${t12(t)}로 바꿨어요.${told ? ` 예약 ${told}건에 변경 알림을 보냈어요.` : ""}`);
     },
     // v2.33 B-2·B-3: 날짜·시간 입력이 바뀔 때 안내만 갱신 — 전체 render()를 부르면 입력 포커스가 날아간다.
     arrSync(classId) {
@@ -5916,6 +5950,17 @@
   const REDIRECTS = { "#/t/quick": "#/t/create", "#/c/quick": "#/c/create", "#/t/classes": "#/t/schedule/classes",
     "#/t/inbox": "#/t/schedule/reqs", "#/m/proposals": "#/m/book/mine", "#/m/bookings": "#/m/book/mine",
     "#/m/pass": "#/m/home", "#/c/bookings": "#/c/classes" };
+  // v2.62: 시드·과거 기록의 desc/detail/scheduleLabel 안에 24시간 시각이 박혀 있다. 화면마다 감싸는 대신
+  // 부팅 때 한 번 t12text로 통과시킨다(표시 전용 문자열 — 월 필터·정산은 lessonDate/lessonTime 컬럼을 읽는다).
+  function normalizeSeedTimeText() {
+    const fix = (o, k) => { if (o && typeof o[k] === "string") o[k] = t12text(o[k]); };
+    (DB.slines || []).forEach((l) => fix(l, "desc"));
+    (DB.reports || []).forEach((r) => { fix(r, "desc"); fix(r, "at"); });
+    (DB.classes || []).forEach((c) => { fix(c, "scheduleLabel"); fix(c, "title"); });
+    (DB.ledger || []).forEach((l) => fix(l, "detail"));
+    (DB.negos || []).forEach((a) => fix(a, "origDesc"));
+  }
+
   function render() {
     NOW = new Date(); // v2.58 QA: 판정 기준 시각은 항상 «지금»
     sweepExpiredWaitlists(); // v2.59: 지난 회차의 대기 자동 종료 (실서비스=스위퍼 크론)
@@ -5941,6 +5986,10 @@
     }
     const keepToasts = [...$app.querySelectorAll(".toast")]; // 화면 이동해도 토스트 유지
     const prevY = window.scrollY;
+    // v2.62: 1단계 타임라인(48칸)의 내부 스크롤 — 같은 화면 내 재렌더면 보던 위치를 유지하고,
+    // 화면에 처음 들어올 땐 data-anchor 칸(낮 시간대)이 맨 위에 오게 맞춘다.
+    const prevTlEl = $app.querySelector(".cc-tl-card[data-anchor]");
+    const prevTlTop = prevTlEl ? prevTlEl.scrollTop : null;
     // v2.10: 회원 화면 실서비스 앱 톤 → v2.25 ④ 선생님·센터도 같은 디자인 시스템(role-t/role-c)
     const roleSeg = h.split("/")[1];
     $app.classList.toggle("role-m", roleSeg === "m");
@@ -5950,6 +5999,11 @@
     keepToasts.forEach((el) => $app.appendChild(el));
     // 같은 화면 내 상태 갱신(토글·커밋)은 스크롤 유지 — 화면 이동 시에만 최상단으로
     window.scrollTo(0, h !== lastHash ? 0 : prevY);
+    const tlEl = $app.querySelector(".cc-tl-card[data-anchor]");
+    if (tlEl) {
+      if (prevTlTop != null && h === lastHash) tlEl.scrollTop = prevTlTop;
+      else { const ar = tlEl.querySelector(`.cc-row[data-t="${tlEl.dataset.anchor}"]`); tlEl.scrollTop = ar ? ar.offsetTop : 0; }
+    }
     // 화면 진입 모션은 해시 이동 시에만 — 같은 화면 내 상태 갱신엔 재생하지 않음
     if (h !== lastHash) {
       const sc = $app.querySelector(".screen");
@@ -5984,6 +6038,7 @@
     if (hd) hd.classList.toggle("scrolled", window.scrollY > 4);
   }, { passive: true });
   window.addEventListener("hashchange", () => { closeModal(true); render(); });
+  normalizeSeedTimeText(); // v2.62: 시드 문자열의 24시간 표기 → 12시간 (부팅 1회)
   recurRollAll(); // v2.28 ①: 부팅 시 롤링 — 기준일부터 앞으로 8주치를 미리 채운다
   render();
 })();
