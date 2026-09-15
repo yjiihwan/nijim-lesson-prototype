@@ -793,6 +793,13 @@ button.stat:active { transform: scale(.97); }
 .cc-row.on .cc-rt { color: var(--cta); }
 .cc-on { font-size: 11.5px; font-weight: 800; color: var(--cta); }
 .cc-row:not(.past):active { transform: scale(.985); }
+/* v2.63 «기준 선생님 고르기» — 센터(원장) 1단계 최상단 */
+.cc-tpick { margin-bottom: 12px; }
+.cc-basis { display: inline-block; vertical-align: middle; margin-left: 6px; padding: 2px 8px; border-radius: 999px; background: var(--surface-rose); color: var(--cta); font-size: 11.5px; font-weight: 800; white-space: nowrap; }
+.cc-tl-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 28px 18px; }
+.cc-tl-empty svg, .cc-tl-empty .ic { width: 26px; height: 26px; opacity: .45; }
+.cc-tl-empty b { font-size: 14.5px; font-weight: 800; }
+.cc-tl-empty p { margin: 0; max-width: 34ch; word-break: keep-all; }
 .cc-direct { display: flex; gap: 8px; align-items: center; }
 .cc-direct input[type=time] { flex: 1 1 auto; min-width: 0; }
 .cc-direct .btn { flex: 0 0 auto; }
