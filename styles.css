@@ -815,3 +815,42 @@ button.stat:active { transform: scale(.97); }
 .cc-sum button { flex: 0 0 auto; font-size: 13px; font-weight: 800; color: var(--cta); background: var(--surface); padding: 8px 12px; border-radius: 10px; }
 .cc-sum button:active { background: var(--surface-sunken); }
 @media (prefers-reduced-motion: reduce) { .cc-row:not(.past):active { transform: none; } }
+
+/* ══ v2.64 §1 공휴일 «표시» — 색과 라벨뿐이다. 이 스타일이 붙었다고 회차가 빠지는 일은 없다. ══ */
+.b-holi { background: #fdeceb; color: #c0392b; }
+.holi-tag { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 6px;
+  margin-left: 4px; background: #fdeceb; color: #c0392b; vertical-align: 1px; white-space: nowrap; }
+/* §1-B 골라서 건너뛰기 — 기본 해제. 44px 터치 타깃 유지 */
+.holi-pick { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 6px; }
+/* .field label 이 display:block·bold 를 먹이므로 한 칸 더 구체적으로 눌러 준다(아니면 체크박스에 글자가 붙는다) */
+.holi-pick label.holi-row { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0;
+  padding: 4px 2px; font-size: 14px; font-weight: 500; color: var(--text); cursor: pointer; }
+.holi-pick label.holi-row input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--cta); margin: 0; }
+.holi-pick label.holi-row .grow { min-width: 0; word-break: keep-all; }
+.rc-holi { padding: 2px 0 10px 2px; border-bottom: 1px solid var(--border); }
+.rc-holi .field { margin-bottom: 0; }
+.rc-holi:last-child { border-bottom: 0; }
+
+/* ══ v2.64 §2-A 「요일·시간 변경」 저장 전 영향 미리보기 ══ */
+.se-prev { padding: 12px 13px; }
+.se-row { display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; padding: 3px 0; font-size: 14px; }
+.se-row .se-k { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--text-muted); min-width: 6.5em; }
+.se-row .se-v { flex: 1 1 8em; min-width: 0; word-break: keep-all; }
+.se-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.se-list li { font-size: 13.5px; line-height: 1.45; word-break: keep-all; padding-left: 13px; position: relative; }
+.se-list li::before { content: ""; position: absolute; left: 0; top: .55em; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--border-strong); }
+.se-list li.muted { color: var(--text-muted); font-size: 13px; }
+.se-list li.se-warn { color: var(--warning); }
+.se-list li.se-warn::before { background: var(--warning); }
+
+/* ══ v2.64 §3 회원 알림 인박스 — 통보 전용이라 액션 버튼이 없다 ══ */
+.alert-list { list-style: none; margin: 0; padding: 0; }
+.alert-list li { display: flex; gap: 10px; padding: 12px 2px; border-bottom: 1px solid var(--border); }
+.alert-list li:last-child { border-bottom: 0; }
+.alert-list li .grow { min-width: 0; word-break: keep-all; }
+.alert-list li.new { position: relative; }
+.alert-list li.new::after { content: ""; position: absolute; right: 2px; top: 16px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--cta); }
+.al-ic { flex: 0 0 auto; width: 22px; height: 22px; color: var(--text-muted); }
+.al-ic svg { width: 22px; height: 22px; }

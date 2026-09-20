@@ -1,4 +1,18 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.64 (2026-09-20 «반복수업 4건» — 설계 확정서 lesson_recur_design_20260917.md 5장 구현 범위 그대로):
+   ① 공휴일: 배지 «표시»만 + «골라서 건너뛰기»(기본 해제) + 센터 기본값 토글(policy.holidaySkipDefault, 기본 OFF).
+      🔴⛔자동 제외 로직 금지 (형 확정 09-17 «공휴일에 수업하는 센터도 있어서 임의로 빼면 안 됨»).
+      체크박스를 사람이 누른 것만 recurs.skips[]로 들어간다. 새 저장소를 만들지 않았다.
+   ② 요일 변경 = «반복 규칙» 교체(classes는 절대 새로 만들지 않는다) + 회차 1:1 승계(slot.id 유지 → 예약 보존)
+      + 저장 전 영향 미리보기. 🔴화면 어휘에 «규칙/분할/재생성» 금지, 버튼은 «요일·시간 변경» 하나.
+      예외 4가지: 잉여 회차 취소 / 모자란 자리 생성 / 점유된 자리는 뺏지 않음 / detached 회차 무수정.
+   ②-E 선결 결함 2건: 「앞으로 전부」가 날짜 입력을 버리던 것 → 적용 시점(다음 주부터·날짜 지정)으로 정식 반영,
+      날짜칸은 「이 회차만」에만 둔다 / recurSlotAt 중복 키에 recurId 포함(옛·새 규칙 공존 시 회차 흡수 방지).
+   ③ 회원 알림 «레코드» 실제 생성(DB.alerts, #/m/alerts) + 변경 전 확인 모달 + CANCEL_REASON.recur_weekday/recur_time.
+      🔴통보만. ⛔동의·수락 절차를 만들지 마라(형 확정 09-17).
+   ④ 8주 롤링 = 실서비스 매일 새벽 04:00 KST 배치(사양 = handoff/recur_batch_spec.md). 프로토타입은 날짜 바뀜 감지
+      롤링으로 흉내. 규칙 단위 try/catch + DB.rollLog. 멱등 필수. 부팅 롤링은 안전망으로 유지.
+
    v2.63 (2026-09-15 형 확정 A안 — 센터 1단계 «기준 선생님 고르기» 신설):
    ① 노출은 센터(원장) 역할만. 선생님 계정은 자기 일정 하나뿐이라 칸을 렌더조차 하지 않는다.
    ② 위치는 1단계 타임라인 «위». 고르기 전에는 타임라인·시간 직접 입력·기존 회차 붙이기를 모두 내린다 —
@@ -846,6 +860,57 @@
     if (s && s.adhoc && !s.recurId && s.status === "scheduled" && seatCount(s.id) === 0 && waitBk(s.id).length === 0) s.status = "canceled";
   }
 
+  // ══ v2.64 §1 공휴일 — «표시»만 한다 (형 확정 2026-09-17) ══
+  // 🔴형 원칙: «공휴일에 수업하는 센터도 있어서 임의로 빼면 안 됨» → ⛔자동 제외 로직 금지.
+  //   이 블록이 하는 일은 딱 둘이다: ① 날짜에 이름표를 붙인다 ② 반복 만들 때 «골라서» 건너뛸 후보를 보여준다.
+  //   실제로 빠지는 건 사람이 체크박스를 눌렀을 때뿐이고, 그 결과는 기존 recurs.skips[]에 들어간다(새 저장소 없음).
+  // 데이터: 프로토타입은 상수 테이블. 실서비스는 한국천문연구원 «특일 정보» API(공공데이터포털) 연 1회 동기화.
+  //   대체공휴일 포함(어린이날·부처님오신날·성탄절·3·1절·광복절·개천절·한글날이 토·일과 겹칠 때, 설·추석 연휴가
+  //   일요일·다른 공휴일과 겹칠 때). 현충일은 대체공휴일 대상이 아니다.
+  const HOLIDAYS = {
+    "2026-01-01": "신정",
+    "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
+    "2026-03-01": "삼일절", "2026-03-02": "삼일절 대체공휴일",
+    "2026-05-05": "어린이날",
+    "2026-05-24": "부처님오신날", "2026-05-25": "부처님오신날 대체공휴일",
+    "2026-06-06": "현충일",
+    "2026-08-15": "광복절", "2026-08-17": "광복절 대체공휴일",
+    "2026-09-24": "추석 연휴", "2026-09-25": "추석", "2026-09-26": "추석 연휴", "2026-09-28": "추석 대체공휴일",
+    "2026-10-03": "개천절", "2026-10-05": "개천절 대체공휴일",
+    "2026-10-09": "한글날",
+    "2026-12-25": "성탄절",
+    "2027-01-01": "신정",
+    "2027-02-06": "설날 연휴", "2027-02-07": "설날", "2027-02-08": "설날 연휴", "2027-02-09": "설날 대체공휴일",
+    "2027-03-01": "삼일절",
+    "2027-05-05": "어린이날", "2027-05-13": "부처님오신날",
+    "2027-06-06": "현충일",
+    "2027-08-15": "광복절", "2027-08-16": "광복절 대체공휴일",
+    "2027-09-14": "추석 연휴", "2027-09-15": "추석", "2027-09-16": "추석 연휴",
+    "2027-10-03": "개천절", "2027-10-04": "개천절 대체공휴일",
+    "2027-10-09": "한글날", "2027-10-11": "한글날 대체공휴일",
+    "2027-12-25": "성탄절", "2027-12-27": "성탄절 대체공휴일",
+  };
+  const holiName = (d) => HOLIDAYS[d] || "";
+  const isHoli = (d) => !!HOLIDAYS[d];
+  // 표시 전용 배지 — 이 배지가 붙었다고 회차가 빠지는 일은 없다.
+  const holiBadge = (d) => (isHoli(d) ? `<span class="badge b-holi">${esc(holiName(d))}</span>` : "");
+  const holiTag = (d) => (isHoli(d) ? ` <span class="holi-tag">${esc(holiName(d))}</span>` : "");
+  // §1-B «골라서 건너뛰기» 후보 — 앞으로 8주 안에서 그 반복이 공휴일에 걸리는 날짜만 모은다.
+  // ⛔이 함수는 아무것도 빼지 않는다. 체크박스 목록을 만들기 위한 «조회»일 뿐이다.
+  function holiHits(startDate, wdays, endMode, endDate) {
+    if (!wdays || !wdays.length) return [];
+    const anchor = recurAnchor();
+    const from = startDate && startDate > anchor ? startDate : anchor;
+    return recurDates({ weekdays: wdays, skips: [], endMode, endDate }, from, recurHorizon()).filter(isHoli);
+  }
+  // 기본 «해제». 센터 토글(policy.holidaySkipDefault)이 켜져 있으면 «기본값만» 체크로 바뀐다(형 확정 1-C).
+  function holiPickHtml(hits, picked, onClickPrefix) {
+    if (!hits.length) return `<div class="hint">앞으로 ${ROLL_WEEKS}주 안에 공휴일에 걸리는 회차는 없어요.</div>`;
+    return `<div class="field"><label>공휴일에 걸리는 회차 ${hits.length}개</label>
+      <div class="holi-pick">${hits.map((d) => `<label class="holi-row"><input type="checkbox"${(picked || []).includes(d) ? " checked" : ""} onclick="${onClickPrefix}'${d}')"><span class="grow">${dlabel(d)} <b>${esc(holiName(d))}</b></span></label>`).join("")}</div>
+      <div class="hint"><b>체크한 날짜만 건너뛰어요. 기본은 정상 진행이에요.</b> 공휴일에 수업하는 센터도 있어서 시스템이 임의로 빼지 않아요.${DB.policy.holidaySkipDefault ? " 센터 설정 때문에 기본 체크돼 있어요 — 진행할 날은 체크를 풀어 주세요." : ""}</div></div>`;
+  }
+
   // ══ v2.28 «매주 반복 수업 자동 개설» (형 확정 2026-08-19) ══
   // ① 롤링 생성: 기준일(실서비스=오늘)부터 항상 앞으로 8주치 회차를 미리 만들어 둔다. 기준일이 한 주
   //    밀리면 뒤에 한 주가 자동으로 붙는다. ② 종료=«종료일 지정»/«중단할 때까지». ③ 기본형=자리 열기,
@@ -874,7 +939,14 @@
     }
     return out;
   }
-  const recurSlotAt = (r, d) => DB.slots.find((s) => s.classId === r.classId && s.date === d && s.time === r.time && s.status !== "canceled");
+  // v2.64 §2-E: 중복 키에 recurId를 더한다. 규칙 교체(요일 변경)를 넣으면 옛 규칙·새 규칙이 잠시 공존하는데,
+  // 예전 키(classId+date+time)만으로는 서로의 회차를 흡수해 엉뚱한 규칙 밑으로 끌려갔다.
+  // «주인 없는 회차»(recurId 없음)는 종전대로 흡수한다 — 그게 이 키의 원래 목적(수동 회차 재사용)이다.
+  const recurSlotAt = (r, d) => DB.slots.find((s) => s.classId === r.classId && s.date === d && s.time === r.time
+    && s.status !== "canceled" && (!s.recurId || s.recurId === r.id));
+  // 다른 규칙·다른 회차가 이미 점유한 자리. 여기엔 새로 만들지도, 여기로 옮기지도 않는다 — 자리를 뺏지 않는다.
+  const slotBusyAt = (classId, d, t, exceptId) => DB.slots.find((s) => s.classId === classId && s.date === d && s.time === t
+    && s.status !== "canceled" && s.id !== exceptId);
   const recurSlots = (r) => DB.slots.filter((s) => s.recurId === r.id && s.status !== "canceled").sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   const recurNext = (r) => recurSlots(r).find((s) => !isPast(s)) || null;
   // v2.34: 반복은 «자리 열어두고 신청 받기» 전용 — 회차만 열고 예약은 회원이 직접 넣는다(자동 확정 없음).
@@ -888,16 +960,42 @@
     for (const d of recurDates(r, from, recurHorizon())) {
       const exist = recurSlotAt(r, d);
       if (exist) { if (!exist.recurId) exist.recurId = r.id; continue; } // 같은 일시 회차가 있으면 흡수 — 중복 생성 금지
+      if (slotBusyAt(c.id, d, r.time)) continue; // v2.64 §2-E: 다른 규칙이 쓰는 자리 — 뺏지도, 겹쳐 만들지도 않는다
       DB.slots.push({ id: nid("s"), classId: c.id, date: d, time: r.time, status: "scheduled", recurId: r.id });
       made++;
     }
     return { made };
   }
-  function recurRollAll() {
+  // ══ v2.64 §4 8주 롤링 — 매일 새벽 04:00 KST 자동 실행 (형 확정 2026-09-17) ══
+  // 실서비스는 스케줄러가 이 함수를 하루 한 번 부른다. 사양 전문 = handoff/recur_batch_spec.md.
+  // 규칙 단위 try/catch — 한 규칙이 터져도 나머지는 계속 돌고, 실패한 규칙 id가 로그에 남아 다음 날 재시도된다.
+  // 멱등성: 이미 있는 회차는 recurSlotAt(§2-E 보강 키)에 걸린다 → 두 번 돌려도 회차가 늘지 않는다.
+  function recurRollAll(trigger) {
     let made = 0;
-    for (const r of DB.recurs) made += recurGenerate(r).made;
-    return { made };
+    const failed = [];
+    for (const r of DB.recurs) {
+      try { made += recurGenerate(r).made; }
+      catch (e) { failed.push(r.id); console.error("[recurRoll] 규칙 처리 실패", r.id, e); }
+    }
+    DB.rollLog = DB.rollLog || [];
+    DB.rollLog.push({ at: stampOf(), trigger: trigger || "boot", rules: DB.recurs.length, made, failed });
+    if (DB.rollLog.length > 20) DB.rollLog = DB.rollLog.slice(-20);
+    return { made, failed };
   }
+  // 프로토타입엔 서버가 없어 진짜 배치를 못 돈다 → «날짜 바뀜 감지»로 같은 동작을 흉내 낸다.
+  // 앱을 켜 둔 채 자정을 넘기거나, 탭을 다시 열었을 때 날이 바뀌어 있으면 재실행한다.
+  // ⛔부팅 롤링(맨 아래)은 그대로 둔다 — 배치가 실패한 날의 안전망이다. 멱등이라 중복 생성되지 않는다.
+  const kstToday = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); // Asia/Seoul 고정
+  let rollDay = kstToday();
+  function rollWatch() {
+    const d = kstToday();
+    if (d === rollDay) return;
+    rollDay = d;
+    const res = recurRollAll("rollover");
+    if (res.made) render();
+  }
+  setInterval(rollWatch, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) rollWatch(); });
   // 반복을 끌 때 «앞으로의 빈 회차»만 정리 — 예약이 있는 회차는 건드리지 않는다(회원 보호).
   function recurPurge(r) {
     let n = 0;
@@ -905,6 +1003,167 @@
       && seatCount(s.id) === 0 && waitBk(s.id).length === 0).forEach((s) => { s.status = "canceled"; s.cancelReason = "반복 중단"; n++; });
     return n;
   }
+  // ══ v2.64 §2 요일·시간 변경 — «자연스러운 UI + 내부 규칙 교체» (형 확정 2026-09-17) ══
+  // 🔴UI 어휘: 화면엔 «규칙»·«분할»·«재생성»이 한 글자도 나오지 않는다. 버튼 이름은 «요일·시간 변경» 하나다.
+  // 🔴새로 만드는 대상은 «수업»이 아니라 «반복 규칙»이다. classId가 그대로라 회원 명부·수강 대상 상품·과거
+  //   예약·출석 보고·정산 라인이 하나도 끊기지 않는다. ⛔classes를 새로 만들어 해결하려 들지 마라
+  //   (같은 수업이 회원 화면에 둘로 보이고 이력이 전부 끊긴다).
+  // 🔴회차 승계는 slot.id를 유지한 채 date/time만 갈아끼운다. bookings는 slotId 하나로만 물려 있고
+  //   앱 전체에 slot.id 재대입 코드가 없다 → id만 지키면 예약·출석·정산이 자동으로 따라온다.
+  //   ⛔승계를 «옛 회차 취소 + 새 회차 생성»으로 바꾸지 마라. 그 순간 예약이 전부 날아간다.
+  const weekStartOf = (d) => addDays(d, -((dowOf(d) + 6) % 7)); // 주의 시작 = 월요일
+  const nextWeekStart = () => addDays(weekStartOf(DB.TODAY), 7); // 기본 적용 시점 — 이번 주 예약자가 당일 통보를 받지 않게
+  const wdaysLabel = (ws) => ws.slice().sort((a, b) => a - b).map((d) => DOW[d]).join("·");
+  const wdaysKey = (ws) => ws.slice().sort((a, b) => a - b).join(",");
+  const openBk = (slotId) => DB.bookings.filter((b) => b.slotId === slotId && ["booked", "waitlisted"].includes(b.status));
+
+  // 저장 전 미리보기와 실제 적용이 같은 숫자를 쓰도록 «계획»을 먼저 순수 함수로 만든다(부작용 0).
+  // mode: "time" = 요일 그대로·시간만 → 제자리 수정(2-D) / "weekday" = 요일이 바뀜 → 규칙 교체(2-B)
+  function recurChangePlan(r, wdays, time, D) {
+    const mode = wdaysKey(r.weekdays) === wdaysKey(wdays) ? "time" : "weekday";
+    const targets = DB.slots.filter((s) => s.recurId === r.id && s.status === "scheduled"
+        && s.date >= D && !isPast(s) && !s.detached) // ⛔detached(사람이 따로 옮긴 회차)는 손대지 않는다
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    // 옮겨갈 자리 판정에서 «지금 비우는 중인 회차»는 빼야 한다 — 월·수 → 수·금처럼 자리가 한 칸 밀리는 경우
+    // 자기 자신이 점유자로 잡혀 멀쩡한 승계가 «충돌»로 오판된다.
+    const vacating = new Set(targets.map((s) => s.id));
+    const busyAt = (d, t, exceptId) => DB.slots.find((s) => s.classId === r.classId && s.date === d && s.time === t
+      && s.status !== "canceled" && s.id !== exceptId && !vacating.has(s.id));
+    const moves = [], drops = [], keeps = [];
+    let creates = 0, newDates = [];
+    if (mode === "time") {
+      targets.forEach((s) => {
+        if (s.time === time) { keeps.push({ slot: s, why: "same" }); return; }
+        if (busyAt(s.date, time, s.id)) { keeps.push({ slot: s, why: "busy" }); return; } // 자리를 뺏지 않는다 — 그대로 둔다
+        moves.push({ slot: s, date: s.date, time });
+      });
+      newDates = targets.map((s) => s.date);
+    } else {
+      // 주 단위로 옛 회차와 새 날짜를 «순서대로» 1:1 대응 (월·수 → 화·목이면 월→화, 수→목)
+      const probe = { classId: r.classId, weekdays: wdays, time, skips: [], endMode: r.endMode, endDate: r.endDate };
+      newDates = recurDates(probe, D, recurHorizon());
+      const group = (arr, get) => arr.reduce((m, x) => { const k = weekStartOf(get(x)); (m[k] = m[k] || []).push(x); return m; }, {});
+      const oldW = group(targets, (s) => s.date);
+      const newW = group(newDates, (d) => d);
+      const used = new Set();
+      Object.keys(oldW).forEach((wk) => {
+        const cand = newW[wk] || [];
+        oldW[wk].forEach((s, i) => {
+          const nd = cand[i];
+          if (!nd) { drops.push({ slot: s, why: "extra" }); return; }   // 요일 수가 줄어 짝이 없는 잉여 회차
+          used.add(nd);
+          if (busyAt(nd, time, s.id)) { drops.push({ slot: s, why: "busy" }); return; } // 이미 회차가 있는 자리는 뺏지 않는다
+          moves.push({ slot: s, date: nd, time });
+        });
+      });
+      creates = newDates.filter((d) => !used.has(d) && !busyAt(d, time, null)).length; // 요일 수가 늘어 모자란 자리
+    }
+    const cnt = (list) => list.reduce((n, x) => n + openBk(x.slot.id).length, 0);
+    return { mode, D, wdays: wdays.slice().sort((a, b) => a - b), time, moves, drops, keeps, creates, newDates,
+      movedBk: cnt(moves), dropBk: cnt(drops), keptBk: cnt(keeps) };
+  }
+
+  // 계획을 실제로 적용한다. ①옛 규칙 닫기 ②새 규칙 ③회차 승계 ④지평선 다시 채우기 ⑤회원 통보
+  function recurApplyChange(r, plan) {
+    const c = cls(r.classId);
+    const oldLabel = recurLabel(r);
+    const kind = plan.mode === "time" ? "recur_time" : "recur_weekday";
+    const newLabel = `매주 ${wdaysLabel(plan.wdays)} ${t12(plan.time)}`;
+    let r2 = r;
+    if (plan.mode === "weekday") {
+      r2 = { id: nid("rc"), classId: r.classId, weekdays: plan.wdays.slice(), time: plan.time,
+        startDate: plan.D, endMode: r.endMode, endDate: r.endDate, // 종료 조건 승계
+        active: true, skips: [], // ⛔옛 skips는 승계하지 않는다 — 옛 요일 날짜라 새 요일에선 엉뚱한 날이 빠진다
+        replaces: r.id, createdAt: stampOf() };
+      // ① 옛 규칙은 D 직전에서 «닫는다». 지우지 않는다 — 과거 회차의 recurId 참조가 살아 있어야 한다.
+      //    recurDates가 endDate 초과분을 거르므로 미래 생성은 자동으로 멈춘다.
+      r.endMode = "date"; r.endDate = addDays(plan.D, -1); r.replacedBy = r2.id;
+      DB.recurs.push(r2);
+    } else {
+      r.time = plan.time;
+    }
+    // ③ 승계 — id 유지, date/time만 교체, 주인을 새 규칙으로 옮긴다
+    plan.moves.forEach((m) => {
+      m.slot.date = m.date; m.slot.time = m.time; m.slot.recurId = r2.id;
+      openBk(m.slot.id).forEach((b) => alertPush(b.memberId, kind,
+        `${c.title} 수업 일정이 바뀌었어요`,
+        `<b>${esc(oldLabel)}</b> → <b>${esc(newLabel)}</b>로 바뀌었어요.<br>예약도 <b>${dlabel(m.date)} ${t12(m.time)}</b>로 함께 옮겨졌어요.`,
+        { slotId: m.slot.id, classId: c.id }));
+    });
+    // 짝이 없거나 자리가 막힌 회차는 취소 + 통보 (후차감 모델이라 «차감 없음»은 코드상 사실)
+    plan.drops.forEach((d) => {
+      const s = d.slot;
+      openBk(s.id).forEach((b) => {
+        b.status = "canceled"; b.cancelBy = "center"; b.cancelReason = kind;
+        alertPush(b.memberId, kind, `${c.title} 수업 일정이 바뀌었어요`,
+          `<b>${esc(oldLabel)}</b> → <b>${esc(newLabel)}</b>로 바뀌었어요.<br><b>${dlabel(s.date)} ${t12(s.time)}</b> 예약은 취소됐어요. <b>차감은 없어요.</b><br>새 일정으로 다시 예약해 주세요.`,
+          { slotId: s.id, classId: c.id });
+      });
+      s.status = "canceled"; s.cancelReason = plan.mode === "time" ? "시간 변경" : "요일 변경";
+      DB.notices.filter((x) => x.slotId === s.id && !x.resolved).forEach((x) => (x.resolved = true));
+    });
+    // ④ 지평선 다시 채우기
+    const made = recurGenerate(r2).made;
+    return { r2, made, moved: plan.moves.length, dropped: plan.drops.length, kept: plan.keeps.length,
+      movedBk: plan.movedBk, dropBk: plan.dropBk, newLabel, oldLabel };
+  }
+
+  // ── v2.64 §2-A 「요일·시간 변경」 모달 상태·미리보기 ──
+  // 입력이 바뀔 때마다 #se-body만 다시 그린다(전체 render()를 부르면 열린 모달이 통째로 날아간다).
+  let seUI = null;
+  const seD = () => (seUI.when === "date" ? (seUI.date || nextWeekStart()) : nextWeekStart());
+  function seSync() {
+    if (!seUI) return;
+    const t = document.getElementById("se-time");
+    if (t && t.value) seUI.time = t.value;
+    const d = document.getElementById("se-when-date");
+    if (d && d.value) seUI.date = d.value;
+  }
+  function seRefresh() {
+    const b = document.getElementById("se-body");
+    if (b) b.innerHTML = seBodyHtml();
+  }
+  function seBodyHtml() {
+    const sl = slot(seUI.slotId);
+    const r = recurOf(sl);
+    if (!sl || !r) return "";
+    const D = seD();
+    const bad = D <= DB.TODAY;
+    const plan = recurChangePlan(r, seUI.wdays, seUI.time, D);
+    const newLabel = `매주 ${wdaysLabel(seUI.wdays)} ${t12(seUI.time)}`;
+    const holis = plan.newDates.filter(isHoli);
+    const blocked = plan.keeps.filter((k) => k.why === "busy").length;
+    return `
+      <div class="field mt12"><label>요일</label>
+        <div class="chips" id="se-wdays">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<button class="chip${seUI.wdays.includes(d) ? " on" : ""}" data-v="${d}" aria-pressed="${seUI.wdays.includes(d)}" onclick="App.seWday(${d})">${DOW[d]}</button>`).join("")}</div>
+        <div class="hint">고른 요일마다 아래 시간에 회차가 열려요.</div></div>
+      <div class="field"><label>시간</label><input type="time" id="se-time" value="${seUI.time}" onchange="App.seTouch()"></div>
+      <div class="field"><label>언제부터 적용할까요?</label>
+        <div class="seg" id="se-when">
+          <button class="${seUI.when === "next" ? "on" : ""}" onclick="App.seWhen('next')">다음 주부터 ${dlabel(nextWeekStart())}</button>
+          <button class="${seUI.when === "date" ? "on" : ""}" onclick="App.seWhen('date')">날짜 지정</button></div>
+        ${seUI.when === "date" ? `<input type="date" class="mt8" id="se-when-date" value="${seUI.date}" min="${addDays(DB.TODAY, 1)}" onchange="App.seTouch()">` : ""}
+        <div class="hint">이번 주 예약자가 당일 통보를 받지 않게 <b>다음 주부터</b>가 기본이에요.</div></div>
+      <div class="sec-title">이렇게 바뀌어요</div>
+      <div class="card flat se-prev">
+        <div class="se-row"><span class="se-k">${dlabel(addDays(D, -1))}까지</span><span class="se-v">${recurLabel(r)}</span><span class="badge b-gray">그대로</span></div>
+        <div class="se-row"><span class="se-k">${dlabel(D)}부터</span><span class="se-v"><b>${newLabel}</b></span>${plan.mode === "time" ? `<span class="badge b-gray">시간만</span>` : `<span class="badge b-blue">요일 변경</span>`}</div>
+        <div class="divider"></div>
+        <ul class="se-list">
+          <li>옮겨지는 회차 <b>${plan.moves.length}개</b></li>
+          <li${plan.movedBk ? "" : ' class="muted"'}>${plan.movedBk ? `예약 <b>${plan.movedBk}건</b>은 새 일정으로 함께 옮겨져요` : "옮겨지는 예약은 없어요"}</li>
+          ${plan.creates ? `<li>새로 만드는 회차 <b>${plan.creates}개</b></li>` : ""}
+          ${plan.drops.length ? `<li class="se-warn">옮길 수 없는 회차 <b>${plan.drops.length}개</b>는 취소돼요${plan.dropBk ? ` · <b>예약 ${plan.dropBk}건이 취소</b>되고 회원에게 알림이 가요 (차감 없음)` : " (예약 없음)"}</li>` : ""}
+          ${blocked ? `<li class="se-warn">같은 시간에 다른 회차가 있는 <b>${blocked}개</b>는 자리를 뺏지 않고 그대로 둬요</li>` : ""}
+        </ul>
+        ${holis.length ? `<div class="hint mt8">새 일정 중 공휴일 ${holis.length}일 — ${holis.slice(0, 3).map((d) => `${dlabel(d)} ${esc(holiName(d))}`).join(" · ")}${holis.length > 3 ? ` 외 ${holis.length - 3}일` : ""}. <b>자동으로 빼지 않아요</b> — 쉬려면 «반복 설정»에서 골라 주세요.</div>` : ""}
+      </div>
+      ${bad ? `<div class="banner warn">${icb("alert")}<span>적용 시점은 내일 이후로 골라 주세요.</span></div>` : ""}
+      <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn ghost" onclick="App.slotMoveOneAsk('${sl.id}','${seUI.role}')">이 회차만</button>
+        <button class="btn primary" onclick="App.seGo('${seUI.role}')">요일·시간 변경</button></div>`;
+  }
+
   // ── 모션 유틸 (Apple 스프링: damping ratio + response, 인터럽터블) ──
   const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)");
   function spring(opts) {
@@ -1079,8 +1338,29 @@
     waitlist_ineligible: "대기 순번이 됐지만 쓸 수 있는 멤버십이 없어 대기가 종료됐어요",
     waitlist_expired: "자리가 나지 않아 대기가 끝났어요",
     recur_skip: "반복 회차를 건너뛰어 취소됐어요 · 차감 없음",
+    // v2.64 §3 (형 확정 09-17): 반복 요일·시간 변경으로 자리를 못 옮긴 예약. 후차감 모델이라 «차감 없음»은 코드상 사실이다.
+    recur_weekday: "수업 요일이 바뀌어 이 예약은 취소됐어요 · 차감 없음",
+    recur_time: "수업 시간이 바뀌어 이 예약은 취소됐어요 · 차감 없음",
   };
   const cancelSub = (b) => CANCEL_REASON[b.cancelReason] || (b.cancelBy === "center" ? CANCEL_REASON.center_cancel : "직접 취소했어요 · 차감 없음");
+
+  // ══ v2.64 §3 회원 알림 레코드 (형 확정 2026-09-17 «통보만 · 동의 절차 없음») ══
+  // 지금까지 반복 변경 통보는 «센터 화면 토스트 문구»뿐이었다 — 회원 쪽엔 아무 기록도 안 남았다.
+  // 여기서 만드는 레코드가 회원 «알림»(#/m/alerts)의 원본이다.
+  // ⛔수락·거절·동의 같은 필드를 만들지 마라. 회원이 답할 것이 없는 «통보»가 형이 확정한 모델이다.
+  // body는 이 함수에 넣기 전에 이미 안전한 HTML로 조립한다(회원·수업명 등 자유 입력은 esc 통과).
+  function alertPush(memberId, kind, title, body, extra) {
+    if (!memberId) return null;
+    // 같은 회차·같은 내용의 통보를 두 번 쌓지 않는다(한 회차에 같은 회원 예약 행이 둘일 때)
+    if ((DB.alerts || []).some((x) => x.memberId === memberId && x.kind === kind && x.body === body
+      && x.slotId === (extra || {}).slotId)) return null;
+    const a = Object.assign({ id: nid("al"), memberId, kind, title, body, at: stampOf(), seen: false }, extra || {});
+    (DB.alerts = DB.alerts || []).push(a);
+    return a;
+  }
+  const myAlerts = () => (DB.alerts || []).filter((a) => a.memberId === DB.me.member).slice().reverse();
+  const myUnseenAlerts = () => myAlerts().filter((a) => !a.seen);
+  const ALERT_IC = { recur_weekday: "cal", recur_time: "clock", recur_skip: "alert" };
 
   // ══ v2.36: 회원이 보내는 «시간 얘기»는 2종 ══
   //   kind "request" = 일정 요청 (시간표 없는 수업의 첫 시간 잡기, v2.35 용어)
@@ -1324,6 +1604,9 @@
       // v2.59: «답변 도착»은 읽으면 끝나는 정보성 — «해야 할 일» 목록엔 남기되 «확인·답변이 필요한 일» 집계에선 뺀다
       add({ n: mArrAnswered().length, tier: "wait", rank: 4, icon: "cal", key: "arrans", info: true,
         text: "보낸 요청에 답변이 왔어요", go: "#/m/book/mine" });
+      // v2.64 §3: 반복 일정 변경 통보 — 읽으면 끝나는 정보성이라 «확인·답변이 필요한 일» 집계에선 뺀다(info)
+      add({ n: myUnseenAlerts().length, tier: "wait", rank: 5, icon: "bell", key: "alerts", info: true,
+        text: "수업 일정이 바뀌었다는 알림이 있어요", go: "#/m/alerts" });
     } else if (role === "t") {
       add({ n: tPendingArrs().length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
         text: "회원이 보낸 요청에 답해야 해요", go: "#/t/inbox" });
@@ -1758,7 +2041,7 @@
         const n = seatCount(s.id); const w = waitBk(s.id).length;
         const full = n >= c.capacity;
         return `<div class="slot"><span class="time">${t12(s.time)}</span>
-          <span class="grow"><span class="t">${dlabel(s.date)}</span>
+          <span class="grow"><span class="t">${dlabel(s.date)}${holiTag(s.date)}</span>
             <div class="cap-bar${full ? " full" : ""}"><i style="width:${Math.min(100, (n / c.capacity) * 100)}%"></i></div>
             <div class="muted small mt4">${n}/${c.capacity}명${w ? ` · 대기 ${w}명` : ""}</div></span>
           <button class="btn sm ${full ? "ghost" : "primary"}" onclick="location.hash='#/m/slot/${s.id}'">${full ? "마감" : "예약"}</button></div>`;
@@ -1816,7 +2099,7 @@
     }
     return shell("m", "수업 상세", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${dlabel(s.date)} ${t12(s.time)} · ${c.duration}분 · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted mt4">${dlabel(s.date)}${holiTag(s.date)} ${t12(s.time)} · ${c.duration}분 · ${teacher(c.teacherId).name} 선생님</div>
         <div class="mt8"><span class="badge ${full ? "b-danger" : "b-green"}">${full ? `정원 마감${isPrivateClass(c) ? "" : ` · 대기 ${waitBk(s.id).length}명`}` : `잔여 ${c.capacity - n}자리`}</span></div>
         <div class="divider"></div>
         ${mine
@@ -2039,6 +2322,22 @@
         : `<div class="card flat mb-empty"><div class="em">${IC.receipt}</div><p class="muted mt8">보유한 멤버십이 없어요.</p></div>`}`);
   }
 
+  // v2.64 §3: 회원 «알림» — 센터가 반복 일정을 바꾸면 여기에 레코드가 남는다. 통보 전용이라 답할 버튼이 없다.
+  function vMAlerts() {
+    const list = myAlerts();
+    const unseen = new Set(myUnseenAlerts().map((a) => a.id));
+    list.forEach((a) => (a.seen = true)); // 열면 읽음 처리 — «답변 필요»가 아니라 정보성이라 목록엔 계속 남는다
+    return shell("m", "알림", `
+      <p class="muted" style="margin-bottom:12px">수업 일정이 바뀌면 여기로 알려드려요. <b>따로 답하실 건 없어요.</b> 취소된 예약은 횟수 차감이 없으니 새 일정으로 다시 예약해 주세요.</p>
+      ${list.length ? `<div class="card flat"><ul class="alert-list">${list.map((a) => `
+        <li class="${unseen.has(a.id) ? "new" : ""}"><span class="al-ic">${IC[ALERT_IC[a.kind] || "bell"]}</span>
+          <span class="grow"><b>${esc(a.title)}</b>
+          <div class="muted small mt4">${a.body}</div>
+          <div class="muted small mt4">${esc(a.at)}</div></span></li>`).join("")}</ul></div>`
+        : `<div class="card flat mb-empty"><div class="em">${IC.bell}</div><p class="muted mt8">아직 받은 알림이 없어요.</p></div>`}
+      <a class="btn ghost mt8" href="#/m/book/mine">내 예약 보기</a>`, { back: true });
+  }
+
   // ══ 선생님 ══
   function tSlots() { return DB.slots.filter((s) => s.status !== "canceled" && cls(s.classId).teacherId === DB.me.teacher); }
   // v2.36: «답변 대기» = 회원이 보낸 일정 요청 + 일정 변경 요청. 희망 시간이 다 지난 건(만료)은 답할 게 없어 뺀다.
@@ -2220,7 +2519,7 @@
     const priv = isPrivateClass(c);
     return shell("t", "수업 상세", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${centerTag(classCenter(c))}${dlabel(s.date)} ${t12(s.time)} · ${c.duration}분</div>
+        <div class="muted mt4">${centerTag(classCenter(c))}${dlabel(s.date)}${holiTag(s.date)} ${t12(s.time)} · ${c.duration}분</div>
         <div class="mt8"><span class="badge ${done ? "b-gray" : "b-green"}">${done ? "종료" : "예정"}</span>
         <span class="badge ${priv ? "b-rose" : "b-blue"}">${priv ? "개인 1:1" : `그룹 · ${seats.length}/${c.capacity}명`}</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
       ${recurSlotHtml(s, "t")}
@@ -2532,6 +2831,10 @@
     const lim = ccLimit();
     const repOk = ccRepOk(U, c);   // v2.28: 조율형 수업은 반복 대상이 아니라 토글 자체를 내린다
     const wdays = ccWdays(U);
+    // v2.64 §1-B: 공휴일 «골라서 건너뛰기» 후보. ⛔자동 제외 금지 — 체크한 날짜만 recurs.skips[]로 들어간다.
+    const holiHit = repOk && U.rep ? holiHits(U.date, wdays, U.endMode, U.endMode === "date" ? (U.endDate || null) : null) : [];
+    if (!U.holiTouched) U.holiSkip = DB.policy.holidaySkipDefault ? holiHit.slice() : [];
+    U.holiSkip = (U.holiSkip || []).filter((d) => holiHit.includes(d));
     const scopeLabel = { valid: "유효 멤버십 보유자만", all: "전체 회원", mine: "담당 회원만" }[DB.policy.quickScope];
     const scoped = r === "t" && tScope(DB.me.teacher).mode === "custom";
     const joinable = c ? DB.slots.filter((x) => x.classId === c.id && x.status === "scheduled" && !isPast(x) && seatCount(x.id) < c.capacity) : [];
@@ -2614,6 +2917,8 @@
           <button class="${U.endMode === "date" ? "on" : ""}" data-v="date" onclick="App.ccSeg('${r}',this,'endMode')">종료일 지정</button></div>
           <div class="hint">«중단할 때까지»는 끝을 정하지 않고 계속 이어가요 — «수업» 탭에서 언제든 끌 수 있어요.</div></div>
         ${U.endMode === "date" ? `<div class="field"><label>종료일</label><input type="date" id="rp-end" value="${U.endDate}" min="${U.date}"><div class="hint">이 날짜까지만 회차를 만들어요.</div></div>` : ""}
+        <div class="divider"></div>
+        ${holiPickHtml(holiHit, U.holiSkip, `App.ccHoli('${r}',`)}
         <div class="banner">${icb("cal")}<span>미리 만들어 둔 회차는 <b>🔁 반복</b> 배지로 표시돼요. 공휴일·휴무는 그 회차만 «이번만 건너뛰기»로 빼고, 시간을 바꿀 땐 «이 회차만 / 앞으로 전부»를 고를 수 있어요.</span></div>` : ""}
       </div>` : ""}`, { back: true });
   }
@@ -2681,12 +2986,13 @@
     if (!U || !U.rep || !ccRepOk(U, c) || !s || recurOf(s)) return null;
     const r = { id: nid("rc"), classId: c.id, weekdays: ccWdays(U).slice().sort((a, b) => a - b), time: s.time,
       startDate: s.date, endMode: U.endMode, endDate: U.endMode === "date" ? (U.endDate || null) : null,
-      active: true, skips: [], createdAt: stampOf() };
+      // v2.64 §1-B: 사람이 «체크한» 공휴일만 건너뛴다. 첫 회차 날짜는 이미 만들어졌으니 제외한다.
+      active: true, skips: (U.holiSkip || []).filter((d) => d !== s.date), createdAt: stampOf() };
     DB.recurs.push(r);
     s.recurId = r.id;
     return { r, made: recurGenerate(r).made + 1 }; // +1 = 방금 만든 첫 회차
   }
-  const ccRecurMsg = (rc) => (rc ? ` ${recurLabel(rc.r)} 반복으로 회차 ${rc.made}개를 미리 만들었어요 (${recurEndLabel(rc.r)}).` : "");
+  const ccRecurMsg = (rc) => (rc ? ` ${recurLabel(rc.r)} 반복으로 회차 ${rc.made}개를 미리 만들었어요 (${recurEndLabel(rc.r)}).${(rc.r.skips || []).length ? ` 체크한 공휴일 ${rc.r.skips.length}일은 건너뛰었어요.` : ""}` : "");
   // v2.59 (형 확정 09-06 A안): 만든 회차가 다음 주면 «오늘 주간»에 착지해 새 회차가 안 보였다.
   // 착지 날짜를 넘겨 두고, 라우터의 상태 초기화가 끝난 뒤(각 화면 렌더 시작 지점) 소비한다.
   let ccLandDate = null;
@@ -3270,6 +3576,7 @@
   const recurRows = (role) => DB.recurs.filter((r) => {
     const c = cls(r.classId);
     if (!c || c.status === "closed") return false;
+    if (r.replacedBy) return false; // v2.64 §2-B: 요일 변경으로 «닫힌» 옛 규칙 — 과거 회차 참조용으로만 남는다
     return role !== "t" || c.teacherId === DB.me.teacher;
   });
   // v2.42: 센터는 «설정» 탭 하위 화면(bare)에서, 선생님은 «내 수업» 인라인에서 같은 패널을 쓴다.
@@ -3279,7 +3586,12 @@
     return `
       ${bare ? "" : `<div class="sec-title">🔁 반복 수업 설정 <span class="muted small" style="font-weight:600">— 매주 자동 개설</span></div>`}
       <div class="card flat">
-        ${bare ? `<p class="muted small" style="margin:0 0 10px">🔁 매주 자동 개설</p>` : ""}
+        ${bare ? `<p class="muted small" style="margin:0 0 10px">🔁 매주 자동 개설</p>
+        <div class="toggle-row"><span class="grow"><div class="tl">공휴일을 기본 «쉬는 날»로 체크해 두기</div>
+          <div class="td">켜도 <b>자동으로 빠지지 않아요</b> — «수업 만들기»·아래 목록의 공휴일 체크박스 <b>기본값만</b> 체크로 바뀌어요.
+          공휴일에 수업하는 센터도 있어서, 실제로 빼는 건 언제나 사람이 확인한 뒤예요.</div></span>
+          <button class="sw${DB.policy.holidaySkipDefault ? " on" : ""}" onclick="App.holiDefault()" aria-label="공휴일 기본 건너뛰기" aria-pressed="${DB.policy.holidaySkipDefault}"></button></div>
+        <div class="divider"></div>` : ""}
         ${rows.length ? `
         <div class="rc-top"><span class="muted small">켜짐 <b>${on}</b> / 전체 ${rows.length}건 · 앞으로 <b>${ROLL_WEEKS}주치</b>를 미리 만들어 둬요</span>
           <span class="rc-allbtns"><button class="btn sm ghost" onclick="App.recurAllAsk('${role}','1')">전체 켜기</button>
@@ -3292,7 +3604,8 @@
           return `<div class="toggle-row"><span class="grow"><div class="tl">${c.title}</div>
             <div class="td"><b>${recurLabel(r)}</b> · ${recurEndLabel(r)}</div>
             <div class="td">${r.active ? `앞으로 ${cnt}회차 · 다음 ${nx ? `${dlabel(nx.date)} ${t12(nx.time)}` : "없음"}` : "중단됨 — 새 회차를 만들지 않아요"}${(r.skips || []).length ? ` · 건너뛴 날 ${r.skips.length}일` : ""}</div></span>
-            <button class="sw${r.active ? " on" : ""}" onclick="App.recurToggle('${r.id}','${role}')" aria-label="${c.title} 반복" aria-pressed="${r.active}"></button></div>`;
+            <button class="sw${r.active ? " on" : ""}" onclick="App.recurToggle('${r.id}','${role}')" aria-label="${c.title} 반복" aria-pressed="${r.active}"></button></div>
+            ${r.active ? `<div class="rc-holi">${holiPickHtml(holiHits(r.startDate, r.weekdays, r.endMode, r.endDate), r.skips || [], `App.recurHoli('${r.id}','${role}',`)}</div>` : ""}`;
         }).join("")}
         `
         : `<p class="muted">아직 반복 수업이 없어요. «수업 만들기»에서 <b>매주 반복</b>을 켜면 여기에 나타나요.</p>`}
@@ -3321,11 +3634,12 @@
         <div class="row"><span class="grow"><b>🔁 매주 반복으로 만들어진 회차예요</b>
           <div class="muted small mt4">${recurLabel(r)} · ${recurEndLabel(r)}${r.active ? "" : " · 지금은 중단됨"}</div>
           ${sl.detached ? `<div class="muted small mt4">이 회차만 따로 옮긴 회차예요 — 앞으로의 일괄 변경에 휩쓸리지 않아요.</div>` : ""}</span></div>
+        ${isHoli(sl.date) ? `<div class="hint mt8"><b>${esc(holiName(sl.date))}</b> 공휴일이지만 수업은 <b>그대로 진행</b>돼요 — 쉬려면 «이번만 건너뛰기»를 눌러 주세요.</div>` : ""}
         ${editable ? `<div class="btn-row mt8">
           <button class="btn sm ghost" onclick="App.recurSkipAsk('${sl.id}','${role}')">이번만 건너뛰기</button>
-          <button class="btn sm ghost" onclick="App.slotEditAsk('${sl.id}','${role}')">회차 시간 수정</button>
+          <button class="btn sm ghost" onclick="App.slotEditAsk('${sl.id}','${role}')">요일·시간 변경</button>
           <a class="btn sm ghost" href="#/${role === "t" ? "t/schedule/classes" : "c/policy/recur"}">반복 설정</a></div>
-          <div class="hint mt8">공휴일·휴무면 «이번만 건너뛰기»로 이 회차만 빼요. 시간을 바꿀 땐 «이 회차만 / 앞으로 전부»를 고를 수 있어요.</div>` : ""}
+          <div class="hint mt8">공휴일·휴무면 «이번만 건너뛰기»로 이 회차만 빼요. «요일·시간 변경»은 앞으로의 반복 요일·시간을 바꾸고, 저장 전에 <b>옮겨지는 회차·예약 수</b>를 먼저 보여줘요.</div>` : ""}
       </div>`;
   }
   // v2.39 E: 수업 자체엔 날짜가 없다 — 기간 필터의 기준은 «앞으로 가장 가까운 회차»(없으면 마지막 회차)로 잡는다.
@@ -3555,7 +3869,7 @@
     const ov = slotOverlaps(s);
     return shell("c", "회차 상세", `
       <div class="card"><b>${c.title}</b>
-        <div class="muted mt4">${dlabel(s.date)} ${t12(s.time)} · ${teacher(c.teacherId).name} 선생님</div>
+        <div class="muted mt4">${dlabel(s.date)}${holiTag(s.date)} ${t12(s.time)} · ${teacher(c.teacherId).name} 선생님</div>
         <div class="mt8"><span class="badge ${s.status === "canceled" ? "b-gray" : s.status === "done" || isPast(s) ? "b-gray" : "b-green"}">${s.status === "canceled" ? "취소됨" : s.status === "done" || isPast(s) ? "종료" : "예정"}</span>
         <span class="badge b-blue">${seats.length}/${c.capacity}명</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
       ${recurSlotHtml(s, "c")}
@@ -5333,6 +5647,17 @@
       U.wdaysTouched = true; // 직접 고른 뒤로는 날짜를 바꿔도 요일이 따라가지 않는다
       render();
     },
+    // v2.64 §1-B: 공휴일 체크박스 — 체크한 날짜만 건너뛴다. ⛔여기 말고 어디서도 공휴일을 빼지 마라.
+    ccHoli(role, d) {
+      ccSync();
+      const U = ccState(role);
+      const cur = (U.holiSkip || []).slice();
+      const i = cur.indexOf(d);
+      if (i >= 0) cur.splice(i, 1); else cur.push(d);
+      U.holiSkip = cur.sort();
+      U.holiTouched = true; // 한 번이라도 직접 고른 뒤로는 센터 기본값이 덮어쓰지 않는다
+      render();
+    },
     // v2.58 QA: 정원을 바꾸면 picker 한도가 바로 따라간다(제출 때만 거부되던 stale 한도 해소)
     ccCap(role, v) { ccSync(); ccState(role).cap = v; App.ccTrim(role); const h = document.getElementById("qk-cap-hint"); if (h) h.innerHTML = qkHintHtml(ccLimit()); },
     ccDate(role, v) {
@@ -5343,6 +5668,58 @@
       if (U.rep) render();
     },
     // ── v2.28 반복 설정 관리 (수업 탭) ──
+    // v2.64 §1-C: 센터 기본값 토글. ⛔«자동 제외» 스위치가 아니다 — 체크박스 기본값만 바뀐다.
+    holiDefault() {
+      DB.policy.holidaySkipDefault = !DB.policy.holidaySkipDefault;
+      render();
+      toast(DB.policy.holidaySkipDefault
+        ? "공휴일을 기본 «쉬는 날»로 체크해 둘게요. 그래도 확인 화면을 거쳐야 실제로 빠져요."
+        : "공휴일 기본 체크를 껐어요. 공휴일에도 회차가 그대로 열려요.");
+    },
+    // v2.64 §1-B: 기존 반복 수업의 공휴일 체크박스 — 체크=그 날 쉬기, 해제=다시 열기.
+    // 체크하면 예약 취소가 따르므로 확인 화면을 반드시 거친다(형 1-C «말없이 빠지는 일은 없다»).
+    recurHoli(rid, role, d) {
+      const r = recur(rid);
+      if (!r) return;
+      if (!App.teachGuard(r.classId, role)) return;
+      if ((r.skips || []).includes(d)) { App.recurHoliUndo(rid, role, d); return; }
+      const sl = DB.slots.find((x) => x.recurId === r.id && x.date === d && x.status !== "canceled");
+      const n = sl ? openBk(sl.id).length : 0;
+      modal(`<h3>${dlabel(d)} ${esc(holiName(d))}은 쉴까요?</h3>
+        <p><b>${cls(r.classId).title}</b> · ${recurLabel(r)} 반복 중 이 하루만 빼요.</p>
+        <p class="muted small mt8">체크를 풀면 언제든 다시 열 수 있어요. 나머지 회차는 그대로예요.${n ? ` <b>예약 ${n}건이 취소되고 회원에게 알림이 가요.</b> 아직 차감 전이라 횟수 손실은 없어요.` : ""}</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.recurHoliGo('${rid}','${role || ""}','${d}')">이 날은 쉬기</button></div>`);
+    },
+    recurHoliGo(rid, role, d) {
+      const r = recur(rid);
+      if (!r) return;
+      if (!App.teachGuard(r.classId, role)) return;
+      const sl = DB.slots.find((x) => x.recurId === r.id && x.date === d && x.status !== "canceled");
+      let n = 0;
+      if (sl) {
+        openBk(sl.id).forEach((b) => {
+          b.status = "canceled"; b.cancelBy = "center"; b.cancelReason = "recur_skip"; n++;
+          alertPush(b.memberId, "recur_skip", `${cls(r.classId).title} 회차가 쉬어요`,
+            `<b>${dlabel(d)} ${t12(sl.time)}</b> 회차는 쉬어요 (${esc(holiName(d))}).<br>예약은 취소됐고 <b>차감은 없어요.</b> 다음 회차는 그대로 진행돼요.`,
+            { slotId: sl.id, classId: r.classId });
+        });
+        sl.status = "canceled"; sl.cancelReason = "공휴일 휴무";
+        DB.notices.filter((x) => x.slotId === sl.id && !x.resolved).forEach((x) => (x.resolved = true));
+      }
+      if (!(r.skips || []).includes(d)) (r.skips = r.skips || []).push(d);
+      closeModal(); render();
+      toast(`${dlabel(d)} ${holiName(d)}은 쉬는 것으로 했어요.${n ? ` 예약 ${n}건 취소 · 회원 알림 발송.` : ""}`);
+    },
+    recurHoliUndo(rid, role, d) {
+      const r = recur(rid);
+      if (!r) return;
+      if (!App.teachGuard(r.classId, role)) return;
+      r.skips = (r.skips || []).filter((x) => x !== d);
+      const made = recurGenerate(r).made;
+      render();
+      toast(`${dlabel(d)} ${holiName(d)}에도 수업을 열어 뒀어요.${made ? ` 회차 ${made}개를 만들었어요.` : ""}`);
+    },
     recurToggle(id, role) {
       const r = recur(id);
       if (!r) return;
@@ -5426,6 +5803,10 @@
       let n = 0;
       DB.bookings.filter((b) => b.slotId === sl.id && ["booked", "waitlisted"].includes(b.status)).forEach((b) => {
         b.status = "canceled"; b.cancelBy = "center"; b.cancelReason = "recur_skip"; n++; // v2.58 QA: 라벨 맵 코드(회원 화면 전용 문구)
+        // v2.64 §3: 토스트 문구만 있고 회원 쪽엔 기록이 안 남던 것을 실제 알림 레코드로 바꾼다
+        alertPush(b.memberId, "recur_skip", `${cls(sl.classId).title} 회차가 쉬어요`,
+          `<b>${dlabel(sl.date)} ${t12(sl.time)}</b> 회차는 쉬어요${isHoli(sl.date) ? ` (${esc(holiName(sl.date))})` : ""}.<br>예약은 취소됐고 <b>차감은 없어요.</b> 다음 회차는 그대로 진행돼요.`,
+          { slotId: sl.id, classId: sl.classId });
       });
       sl.status = "canceled"; sl.cancelReason = "반복 건너뛰기";
       if (!(r.skips || []).includes(sl.date)) (r.skips = r.skips || []).push(sl.date);
@@ -5434,48 +5815,94 @@
       location.hash = location.hash.startsWith("#/c/") ? "#/c/classes" : "#/t/schedule"; // v2.58 QA: 딥링크여도 갈 곳이 있게 (선생님=주간 일정에서 빈 자리를 바로 확인)
       toast(`${dlabel(sl.date)} ${t12(sl.time)} 회차를 건너뛰었어요.${n ? ` 예약 ${n}건 취소 · 회원 알림 발송.` : ""} 다음 회차부터 반복은 그대로예요.`);
     },
-    // ── v2.28 회차 수정: 항상 «이 회차만 / 앞으로 전부» 선택 ──
+    // ── v2.64 §2-A 회차 수정 = «요일·시간 변경»(반복 전체) + «이 회차만»(하루 이동) ──
+    // 🔴화면 어휘: «규칙»·«분할»·«재생성» 금지. 사용자는 «요일을 바꿨다»고만 인지한다(형 확정 09-17).
+    // 🔴저장 전 영향 미리보기(회차 N개·예약 N건·취소 N건)는 이 모달의 존재 이유다 — ⛔떼어내지 마라.
+    //    v2.63까지 «건너뛰기»엔 예약 경고가 있는데 «시간 이동»엔 없던 비대칭을 여기서 해소한다.
     slotEditAsk(slotId, role) {
       const sl = slot(slotId);
       const r = recurOf(sl);
       if (!sl || !r) return;
       if (!App.teachGuard(sl.classId, role)) return; // v2.59
-      const later = recurSlots(r).filter((x) => x.date >= sl.date && !isPast(x)).length;
-      modal(`<h3>회차 시간 바꾸기</h3>
-        <p class="muted small">${cls(sl.classId).title} · ${recurLabel(r)} 반복 회차예요. 바꾼 뒤 적용 범위를 골라 주세요.</p>
-        <div class="field mt12"><label>날짜</label><input type="date" id="se-date" value="${sl.date}" min="${DB.TODAY}"></div>
-        <div class="field"><label>시간</label><input type="time" id="se-time" value="${sl.time}"></div>
-        <p class="muted small">«이 회차만»은 이 한 회차의 날짜·시간을 옮기고 원래 날짜는 건너뛴 것으로 둬요.
-        «앞으로 전부»는 오늘 이후 남은 반복 회차 <b>${later}개</b>의 <b>시간</b>을 새 시간으로 바꿔요 (요일은 그대로).</p>
-        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
-        <button class="btn ghost" onclick="App.slotEdit('${slotId}','one','${role || ""}')">이 회차만</button>
-        <button class="btn primary" onclick="App.slotEdit('${slotId}','all','${role || ""}')">앞으로 전부</button></div>`);
+      seUI = { slotId, role: role || "", wdays: r.weekdays.slice().sort((a, b) => a - b), time: r.time,
+        when: "next", date: nextWeekStart() };
+      modal(`<h3>반복 수업 변경</h3>
+        <p class="muted small">${esc(cls(sl.classId).title)} · ${recurLabel(r)} · ${recurEndLabel(r)}</p>
+        <div id="se-body">${seBodyHtml()}</div>`);
     },
-    slotEdit(slotId, scope, role) {
+    seWday(d) {
+      if (!seUI) return;
+      seSync();
+      const cur = seUI.wdays.slice();
+      const i = cur.indexOf(d);
+      if (i >= 0) {
+        if (cur.length === 1) { toast("요일은 최소 1개는 골라야 해요."); return; }
+        cur.splice(i, 1);
+      } else cur.push(d);
+      seUI.wdays = cur.sort((a, b) => a - b);
+      seRefresh();
+    },
+    seWhen(v) { if (!seUI) return; seSync(); seUI.when = v; seRefresh(); },
+    seTouch() { if (!seUI) return; seSync(); seRefresh(); },
+    // 「요일·시간 변경」 확정 — 미리보기와 똑같은 계획(recurChangePlan)을 그대로 적용한다.
+    seGo(role) {
+      if (!seUI) return;
+      seSync();
+      const sl = slot(seUI.slotId);
+      const r = recurOf(sl);
+      if (!sl || !r) { closeModal(); return; }
+      if (!App.teachGuard(sl.classId, role)) return; // 확정 버튼에서도 재검증
+      if (!seUI.wdays.length) { toast("요일은 최소 1개는 골라야 해요."); return; }
+      const D = seD();
+      if (D <= DB.TODAY) { toast("적용 시점은 내일 이후로 골라 주세요."); return; }
+      const plan = recurChangePlan(r, seUI.wdays, seUI.time, D);
+      if (plan.mode === "time" && !plan.moves.length && !plan.keeps.some((k) => k.why === "busy")) {
+        toast("바뀌는 게 없어요 — 요일이나 시간을 바꿔 주세요."); return;
+      }
+      const res = recurApplyChange(r, plan);
+      seUI = null;
+      closeModal(); render();
+      const parts = [`«${res.newLabel}»로 바꿨어요.`];
+      if (res.moved) parts.push(`회차 ${res.moved}개를 새 일정으로 옮겼어요${res.movedBk ? ` · 예약 ${res.movedBk}건도 함께 옮겨졌어요` : ""}.`);
+      if (res.made) parts.push(`새로 만든 회차 ${res.made}개.`);
+      if (res.dropped) parts.push(`옮길 수 없는 회차 ${res.dropped}개는 취소했어요${res.dropBk ? ` · 예약 ${res.dropBk}건 취소 · 회원 알림 발송 (차감 없음)` : ""}.`);
+      if (res.kept) parts.push(`자리가 겹친 회차 ${res.kept}개는 그대로 뒀어요.`);
+      toast(parts.join(" "));
+    },
+    // 「이 회차만」 — 날짜칸은 여기에만 있다(v2.63까지 «앞으로 전부»가 날짜 입력을 조용히 버리던 결함 §2-E 해소)
+    slotMoveOneAsk(slotId, role) {
       const sl = slot(slotId);
       const r = recurOf(sl);
       if (!sl || !r) return;
-      if (!App.teachGuard(sl.classId, role)) return; // v2.59
-      const d = (document.getElementById("se-date") || {}).value || sl.date;
-      const t = (document.getElementById("se-time") || {}).value || sl.time;
+      if (!App.teachGuard(sl.classId, role)) return;
+      const n = openBk(sl.id).length;
+      modal(`<h3>이 회차만 옮기기</h3>
+        <p class="muted small">${esc(cls(sl.classId).title)} · ${dlabel(sl.date)} ${t12(sl.time)}${holiTag(sl.date)}</p>
+        <div class="field mt12"><label>날짜</label><input type="date" id="se-one-date" value="${sl.date}" min="${DB.TODAY}"></div>
+        <div class="field"><label>시간</label><input type="time" id="se-one-time" value="${sl.time}"></div>
+        <p class="muted small">이 한 회차만 옮기고 원래 날짜는 건너뛴 것으로 둬요. 나머지 반복은 그대로예요.${n ? ` <b>예약 ${n}건은 새 일시로 함께 옮겨져요</b> (회원에게 알림이 가요).` : ""}</p>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
+        <button class="btn primary" onclick="App.slotMoveOne('${slotId}','${role || ""}')">이 회차만 옮기기</button></div>`);
+    },
+    slotMoveOne(slotId, role) {
+      const sl = slot(slotId);
+      const r = recurOf(sl);
+      if (!sl || !r || sl.status === "canceled") return;
+      if (!App.teachGuard(sl.classId, role)) return;
+      const d = (document.getElementById("se-one-date") || {}).value || sl.date;
+      const t = (document.getElementById("se-one-time") || {}).value || sl.time;
       if (new Date(`${d}T${t}:00+09:00`) <= NOW) { toast("지난 일시로는 옮길 수 없어요."); return; }
-      if (scope === "one") {
-        const from = sl.date;
-        if (DB.slots.some((x) => x.id !== sl.id && x.classId === sl.classId && x.date === d && x.time === t && x.status !== "canceled")) {
-          toast("그 일시엔 같은 수업 회차가 이미 있어요."); return;
-        }
-        sl.date = d; sl.time = t; sl.detached = true; // 규칙에서 떼어 낸 회차 — 이후 «앞으로 전부» 변경에 휩쓸리지 않는다
-        if (!(r.skips || []).includes(from)) (r.skips = r.skips || []).push(from);
-        closeModal(); render();
-        toast(`이 회차만 ${dlabel(d)} ${t12(t)}로 옮겼어요. 나머지 반복은 그대로예요.${seatBk(sl.id).length ? " 예약한 회원에게 변경 알림을 보냈어요." : ""}`);
-        return;
-      }
-      r.time = t;
-      const targets = recurSlots(r).filter((x) => x.date >= sl.date && !isPast(x) && !x.detached);
-      let moved = 0, told = 0;
-      targets.forEach((x) => { if (x.time !== t) { x.time = t; moved++; told += seatBk(x.id).length; } });
+      if (slotBusyAt(sl.classId, d, t, sl.id)) { toast("그 일시엔 같은 수업 회차가 이미 있어요."); return; }
+      const from = sl.date, fromT = sl.time;
+      const c = cls(sl.classId);
+      sl.date = d; sl.time = t; sl.detached = true; // 규칙에서 떼어 낸 회차 — 이후 일괄 변경에 휩쓸리지 않는다
+      if (!(r.skips || []).includes(from)) (r.skips = r.skips || []).push(from);
+      // v2.64 §3: 토스트 문구만 있고 회원 쪽엔 아무 기록도 안 남던 것을 실제 알림 레코드로 바꾼다
+      openBk(sl.id).forEach((b) => alertPush(b.memberId, "recur_time", `${c.title} 회차가 옮겨졌어요`,
+        `<b>${dlabel(from)} ${t12(fromT)}</b> 회차가 <b>${dlabel(d)} ${t12(t)}</b>로 옮겨졌어요.<br>예약도 함께 옮겨졌어요.`,
+        { slotId: sl.id, classId: c.id }));
       closeModal(); render();
-      toast(`앞으로의 반복 회차 ${moved}개 시간을 ${t12(t)}로 바꿨어요.${told ? ` 예약 ${told}건에 변경 알림을 보냈어요.` : ""}`);
+      toast(`이 회차만 ${dlabel(d)} ${t12(t)}로 옮겼어요. 나머지 반복은 그대로예요.${openBk(sl.id).length ? " 예약한 회원에게 변경 알림을 보냈어요." : ""}`);
     },
     // v2.33 B-2·B-3: 날짜·시간 입력이 바뀔 때 안내만 갱신 — 전체 render()를 부르면 입력 포커스가 날아간다.
     arrSync(classId) {
@@ -5959,6 +6386,9 @@
     },
   };
   window.App = App;
+  // v2.64 §4: 롤링 수동 트리거 — 실서비스 배치(매일 04:00 KST)가 호출하는 진입점이자 QA·인계용 훅이다.
+  // 멱등이라 몇 번을 불러도 회차가 늘지 않는다. 사양 전문 = handoff/recur_batch_spec.md
+  App.recurRollNow = (trigger) => recurRollAll(trigger || "manual");
 
   // ── 라우터 ──
   const routes = [
@@ -5976,6 +6406,7 @@
     [/^#\/m\/confirm\/(.+)$/, vMConfirm],
     [/^#\/m\/qr\/(.+)$/, vMQr],
     [/^#\/m\/history$/, vMHistory],
+    [/^#\/m\/alerts$/, vMAlerts], // v2.64 §3: 회원 알림 인박스(통보 전용)
     [/^#\/t\/home$/, vTHome],
     [/^#\/t\/centers$/, vTCenters],
     // v2.59 (형 확정 09-06 · v255 미결 «선생님 반복 패널 진입점» 동시 확정): 선생님의 반복 설정 패널은
@@ -6124,6 +6555,6 @@
   }, { passive: true });
   window.addEventListener("hashchange", () => { closeModal(true); render(); });
   normalizeSeedTimeText(); // v2.62: 시드 문자열의 24시간 표기 → 12시간 (부팅 1회)
-  recurRollAll(); // v2.28 ①: 부팅 시 롤링 — 기준일부터 앞으로 8주치를 미리 채운다
+  recurRollAll("boot"); // v2.28 ①: 부팅 시 롤링 — 기준일부터 앞으로 8주치를 미리 채운다 (v2.64 §4: 새벽 배치의 안전망)
   render();
 })();
