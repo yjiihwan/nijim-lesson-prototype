@@ -2310,6 +2310,9 @@
         <b class="mt8" style="display:block">아직 멤버십이 없어요</b>
         <p class="muted mt4">구매하면 여기 담겨요. 멤버십이 있어야 수업을 예약할 수 있어요.</p>
         <a class="btn primary mt12" href="#/m/shop">멤버십 구매하러 가기</a></div>`}
+      ${/* v2.66 QA: 홈에서 «예약»으로 가는 직접 입구가 없어 예약 확정이 4클릭이었다(예약 탭은 v2.46 확정대로 «내 예약»에 착지).
+           멤버십이 있는 회원에게만 첫 행동으로 올린다 — 없으면 위 빈 카드가 «구매 먼저»를 이미 말한다. */ ""}
+      ${ps.length ? `<a class="btn primary mt12" href="#/m/book">${ici("plus")}수업 예약하기</a>` : ""}
       <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>`);
   }
   // v2.16: 실서비스 «멤버십 구매» 카드 문법 전면 교체 (purchase_ui_spec.md v1 — 실측 레드 사용, 브랜드 팔레트 치환 금지)
@@ -5856,7 +5859,7 @@
         <div class="sec-title sm">회원 안내</div>
         <div class="card flat"><div class="muted small">
           ${im.members.length ? (im.private
-            ? `개인수업(1:1) 회원 <b>${im.members.length}명</b>에게 <b>동의를 요청</b>해요 — 수락해야 그 회원 예약이 넘어가요. 적용일까지 답이 없으면 그 회원의 예약은 취소돼요(수강권은 남아요).`
+            ? `개인수업(1:1) 회원 <b>${im.members.length}명</b>에게 <b>동의를 요청</b>해요 — 수락해야 그 회원 예약이 넘어가요. 적용일까지 답이 없으면 그 회원의 예약은 취소돼요(멤버십 횟수는 그대로 남아요).`
             : `그룹 수업 회원 <b>${im.members.length}명</b>에게 담당 변경을 <b>알려요</b> (통보로 충분해요).`) : "앞으로 예약된 회원이 없어요."}
           ${im.reports.length ? `<br>미처리 보고 <b>${im.reports.length}건</b>은 전임 선생님에게 고정해요 (퇴사했으면 센터로 이관).` : ""}
         </div></div>
