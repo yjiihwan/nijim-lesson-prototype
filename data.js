@@ -897,7 +897,19 @@ window.DB = {
 // 멤버십이 자기 센터를 알아야만 성립한다. 정산라인 스냅샷(3순위)은 이번 범위가 아니지만 여기서 막지 않는다.
 (function seedCenterScope() {
   const D = window.DB;
-  D.activeCenterId = D.center.id; // 전역 활동 센터 = 센터 역할 화면의 컨텍스트 (선생님 화면은 «내 활동 소속 전체»)
+  // v2.67 QA② C-T3: activeCenterId 는 «세팅은 되는데 아무도 안 읽는» 죽은 필드였다 — ct2 로 바꿔도 화면이
+  // 그대로라 이식할 때 그대로 재현될 함정이었다. DB.center 를 이 값에서 파생시켜 «진짜 기준»으로 만든다.
+  // ⛔DB.center 를 다시 고정 객체로 되돌리지 마라. 센터 역할 화면 47곳이 전부 DB.center.id 를 본다.
+  // ⚠️정책(DB.policy)은 아직 센터별이 아니다 — 운영 센터 1곳 기준이다(§형 판단).
+  D.activeCenterId = D.center.id;
+  {
+    const seedCenter = D.center;
+    Object.defineProperty(D, "center", {
+      configurable: true,
+      get: () => D.centers.find((c) => c.id === D.activeCenterId) || seedCenter,
+      set: (v) => { D.activeCenterId = (v && v.id) || D.activeCenterId; },
+    });
+  }
 
   D.products.forEach((p) => { if (!p.centerId) p.centerId = "ct1"; });
   D.passes.forEach((p) => { if (!p.centerId) p.centerId = "ct1"; });
@@ -929,8 +941,10 @@ window.DB = {
 (function shiftToRealToday() {
   const D = window.DB, BASE = D.TODAY;
   const p2 = (n) => String(n).padStart(2, "0");
-  const now = new Date();
-  const real = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}`;
+  // v2.67 QA② E-2/E-3: 여기는 «브라우저 로컬 달력일», app.js 의 kstToday() 는 «KST 고정»이라 두 «오늘»이
+  // 갈렸다(UTC 15:00 경계·해외 기기). 앱의 «오늘»은 한 곳에서만 정한다 — Asia/Seoul 고정.
+  // ⛔`new Date().getFullYear()` 처럼 로컬 달력일로 되돌리지 마라. 짝 = app.js `kstToday()`.
+  const real = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const utcNoon = (iso) => new Date(iso + "T12:00:00Z");
   const delta = Math.round((utcNoon(real) - utcNoon(BASE)) / 86400000);
   if (!delta) return;
