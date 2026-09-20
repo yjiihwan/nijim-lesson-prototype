@@ -1,4 +1,7 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.69 (2026-09-21 형 판단-1 «정산 단가 스냅샷» 수정): App.buy(회원 자가 구매)도 구매 시점 settleBase 를 박는다.
+   🔴단 한 곳(App.buy)만 바뀌었다 — sellPass 와 동일하게 `np.settleBase = calcSettleBase(np).base`.
+   ⛔환불 계산은 그대로 p.unitPrice(회원 기준가)다 — 여기까지 settleBase 로 바꾸지 마라(지뢰 ④).
    v2.68 (2026-09-21 «외부 개발자 이관·병합성» — 실서버 배포 전 전체 QA ③): 동작 무변경 리팩터.
    🔵이번엔 «기능»을 바꾸지 않았다 — 이관을 돕는 표식만 얹었다: ①[SERVER] 마커 40곳(서버 권위 지점)
    ②🧮[순수]/📐[규칙] 주석 13개(입력·출력·불변식) ③[구역] 배너 24개 + 파일 상단 색인 ④매직넘버 상수화
@@ -312,69 +315,69 @@
    📍 색인 (v2.68 «외부 개발자 이관·병합성» QA에서 신설) — 이 파일을 처음 여는 사람에게
    ══════════════════════════════════════════════════════════════════════════════
    이 파일은 8천여 줄 단일 IIFE 다. 파일을 쪼개지 않은 이유와 읽는 순서는 프로토타입 루트의
-   README.md 를 먼저 봐라. 아래 줄번호는 v2.68 기준이고, 어긋나면 «검색어» 로 찾으면 된다.
+   README.md 를 먼저 봐라. 아래 줄번호는 v2.69 기준이고, 어긋나면 «검색어» 로 찾으면 된다.
    ⛔이 색인은 «자동 생성»이다. 손으로 고치지 마라 — 코드를 편집했으면 아래를 돌려 다시 만든다.
        node handoff/regen_index.mjs      (구역·🧮순수·[SERVER] 를 다시 세어 이 블록만 갈아끼운다)
 
    ── 구역 (검색: «[구역 ») ──────────────────────────────────────────────────────
-   424    [구역 01] 부트·공통 유틸
-   511    [구역 02] 멤버십(수강권) — 상태·보유·차감 자격
-   591    [구역 03] 소속·권한 범위
-   724    [구역 04] 시간 겹침·예약 자격 관문
-   964    [구역 05] 원장·정산 금액 계산
-   1118   [구역 06] 일시정지(멤버십 홀딩)
-   1192   [구역 07] 대강·담당 선생님 교체
-   1374   [구역 08] 환불
-   1477   [구역 09] 완료 보고 · 수강 확인 · 이의 · 노쇼
-   1607   [구역 10] 대기 승격 · 회차 수명
-   1684   [구역 11] 반복 수업(8주 롤링)
-   2009   [구역 12] UI 기반 — 모션·시트·모달·토스트
-   2166   [구역 13] 배지·알림 문구 SSOT
-   2460   [구역 14] 공통 셸 · 탭 · 해야 할 일
-   2592   [구역 15] 화면 — 회원(vM*)
-   3323   [구역 16] 화면 — 선생님(vT*)
-   3542   [구역 17] 수업 만들기(2단계 · cc*)
-   4125   [구역 18] 선생님 보고·정산 화면
-   4262   [구역 19] 화면 — 센터(vC*)
-   4558   [구역 20] 공통 위젯 — 회원 검색기 · 필터 · 정책 편집
-   5222   [구역 21] 내보내기 · 샐리 전송 경계
-   5940   [구역 22] QR 수강 확인
-   5992   [구역 23] 액션(App) — 화면에서 부르는 모든 동작
-   8420   [구역 24] 라우터 · UI 상태 레지스트리 · 부트
+   427    [구역 01] 부트·공통 유틸
+   514    [구역 02] 멤버십(수강권) — 상태·보유·차감 자격
+   594    [구역 03] 소속·권한 범위
+   727    [구역 04] 시간 겹침·예약 자격 관문
+   967    [구역 05] 원장·정산 금액 계산
+   1122   [구역 06] 일시정지(멤버십 홀딩)
+   1196   [구역 07] 대강·담당 선생님 교체
+   1378   [구역 08] 환불
+   1481   [구역 09] 완료 보고 · 수강 확인 · 이의 · 노쇼
+   1611   [구역 10] 대기 승격 · 회차 수명
+   1688   [구역 11] 반복 수업(8주 롤링)
+   2013   [구역 12] UI 기반 — 모션·시트·모달·토스트
+   2170   [구역 13] 배지·알림 문구 SSOT
+   2464   [구역 14] 공통 셸 · 탭 · 해야 할 일
+   2596   [구역 15] 화면 — 회원(vM*)
+   3327   [구역 16] 화면 — 선생님(vT*)
+   3546   [구역 17] 수업 만들기(2단계 · cc*)
+   4129   [구역 18] 선생님 보고·정산 화면
+   4266   [구역 19] 화면 — 센터(vC*)
+   4562   [구역 20] 공통 위젯 — 회원 검색기 · 필터 · 정책 편집
+   5226   [구역 21] 내보내기 · 샐리 전송 경계
+   5944   [구역 22] QR 수강 확인
+   5996   [구역 23] 액션(App) — 화면에서 부르는 모든 동작
+   8428   [구역 24] 라우터 · UI 상태 레지스트리 · 부트
 
    ── 🧮 도메인 순수 함수 / 📐 규칙 (검색: «🧮[순수]» · 입력/출력/불변식 주석이 붙어 있다) ──
    실서버로 옮길 때 «그대로 옮겨도 되는» 계산 로직이다. 화면·DOM 을 읽지 않는다.
-   514    🧮 passState
-   680    🧮 eligiblePasses
-   740    🧮 overlapSlots
-   754    🧮 memberBusyAt
-   854    🧮 bookGuard
-   992    🧮 calcSettleBase
-   1049   🧮 smallSkip
-   1067   🧮 settleImpact
-   1150   📐 freezeEnd
-   1384   🧮 refundCalc
-   1413   🧮 refundPayouts
-   1749   🧮 recurDates
-   4176   🧮 unitGroups
+   517    🧮 passState
+   683    🧮 eligiblePasses
+   743    🧮 overlapSlots
+   757    🧮 memberBusyAt
+   857    🧮 bookGuard
+   995    🧮 calcSettleBase
+   1053   🧮 smallSkip
+   1071   🧮 settleImpact
+   1154   📐 freezeEnd
+   1388   🧮 refundCalc
+   1417   🧮 refundPayouts
+   1753   🧮 recurDates
+   4180   🧮 unitGroups
 
    ── 🔒 [SERVER] 마커 40곳 (검색: «[SERVER]») ─────────────────────────────
    🔴프론트가 계산·판정하지만 실서버에서는 «서버가 권위» 여야 하는 자리다.
    이 로직을 클라이언트 신뢰 그대로 이식하면 그 자리가 곧 조작 취약점이 된다.
-   509 passState                 624 classAuth                 635 tScope
-   679 eligiblePasses            739 overlapSlots              753 memberBusyAt
-   853 bookGuard                 890 overbookOf                962 applyLedger
-   991 calcSettleBase            1007 passSettleBase           1028 makeAdjust
-   1048 smallSkip                1066 settleImpact             1081 applySettleBase
-   1132 freezeStart              1149 freezeEnd                1335 sweepTeacherChange
-   1383 refundCalc               1412 refundPayouts            1426 refundDo
-   1475 repTx                    1495 confirmTx                1535 disputeAllowed
-   1580 finalizeNoshow           1605 sweepExpiredWaitlists    1624 promoteWaitlist
-   1784 recurGenerate            1811 recurRollAll             5329 pushScope
-   5351 pushBatches              5938 qrSvg                    5962 vMQr
-   6173 buy                      6689 sellPass                 7424 qrStart
-   7441 qrConfirm                8221 sallyPushDo              8254 sallyWithdraw
-   8535 역할 라우트 가드
+   512 passState                 627 classAuth                 638 tScope
+   682 eligiblePasses            742 overlapSlots              756 memberBusyAt
+   856 bookGuard                 893 overbookOf                965 applyLedger
+   994 calcSettleBase            1010 passSettleBase           1032 makeAdjust
+   1052 smallSkip                1070 settleImpact             1085 applySettleBase
+   1136 freezeStart              1153 freezeEnd                1339 sweepTeacherChange
+   1387 refundCalc               1416 refundPayouts            1430 refundDo
+   1479 repTx                    1499 confirmTx                1539 disputeAllowed
+   1584 finalizeNoshow           1609 sweepExpiredWaitlists    1628 promoteWaitlist
+   1788 recurGenerate            1815 recurRollAll             5333 pushScope
+   5355 pushBatches              5942 qrSvg                    5966 vMQr
+   6177 buy                      6697 sellPass                 7432 qrStart
+   7449 qrConfirm                8229 sallyPushDo              8262 sallyWithdraw
+   8543 역할 라우트 가드
 
    ── 🧭 역할별 라우트 (정본 = 파일 끝 const routes 배열 한 곳) ──────────────────
    회원 #/m/*   home · shop · shop/:id · book · book/mine · class/:id · slot/:id
@@ -1004,7 +1007,8 @@
     return { base: Math.floor(parts.reduce((a, x) => a + x.basis, 0) / total), mode, parts };
   }
   // 저장된 스냅샷 우선 — 센터가 나중에 부가세 설정을 바꿔도 «이미 판 권»의 기준은 흔들리지 않는다(스냅샷 원칙).
-  // [SERVER] 정산 단가 스냅샷. 프론트 계산은 표시용 — 서버 권위. settle_base 는 판매 tx 에서 NOT NULL 로 박고 조정 tx 외 UPDATE 금지. ⚠️App.buy 는 지금 안 박는다(§미해결).
+  // [SERVER] 정산 단가 스냅샷. 프론트 계산은 표시용 — 서버 권위. settle_base 는 판매 tx 에서 NOT NULL 로 박고 조정 tx 외 UPDATE 금지.
+  // v2.69: sellPass(센터 판매)·App.buy(회원 자가 구매) 둘 다 박는다. 폴백은 옛 데이터·시드용 안전망일 뿐 «정상 경로»가 아니다.
   const passSettleBase = (p) => (p && p.settleBase != null ? p.settleBase : calcSettleBase(p).base);
   const paySum = (pays) => (pays || []).reduce((a, x) => a + (Number(x.amount) || 0), 0);
   const PAY_METHOD = { card: "카드", cash: "현금/계좌이체" };
@@ -6170,7 +6174,7 @@
       if (mw) mw.style.display = v === "pass" ? "none" : "";
     },
     chip(btn) { btn.classList.toggle("on"); },
-    // [SERVER] 회원 자가 구매 = PG 결제. 프론트 즉시 생성은 시늉 — 결제 성공 웹훅에서 서버가 멤버십을 만든다. ⚠️settleBase 스냅샷 누락(sellPass 와 불일치).
+    // [SERVER] 회원 자가 구매 = PG 결제. 프론트 즉시 생성은 시늉 — 결제 성공 웹훅에서 서버가 멤버십을 만든다. settle_base 는 그 웹훅 tx 에서 NOT NULL 로 박는다(sellPass 와 동일).
     buy(pid) {
       if (buyLock) return; buyLock = true; setTimeout(() => { buyLock = false; }, 1200); // v2.58 QA: 더블탭 이중 결제 차단
       const p = DB.products.find((x) => x.id === pid);
@@ -6182,6 +6186,10 @@
       const pay = sale ? p.salePrice : p.price;
       // v2.66 QA: centerId 를 안 박으면 다른 센터 상품을 사도 운영 센터(ct1) 멤버십으로 저장됐다 — 상품의 센터를 그대로 승계한다.
       const np = { id, memberId: DB.me.member, centerId: passCenter(p), productId: p.id, name: p.name, kind: p.kind, total: p.sessions, unitPrice: Math.floor(pay / p.sessions), purchasePrice: pay, listPrice: p.price, expiresAt: exp, remaining: 0 };
+      // ⭐ v2.69 형 판단-1: 센터 판매(sellPass)와 «같은 계산식·같은 필드»로 구매 시점 1회 박는다.
+      // 안 박으면 passSettleBase 가 라이브 폴백을 타서, 센터가 나중에 vatMode 를 바꿀 때 «이미 판 권»의 정산 단가가 소급 변경된다.
+      // PG 결제라 payments 는 없다 — calcSettleBase 의 결제수단 없는 경로(purchasePrice 기준)가 그대로 정답이다.
+      np.settleBase = calcSettleBase(np).base;
       DB.passes.push(np);
       applyLedger(np, p.sessions, "purchase", `${esc(p.name)} · ${won(pay)}${sale ? ` (정가 ${won(p.price)} · 이벤트 할인)` : ""}`);
       toast("구매 완료! 멤버십이 지갑에 담겼어요 💪");
