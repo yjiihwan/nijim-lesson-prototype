@@ -1,4 +1,9 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.68 (2026-09-21 «외부 개발자 이관·병합성» — 실서버 배포 전 전체 QA ③): 동작 무변경 리팩터.
+   🔵이번엔 «기능»을 바꾸지 않았다 — 이관을 돕는 표식만 얹었다: ①[SERVER] 마커 40곳(서버 권위 지점)
+   ②🧮[순수]/📐[규칙] 주석 13개(입력·출력·불변식) ③[구역] 배너 24개 + 파일 상단 색인 ④매직넘버 상수화
+   (VAT_DIVISOR·DEFAULT_DURATION_MIN·FREEZE_MAX_DEFAULT·MS_*·MIN_PER_DAY·KST_OFFSET_MS·ROLL_WATCH_MS).
+   ⛔파일은 일부러 쪼개지 않았다(모듈레벨 가변 상태 31개 · 인라인 onclick 276곳 공유) — README.md §왜 한 파일인가.
    v2.67 (2026-09-20 «오류·버그·희귀 케이스» — 실서버 배포 전 전체 QA ②): 5축 프로브 215 시나리오 → 결함 48건 수정
    🔴코드 건드리기 전에 반드시 알아야 할 것 (전문 = shared_inbox/results/lesson_qa_bugs_20260920.md §지뢰)
    ① 자정 넘김: 겹침 후보는 «전날·당일·다음날» 3일 창(teacherSpanSlots·memberBusyAt) — ⛔하루로 되돌리지 마라.
@@ -302,9 +307,100 @@
    «무응답 시»(문장형)→응답이 없으면 / «임계»→기준 / «(대기) 승격»→확정·직접 예약으로 올려요 /
    «감사 기록»→기록 / «구매일 미상»→구매일 정보 없음 / «자동 성립»→자동으로 완료 처리 / «수업 시각»→수업 시간.
    유지: «무응답 자동확정»(정책 라벨)·확인수단 P7-2 어휘·«일정 변경 제안»(PROP_KIND.change 축)·차감/잔여/회차/폐강 등 통용어.
+
+   ══════════════════════════════════════════════════════════════════════════════
+   📍 색인 (v2.68 «외부 개발자 이관·병합성» QA에서 신설) — 이 파일을 처음 여는 사람에게
+   ══════════════════════════════════════════════════════════════════════════════
+   이 파일은 8천여 줄 단일 IIFE 다. 파일을 쪼개지 않은 이유와 읽는 순서는 프로토타입 루트의
+   README.md 를 먼저 봐라. 아래 줄번호는 v2.68 기준이고, 어긋나면 «검색어» 로 찾으면 된다.
+   ⛔이 색인은 «자동 생성»이다. 손으로 고치지 마라 — 코드를 편집했으면 아래를 돌려 다시 만든다.
+       node handoff/regen_index.mjs      (구역·🧮순수·[SERVER] 를 다시 세어 이 블록만 갈아끼운다)
+
+   ── 구역 (검색: «[구역 ») ──────────────────────────────────────────────────────
+   424    [구역 01] 부트·공통 유틸
+   511    [구역 02] 멤버십(수강권) — 상태·보유·차감 자격
+   591    [구역 03] 소속·권한 범위
+   724    [구역 04] 시간 겹침·예약 자격 관문
+   964    [구역 05] 원장·정산 금액 계산
+   1118   [구역 06] 일시정지(멤버십 홀딩)
+   1192   [구역 07] 대강·담당 선생님 교체
+   1374   [구역 08] 환불
+   1477   [구역 09] 완료 보고 · 수강 확인 · 이의 · 노쇼
+   1607   [구역 10] 대기 승격 · 회차 수명
+   1684   [구역 11] 반복 수업(8주 롤링)
+   2009   [구역 12] UI 기반 — 모션·시트·모달·토스트
+   2166   [구역 13] 배지·알림 문구 SSOT
+   2460   [구역 14] 공통 셸 · 탭 · 해야 할 일
+   2592   [구역 15] 화면 — 회원(vM*)
+   3323   [구역 16] 화면 — 선생님(vT*)
+   3542   [구역 17] 수업 만들기(2단계 · cc*)
+   4125   [구역 18] 선생님 보고·정산 화면
+   4262   [구역 19] 화면 — 센터(vC*)
+   4558   [구역 20] 공통 위젯 — 회원 검색기 · 필터 · 정책 편집
+   5222   [구역 21] 내보내기 · 샐리 전송 경계
+   5940   [구역 22] QR 수강 확인
+   5992   [구역 23] 액션(App) — 화면에서 부르는 모든 동작
+   8420   [구역 24] 라우터 · UI 상태 레지스트리 · 부트
+
+   ── 🧮 도메인 순수 함수 / 📐 규칙 (검색: «🧮[순수]» · 입력/출력/불변식 주석이 붙어 있다) ──
+   실서버로 옮길 때 «그대로 옮겨도 되는» 계산 로직이다. 화면·DOM 을 읽지 않는다.
+   514    🧮 passState
+   680    🧮 eligiblePasses
+   740    🧮 overlapSlots
+   754    🧮 memberBusyAt
+   854    🧮 bookGuard
+   992    🧮 calcSettleBase
+   1049   🧮 smallSkip
+   1067   🧮 settleImpact
+   1150   📐 freezeEnd
+   1384   🧮 refundCalc
+   1413   🧮 refundPayouts
+   1749   🧮 recurDates
+   4176   🧮 unitGroups
+
+   ── 🔒 [SERVER] 마커 40곳 (검색: «[SERVER]») ─────────────────────────────
+   🔴프론트가 계산·판정하지만 실서버에서는 «서버가 권위» 여야 하는 자리다.
+   이 로직을 클라이언트 신뢰 그대로 이식하면 그 자리가 곧 조작 취약점이 된다.
+   509 passState                 624 classAuth                 635 tScope
+   679 eligiblePasses            739 overlapSlots              753 memberBusyAt
+   853 bookGuard                 890 overbookOf                962 applyLedger
+   991 calcSettleBase            1007 passSettleBase           1028 makeAdjust
+   1048 smallSkip                1066 settleImpact             1081 applySettleBase
+   1132 freezeStart              1149 freezeEnd                1335 sweepTeacherChange
+   1383 refundCalc               1412 refundPayouts            1426 refundDo
+   1475 repTx                    1495 confirmTx                1535 disputeAllowed
+   1580 finalizeNoshow           1605 sweepExpiredWaitlists    1624 promoteWaitlist
+   1784 recurGenerate            1811 recurRollAll             5329 pushScope
+   5351 pushBatches              5938 qrSvg                    5962 vMQr
+   6173 buy                      6689 sellPass                 7424 qrStart
+   7441 qrConfirm                8221 sallyPushDo              8254 sallyWithdraw
+   8535 역할 라우트 가드
+
+   ── 🧭 역할별 라우트 (정본 = 파일 끝 const routes 배열 한 곳) ──────────────────
+   회원 #/m/*   home · shop · shop/:id · book · book/mine · class/:id · slot/:id
+                confirms · confirm/:id · qr/:token · history · alerts
+   선생님 #/t/* home · centers · schedule[/cal|classes|reqs] · propose · slot/:id
+                create · class/:id · overlaps · report · earnings
+   센터 #/c/*   home · teachers · products · passes · pass/:id · classes[/manage]
+                class/:id · slot/:id · create · overlaps · confirms · settlement
+                policy[/:section|/scope/:id]
+   🔴역할 가드는 선생님(#/t/*)에만 있다 — 센터(#/c/*)는 무가드. 실서버는 서버 인가가 정본.
+   옛 링크는 REDIRECTS 표가 새 자리로 보낸다(딥링크·즐겨찾기를 죽이지 않는다).
+   ══════════════════════════════════════════════════════════════════════════════
 */
 (function () {
   const DB = window.DB;
+
+  // ══ [이식 상수] 도메인 매직넘버 SSOT — v2.68 «이관·병합성» QA에서 리터럴을 여기로 올렸다 ══
+  // ⛔여기 값을 호출부에 다시 리터럴로 풀어 쓰지 마라. 실서버 이식 때 바꿀 곳이 한 군데여야 한다.
+  const MS_MIN = 60000, MS_HOUR = 3600000, MS_DAY = 86400000;
+  const KST_OFFSET_MS = 9 * MS_HOUR;   // 브라우저 시계 → KST 보정. [SERVER] 실서버는 서버가 Asia/Seoul 로 계산해 내려준다.
+  const MIN_PER_DAY = 1440;            // 자정 넘김 판정의 기준(분). 지뢰 ① «3일 창»과 짝이다.
+  const DEFAULT_DURATION_MIN = 50;     // 수업 길이 기본값 — class.duration 이 없을 때만. [SERVER] DDL 기본값도 같게.
+  const VAT_RATE = 0.1;                // 부가가치세율. [SERVER] 세율 변경 시 과거 스냅샷은 소급하지 않는다.
+  const VAT_DIVISOR = 1 + VAT_RATE;    // 세포함가 → 공급가 환산. calcSettleBase 전용(환불은 회원 기준가 — 지뢰 ④).
+  const FREEZE_MAX_DEFAULT = 60;       // 연 최대 정지 일수 기본값(센터 미설정 시). 짝 = FREEZE_MIN_DEFAULT(7).
+  const ROLL_WATCH_MS = MS_MIN;        // 날짜 바뀜 감시 주기. [SERVER] 실서버는 매일 04:00 KST 배치가 대신한다.
   // v2.50: 실제 현재시각 (데모 고정 폐지 — data.js가 시드를 오늘 기준으로 시프트)
   // v2.58 QA: 로드 시각 고정이면 탭을 오래 열어 둔 사이 «취소 기한·지난 회차·만료» 판정이 멈춘다 — 조작·렌더마다 갱신한다.
   let NOW = new Date();
@@ -324,6 +420,10 @@
   // v2.67 QA② D-2: 홑따옴표가 빠져 있었다. 지금은 onclick 인자가 전부 시스템 id 라 무사하지만,
   // `onclick="App.f('${...}')"` 형태에 사람이 쓴 글자를 넣는 순간 뚫린다 — 선제로 막는다.
   const esc = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 01] 부트·공통 유틸
+  //   DB 핸들 · 이식 상수 · 날짜/시각 포맷. 표시 문자열은 전부 여기서 만든다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   const DOW = ["일", "월", "화", "수", "목", "금", "토"];
   function dlabel(dateStr) {
     const d = new Date(dateStr + "T00:00:00+09:00");
@@ -346,23 +446,23 @@
   const slotDesc = (s) => (s ? `${dlabel(s.date)} ${t12(s.time)} · ${esc((cls(s.classId) || {}).title || "(삭제된 수업)")}` : "(삭제된 회차)");
   const slotAt = (s) => new Date(`${s.date}T${s.time}:00+09:00`);
   // v2.67 QA② F-2: Date → KST 달력일·시:분. 자정 넘김 회차의 «끝나는 날»을 데이터로 남길 때 쓴다.
-  const kstDateOf = (d) => new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
-  const kstTimeOf = (d) => new Date(d.getTime() + 9 * 3600000).toISOString().slice(11, 16);
+  const kstDateOf = (d) => new Date(d.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
+  const kstTimeOf = (d) => new Date(d.getTime() + KST_OFFSET_MS).toISOString().slice(11, 16);
   const isPast = (s) => slotAt(s) <= NOW;
-  function hoursUntil(s) { return (slotAt(s) - NOW) / 3600000; }
+  function hoursUntil(s) { return (slotAt(s) - NOW) / MS_HOUR; }
   function dday(dateStr) {
     if (!dateStr) return null;
     // v2.58 QA: 달력 날짜 차이 — 만료 당일=0(D-Day)·내일=1(D-1). (예전엔 23:59 기준 ceil이라 하루씩 크게 나왔다)
-    return Math.round((new Date(dateStr + "T12:00:00+09:00") - new Date(DB.TODAY + "T12:00:00+09:00")) / 86400000);
+    return Math.round((new Date(dateStr + "T12:00:00+09:00") - new Date(DB.TODAY + "T12:00:00+09:00")) / MS_DAY);
   }
   function addDays(dateStr, n) {
     // 정오 기준으로 더해 UTC 변환 시 날짜 밀림 방지
-    const d = new Date(new Date(dateStr + "T12:00:00+09:00").getTime() + n * 86400000);
+    const d = new Date(new Date(dateStr + "T12:00:00+09:00").getTime() + n * MS_DAY);
     return d.toISOString().slice(0, 10);
   }
   // v2.65: 두 날짜 사이 «일수»(b − a). dday와 같은 정오 기준 — 일시정지 기간·만료일 연장 계산의 단일 출처.
   const daysBetween = (a, b) => (!a || !b ? 0
-    : Math.round((new Date(b + "T12:00:00+09:00") - new Date(a + "T12:00:00+09:00")) / 86400000));
+    : Math.round((new Date(b + "T12:00:00+09:00") - new Date(a + "T12:00:00+09:00")) / MS_DAY));
   let seq = 100;
   const nid = (p) => p + seq++;
   // v2.50: 실제 현재시각 · v2.58 QA: 로드 시각이 아니라 «기록하는 순간»의 시각을 찍는다(함수화)
@@ -406,6 +506,16 @@
 
   // ── 수업권 상태 (M-1: 기간 만료·소진·정지 판정) ──
   // v2.59 (형 확정 09-06): 만료 판정의 «기준일»이 센터 설정이라 인자로 받는다 — 없으면 오늘(종전 동작).
+  // [SERVER] 멤버십 상태(만료·소진·정지) 판정. 프론트 계산은 표시용 — 서버 권위. 기준일은 서버가 (now() AT TIME ZONE 'Asia/Seoul')::date 로 만든다(브라우저 시계 금지).
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 02] 멤버십(수강권) — 상태·보유·차감 자격
+  //   🧮순수: passState·byExpiry·eligiblePasses. [SERVER] 만료·잔여 판정은 서버 권위.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 🧮[순수] passState — 멤버십의 «지금 상태» 1개를 판정한다 (부수효과 없음)
+  //   입력  p{status,expiresAt,remaining} · onDate=기준일(YYYY-MM-DD, 없으면 DB.TODAY)
+  //   출력  "frozen" | "expired" | "exhausted" | "active"  (우선순위가 곧 이 순서)
+  //   불변식 DB에 실제로 저장되는 status 는 frozen 뿐 — 나머지 3개는 파생이다.
+  //          ⛔expired/exhausted/refunded 를 컬럼으로 만들지 마라(파생과 컬럼이 어긋나는 순간 정산이 틀어진다).
   function passState(p, onDate) {
     if (p.status === "frozen") return "frozen";
     if (p.expiresAt && p.expiresAt < (onDate || DB.TODAY)) return "expired";
@@ -477,6 +587,10 @@
 
   // 내(선생님) 활동 소속 센터 — 2곳 이상이면 «다중 소속». 카드마다 부르므로 캐시한다.
   let _tcIds = null, _tcKey = "";
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 03] 소속·권한 범위
+  //   선생님↔센터 소속(affils)과 «지정 가능 회원 범위»(tScope). [SERVER] 인가는 서버 권위.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function myTeacherCenters() {
     const key = affilVer() + ":" + DB.me.teacher;
     if (_tcIds && _tcKey === key) return _tcIds;
@@ -507,6 +621,7 @@
 
   // ── 수업 개설·관리 권한 (02 P2-2) — 센터가 지정한 선생님만 ──
   // 2026-08-19 형 확정: «자격 멤버십»(유효 수업권 보유 시 권한 자동 부여) 경로 폐기. 센터 지정(memberIds) 단일 경로.
+  // [SERVER] 수업 개설·관리 권한. 프론트 계산은 표시용 — 서버 권위. POST/PATCH /classes 인가 + 센터×선생님 권한 테이블 RLS.
   function classAuth(t) {
     if (!t) return { ok: false };
     const A = DB.policy.classAuth || { memberIds: [] };
@@ -517,6 +632,7 @@
   // ── v2.3 (P2-2b): 선생님별 «지정 가능 회원 범위» ──
   // 범위 = productIds(멤버십 단위: 유효 수업권 보유 회원 전체) ∪ memberIds(멤버십 하위 개별 선택).
   // 미설정·mode:"all" = 전체 회원 (기본값 — v2.2까지의 동작과 동일, 02 문서).
+  // [SERVER] 선생님별 «지정 가능 회원 범위». 프론트 계산은 표시용 — 서버 권위. 지정 확정 API 에서 재검증. 📌스키마에 center_id 축 필요(형 미결).
   function tScope(tid) {
     const S = (DB.policy.teacherScope || {})[tid];
     return S && S.mode === "custom" ? S : { mode: "all", productIds: [], memberIds: [] };
@@ -560,6 +676,12 @@
     });
   }
   // 이 수업에 쓸 수 있는 수업권 전체 — [0]=자동 선택되는 기본 수업권(만료 임박 순)
+  // [SERVER] 자격 멤버십 후보 + 차감 우선순위. 프론트 계산은 표시용 — 서버 권위. 차감 대상은 서버가 정하고, 회원이 고른 passId 는 «허용 후보 안인가»만 검증.
+  // 🧮[순수] eligiblePasses — 이 수업에 쓸 수 있는 내 멤버십 목록 (차감 우선순위 순)
+  //   입력  c=수업{eligibility:'pass'|'list'|'both', eligibleProductIds[], kind} · mid=회원id · onDate=유효 기준일
+  //   출력  pass[] — 앞에 올수록 먼저 차감. [0] 이 기본 선택값(eligiblePass)
+  //   불변식 ① 정렬은 byExpiry(만료 임박 우선) ② 센터가 같아야 한다(passCenter===classCenter)
+  //          ③ 유효 기준일은 policy.passValidBasis 가 정한다(class_date 기본 / booking_date)
   function eligiblePasses(c, mid, onDate) {
     // v2.59: «수업일 기준»이면 그 수업 날짜에 살아 있는 멤버십만 후보 — 만료 임박 권은 자연히 빠지고 다음 권이 기본이 된다
     const ref = validRefDate(onDate);
@@ -580,24 +702,28 @@
 
   // ── v2.25 ② 선생님 시간 겹침 (형 확정 B: 경고 후 강행 허용) ──
   // 같은 선생님의 [시작, 시작+수업시간) 구간이 겹치는 다른 회차. 차단하지 않고 확인 모달만 띄운다.
-  const slotEndAt = (s) => new Date(slotAt(s).getTime() + ((cls(s.classId) || {}).duration || 50) * 60000);
+  const slotEndAt = (s) => new Date(slotAt(s).getTime() + ((cls(s.classId) || {}).duration || DEFAULT_DURATION_MIN) * MS_MIN);
   // v2.33 B-1·D-1: 구간 계산과 «유효 회차» 필터를 한 벌로 모았다. 겹침을 보는 곳(선생님·회원)이 늘어도
   // 판정 규칙은 여기 하나뿐 — 같은 필터를 두 벌 두면 한쪽만 고쳐지는 사고가 난다.
-  const spanOf = (date, time, duration) => { const st = new Date(`${date}T${time}:00+09:00`); return [st, new Date(st.getTime() + (duration || 50) * 60000)]; };
+  const spanOf = (date, time, duration) => { const st = new Date(`${date}T${time}:00+09:00`); return [st, new Date(st.getTime() + (duration || DEFAULT_DURATION_MIN) * MS_MIN)]; };
   const spanHits = (s, st, en) => slotAt(s) < en && slotEndAt(s) > st;
   // 시:분 문자열 연산 — 표시용 종료 시각은 타임존을 타지 않게 문자열로 계산한다
   const addMin = (t, m) => { const [h, mi] = t.split(":").map(Number); const x = h * 60 + mi + (m || 0); return `${String(Math.floor(x / 60) % 24).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`; };
   // v2.67 QA② A-4/G-1/G-3: addMin 의 %24 는 «며칠 뒤»를 통째로 버린다 — 25시간 수업은 종료가 시작보다
   // 빨라 보이기까지 했다. 기존 addMin 은 그대로 두고(호출처 다수) 넘김 일수를 함께 돌려주는 짝을 새로 만든다.
   const addMinX = (t, m) => { const [h, mi] = String(t || "0:0").split(":").map(Number); const x = h * 60 + mi + (m || 0);
-    return { t: `${String(Math.floor(x / 60) % 24).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`, d: Math.floor(x / 1440) }; };
+    return { t: `${String(Math.floor(x / 60) % 24).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`, d: Math.floor(x / MIN_PER_DAY) }; };
   const nextDayTag = (d) => (d === 1 ? " (다음날)" : d > 1 ? ` (${d}일 뒤)` : "");
   // 시작–종료 구간 텍스트. 자정을 넘으면 «며칠 뒤»인지 반드시 말한다.
-  const spanLabel = (time, dur) => { const e = addMinX(time, dur || 50); return t12span(time, e.t) + nextDayTag(e.d); };
+  const spanLabel = (time, dur) => { const e = addMinX(time, dur || DEFAULT_DURATION_MIN); return t12span(time, e.t) + nextDayTag(e.d); };
   // v2.67 QA②: addMin 은 %24 라 «01:00»만 돌려준다 — 날짜가 바뀐다는 사실이 라벨에서 사라진다.
-  const endsNextDay = (time, dur) => { const [h, mi] = String(time || "0:0").split(":").map(Number); return h * 60 + mi + (dur || 50) > 1440; };
-  const slotSpanLabel = (s) => spanLabel(s.time, (cls(s.classId) || {}).duration || 50);
+  const endsNextDay = (time, dur) => { const [h, mi] = String(time || "0:0").split(":").map(Number); return h * 60 + mi + (dur || DEFAULT_DURATION_MIN) > MIN_PER_DAY; };
+  const slotSpanLabel = (s) => spanLabel(s.time, (cls(s.classId) || {}).duration || DEFAULT_DURATION_MIN);
   // 그 선생님의 그 날 «유효 회차» — 취소 회차·폐강 수업 제외, 시간 오름차순
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 04] 시간 겹침·예약 자격 관문
+  //   🔴자정 넘김 3일 창(지뢰 ①). bookGuard 가 예약 자격의 단일 관문이다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function teacherDaySlots(teacherId, date) {
     return DB.slots.filter((s) => {
       if (s.status === "canceled" || s.date !== date) return false;
@@ -610,6 +736,12 @@
   // ⛔후보 창을 date 하루로 되돌리지 마라. 판정 규칙은 spanHits(절대시각) 한 벌 그대로다 — 창만 넓힌다.
   const teacherSpanSlots = (teacherId, date) =>
     [addDays(date, -1), date, addDays(date, 1)].flatMap((d) => teacherDaySlots(teacherId, d));
+  // [SERVER] 선생님 시간 겹침 판정. 프론트 계산은 표시용 — 서버 권위. 회차 생성/수정 API 에서 재판정, 강행은 override:true 를 명시적으로 받아 감사 기록.
+  // 🧮[순수] overlapSlots — 그 선생님의 시간이 겹치는 회차들
+  //   입력  teacherId · date · time(HH:mm) · duration(분) · excludeIds=자기 자신 제외용
+  //   출력  slot[] (시작 순). 빈 배열이면 겹침 없음
+  //   불변식 🔴후보 창은 «전날·당일·다음날» 3일(teacherSpanSlots) — 자정 넘김 때문이다(지뢰 ①).
+  //          판정 자체는 spanHits(절대시각 비교) 한 벌이다. ⛔창을 하루로 좁히지 마라.
   function overlapSlots(teacherId, date, time, duration, excludeIds) {
     const [st, en] = spanOf(date, time, duration);
     const skip = excludeIds || [];
@@ -618,6 +750,11 @@
   }
   // v2.33 D-1: 회원 본인 일정 겹침. 좌석을 실제로 점유한 상태만 본다 — waitlisted는 좌석 미확보라 제외.
   const SEAT_HELD = ["booked", "confirm_wait"];
+  // [SERVER] 회원 본인 일정 겹침 판정. 프론트 계산은 표시용 — 서버 권위. 예약 API 에서 재판정(경고 응답).
+  // 🧮[순수] memberBusyAt — 그 회원이 이미 자리를 잡고 있는 예약들(본인 겹침 경고용)
+  //   입력  memberId · date · time · duration · excludeBookingIds
+  //   출력  booking[] (시작 순). 자리를 점유하는 상태만 센다(SEAT_HELD = booked·confirm_wait)
+  //   불변식 overlapSlots 와 같은 3일 창·같은 spanHits 를 쓴다(선생님/회원 판정을 갈라 두지 않는다).
   function memberBusyAt(memberId, date, time, duration, excludeBookingIds) {
     const [st, en] = spanOf(date, time, duration);
     const skip = excludeBookingIds || [];
@@ -638,10 +775,10 @@
   // 절대시각으로 판정한다 — 24시간을 넘는 수업도 정확히 잡힌다(%24 되감기 없음).
   const carriesInto = (s, date) => { if (!s || s.date >= date) return false;
     const day0 = new Date(`${date}T00:00:00+09:00`);
-    return slotEndAt(s) > day0 && slotAt(s) < new Date(day0.getTime() + 86400000); };
+    return slotEndAt(s) > day0 && slotAt(s) < new Date(day0.getTime() + MS_DAY); };
   // 정렬 키 = 그 날 00:00 기준 분(전날에서 이어지면 음수) — 이어지는 회차가 목록 맨 위에 온다.
   const dayMin = (s, date) => { const [h, mi] = String(s.time || "0:0").split(":").map(Number);
-    return h * 60 + mi - (s.date === date ? 0 : 1440); };
+    return h * 60 + mi - (s.date === date ? 0 : MIN_PER_DAY); };
   const dayList = (list, date) => list.filter((s) => s.date === date || carriesInto(s, date))
     .slice().sort((a, b) => dayMin(a, date) - dayMin(b, date));
   const CARRY_BADGE = `<span class="badge b-gray">전날에서 이어짐</span>`;
@@ -713,6 +850,12 @@
   const PASS_NONE_MSG = "이 수업에 쓸 수 있는 멤버십이 없어요. (만료·소진 멤버십은 쓸 수 없어요)";
   const LIST_ONLY_MSG_M = "지정 회원만 예약할 수 있는 수업이에요. 센터에 문의해 주세요.";
   const LIST_ONLY_MSG_T = "지정 회원만 예약할 수 있는 수업이에요. 수업 관리에서 지정 회원에 추가한 뒤 확정해 주세요.";
+  // [SERVER] 🔴예약 자격 단일 관문. 프론트 계산은 표시용 — 서버 권위. POST /bookings 트랜잭션 안에서 재실행: slot FOR UPDATE → 정원 → guard → INSERT, (slot_id,member_id) 활성 부분 UNIQUE.
+  // 🧮[순수] bookGuard — 🔴예약 자격의 단일 관문 (여기를 통과 못 하면 어떤 경로로도 예약되지 않는다)
+  //   입력  c=수업 · mid=회원id · opts{date, role:'m'|'t'|'c', passKey, ...}
+  //   출력  {ok:true, pass, over} | {ok:false, msg}  — msg 는 그대로 화면에 띄우는 완성 문장
+  //   불변식 ① 폐강·타센터·담당 공석·지정회원 아님·자격 멤버십 없음을 모두 여기서 막는다
+  //          ② 예약·대기 승격·일정 요청 수락·제안 수락이 **전부 이 함수 하나**를 탄다 — 분기를 복제하지 마라
   function bookGuard(c, mid, opts) {
     const o = opts || {};
     if (c.status === "closed") return { ok: false, msg: "폐강된 수업이에요." };
@@ -744,6 +887,7 @@
   }
   // v2.67 QA② B-8: 후차감 구조라 잔여 2회로 5건을 잡아도 아무 말이 없었고, 수업 당일에야 차감이 막혔다.
   // ⛔차단하지 마라 — «예약 가능 상한»은 정책 결정이라 형 판단 대기다. 여기서는 그 사실을 미리 말하기만 한다.
+  // [SERVER] 잔여 초과 예약 경고. 프론트 계산은 표시용 — 서버 권위. 차단 여부는 정책 키(overbookPolicy)로 서버 판정 — 📌형 미결.
   function overbookOf(p) {
     if (!p) return null;
     const ahead = futureBookingsOfPass(p).length;
@@ -815,6 +959,11 @@
   // ══ v2.30 B1: 잔여 횟수 = 원장 합의 캐시 — 단일 기입 함수 ══
   // 캐시(p.remaining)와 원장 행을 손으로 병기하던 6개 지점을 여기 하나로 모았다.
   // 이 함수 밖에서 remaining을 직접 건드리는 코드는 없어야 한다 (검증: 전 pass remaining === Σledger).
+  // [SERVER] 🔴잔여 회차 단일 기입. 프론트 계산은 표시용 — 서버 권위. pass_ledger 는 INSERT-only, 잔여는 트리거 캐시. 차감 tx 는 pass FOR UPDATE + remaining+delta>=0 CHECK.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 05] 원장·정산 금액 계산
+  //   🧮순수: calcSettleBase·smallSkip·settleImpact. 🔴단가는 passSettleBase(지뢰 ③·④).
+  // ═══════════════════════════════════════════════════════════════════════════════
   function applyLedger(p, delta, reason, detail) {
     if (!p) return { ok: false, msg: "연결된 멤버십이 없어요. 센터에서 멤버십 연결 후 처리할 수 있어요." };
     if (delta < 0 && p.remaining + delta < 0) return { ok: false, msg: "잔여 횟수가 0회라 차감할 수 없어요. 센터에서 멤버십 연장·추가 결제 후 처리하는 예외 절차로 넘어가요." };
@@ -839,16 +988,23 @@
   //   부가세 제외 센터       = 카드·현금영수증 발행분만 /1.1 한 가중평균
   // ⛔«대표 결제수단 1개»로 전체를 판정하지 마라 — 51:49면 49%가 틀리고 절벽처럼 갈린다(설계서① 2장 B안).
   const PAY_VATABLE = (pm) => pm.method === "card" || pm.cashReceipt === true;
+  // [SERVER] 정산 기준 회당 단가 산출(부가세·결제수단). 프론트 계산은 표시용 — 서버 권위. 결제수단·현금영수증 여부는 PG 응답에서만 받는다.
+  // 🧮[순수] calcSettleBase — 정산 기준 «회당 단가»를 결제 구성에서 산출
+  //   입력  p{unitPrice,total,purchasePrice,payments} · payments(생략 시 p.payments) · vatMode('included'|'excluded')
+  //   출력  {base:회당단가(원, 버림), mode, parts:결제수단별 공급가 | null}
+  //   불변식 ① included = p.unitPrice 그대로 ② excluded = 카드·현금영수증 발행분만 VAT_DIVISOR 로 나눈 가중평균
+  //          ③ 🔴정산 라인 단가는 passSettleBase(스냅샷 우선). ⛔환불 계산에 쓰지 마라 — 환불은 p.unitPrice(지뢰 ④)
   function calcSettleBase(p, payments, vatMode) {
     const mode = vatMode || DB.policy.vatMode || "included";
     const total = p.total || 1;
     if (mode === "included") return { base: p.unitPrice, mode, parts: null };
     const pays = (payments || p.payments || []).slice();
-    if (!pays.length) return { base: Math.floor((p.purchasePrice || p.unitPrice * total) / 1.1 / total), mode, parts: null };
-    const parts = pays.map((pm) => ({ ...pm, basis: PAY_VATABLE(pm) ? Math.floor(pm.amount / 1.1) : pm.amount }));
+    if (!pays.length) return { base: Math.floor((p.purchasePrice || p.unitPrice * total) / VAT_DIVISOR / total), mode, parts: null };
+    const parts = pays.map((pm) => ({ ...pm, basis: PAY_VATABLE(pm) ? Math.floor(pm.amount / VAT_DIVISOR) : pm.amount }));
     return { base: Math.floor(parts.reduce((a, x) => a + x.basis, 0) / total), mode, parts };
   }
   // 저장된 스냅샷 우선 — 센터가 나중에 부가세 설정을 바꿔도 «이미 판 권»의 기준은 흔들리지 않는다(스냅샷 원칙).
+  // [SERVER] 정산 단가 스냅샷. 프론트 계산은 표시용 — 서버 권위. settle_base 는 판매 tx 에서 NOT NULL 로 박고 조정 tx 외 UPDATE 금지. ⚠️App.buy 는 지금 안 박는다(§미해결).
   const passSettleBase = (p) => (p && p.settleBase != null ? p.settleBase : calcSettleBase(p).base);
   const paySum = (pays) => (pays || []).reduce((a, x) => a + (Number(x.amount) || 0), 0);
   const PAY_METHOD = { card: "카드", cash: "현금/계좌이체" };
@@ -869,6 +1025,7 @@
   };
   // 귀속 변경(사람이 바뀌는 조정)은 금액이 작아도 절대 생략하지 않는다 — 설계서② 1-5·4-5.
   const ADJ_NO_SKIP = ["teacher_reassigned", "sub_teacher"];
+  // [SERVER] 정산 조정 라인 생성. 프론트 계산은 표시용 — 서버 권위. sline INSERT 는 서버 전용, type='adjustment' 는 orig_line_id 또는 승인자 기록 CHECK.
   function makeAdjust(teacherId, amount, reason, orig, extra) {
     const today = DB.TODAY;
     const l = Object.assign({
@@ -888,6 +1045,12 @@
   //   «회차별로 쪼개지 마라»가 설계서의 취지이지 «여러 선생님을 한 덩어리로 묶어라»가 아니다.
   //   한 덩어리로 묶으면 t1 +10,000 / t2 −10,000 이 서로 상쇄돼 합계 0 → 두 사람 모두 조정이 사라졌다(실측).
   //   ⛔다시 «pass 합계 스칼라»로 되돌리지 마라. 회차 단위로 더 쪼개는 것도 금지(설계서 취지 위반).
+  // [SERVER] 소액 조정 생략 판정(비대칭·선생님별 합계). 프론트 계산은 표시용 — 서버 권위. 임계값은 센터 설정 테이블에서만 읽고 변경 자체를 감사 대상으로.
+  // 🧮[순수] smallSkip — 이 조정액을 «소액이라 생략»할 것인가
+  //   입력  totalDelta=«pass × 선생님» 합계 차액(원) · reason=ADJ_REASON 키
+  //   출력  true=조정 라인을 만들지 않음 / false=만듦
+  //   불변식 ① 판정 단위는 🔴«pass × 선생님» 합계다 — ⛔pass 합계 스칼라로 합치면 ±가 상쇄돼 두 사람 다 누락(지뢰 ⑤)
+  //          ② ADJ_NO_SKIP(귀속 변경)은 금액과 무관하게 항상 남긴다 ③ asymmetric=깎는 것만 생략
   function smallSkip(totalDelta, reason) {
     if (ADJ_NO_SKIP.includes(reason)) return false;
     const mode = DB.policy.smallAdjMode || "asymmetric";
@@ -900,6 +1063,11 @@
 
   // pass 1건의 settleBase 변경이 정산에 미치는 영향 — «저장 전 미리보기»와 «실제 반영»이 같은 함수를 쓴다.
   //   미전송(eligible/held) 라인 = 그 자리에서 재계산 / 전송 완료 라인 = 원본 불변 + 조정 라인
+  // [SERVER] 단가 변경 영향 미리보기. 프론트 계산은 표시용 — 서버 권위. 미리보기 응답에 계산 해시를 실어 실행 요청과 대조(불일치 409).
+  // 🧮[순수] settleImpact — 단가를 newBase 로 바꾸면 정산이 어떻게 되는가(미리보기·실행 공용)
+  //   입력  p=pass · newBase=새 회당 단가
+  //   출력  {lines, live(미전송), locked(전송완료), delta(조정 총액), byT{선생님별 차액}}
+  //   불변식 🔴잠금 경계는 sline.pushed 하나다. 전송된 라인은 원본 불변 + 조정 라인으로만 정정한다.
   function settleImpact(p, newBase) {
     const lines = DB.slines.filter((l) => l.passId === p.id && isLesson(l) && l.status !== "removed");
     const live = lines.filter((l) => !l.pushed);
@@ -910,6 +1078,7 @@
     return { lines, live, locked, delta, byT };
   }
   // 실제 반영. reason 은 ADJ_REASON 키. 반환값을 그대로 토스트 문구에 쓴다.
+  // [SERVER] 정산 기준 단가 변경 + 조정 라인 생성. 프론트 계산은 표시용 — 서버 권위. POST /passes/:id/settle-base — pass·대상 sline FOR UPDATE, 사유 enum·센터 role 필수.
   function applySettleBase(p, newBase, reason, memo) {
     const im = settleImpact(p, newBase);
     const oldBase = passSettleBase(p);
@@ -945,6 +1114,10 @@
   //   ③ 정산 영향 0 — 회차가 움직이지 않으므로 원장·정산 라인을 한 줄도 만들지 않는다(freezeAssertNoSettle로 보증).
   //   ④ 연 최대 정지 일수(freezeMaxDays·기본 60) / 최소 단위(freezeMinDays·기본 7) 를 넘으면 시작 자체를 막는다.
   // v2.67 QA② B-7: 같은 기본값을 코어(0)와 화면(7)이 다르게 쓰고 있었다 — 상수 하나로 못 박는다.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 06] 일시정지(멤버십 홀딩)
+  //   정지는 잔여·원장·정산에 손대지 않는다(freezeAssertNoSettle 가 지킨다).
+  // ═══════════════════════════════════════════════════════════════════════════════
   const FREEZE_MIN_DEFAULT = 7;
   const freezes = (p) => p.freezes || (p.freezes = []);
   const openFreeze = (p) => freezes(p).find((f) => !f.endedAt) || null;
@@ -955,7 +1128,8 @@
     return freezes(p).filter((f) => (f.from || "").slice(0, 4) === y)
       .reduce((a, f) => a + (f.endedAt ? f.extendedDays : daysBetween(f.from, DB.TODAY)), 0);
   }
-  const freezeRemainDays = (p) => Math.max(0, ((DB.policy.freezeMaxDays ?? 60)) - freezeUsedDays(p));
+  const freezeRemainDays = (p) => Math.max(0, ((DB.policy.freezeMaxDays ?? FREEZE_MAX_DEFAULT)) - freezeUsedDays(p));
+  // [SERVER] 일시정지 시작(최소 일수·연 한도). 프론트 계산은 표시용 — 서버 권위. 정지 이력은 append-only, 한도는 서버 집계.
   function freezeStart(p, planTo, reason, memo) {
     if (isFrozen(p)) return { ok: false, msg: "이미 정지 중인 멤버십이에요." };
     if (passState(p) === "expired") return { ok: false, msg: "이미 기간이 끝난 멤버십은 정지할 수 없어요." };
@@ -963,7 +1137,7 @@
     const want = daysBetween(DB.TODAY, planTo);
     if (want < min) return { ok: false, msg: `최소 ${min}일 이상부터 정지할 수 있어요. (센터 설정)` };
     const left = freezeRemainDays(p);
-    if (want > left) return { ok: false, msg: `올해 남은 정지 가능 일수는 ${left}일이에요. (연 최대 ${(DB.policy.freezeMaxDays ?? 60)}일 · 센터 설정)` };
+    if (want > left) return { ok: false, msg: `올해 남은 정지 가능 일수는 ${left}일이에요. (연 최대 ${(DB.policy.freezeMaxDays ?? FREEZE_MAX_DEFAULT)}일 · 센터 설정)` };
     const before = settleSnapshot(p);
     p.status = "frozen";
     freezes(p).push({ id: nid("fz"), from: DB.TODAY, planTo, days: want, reason, memo: memo || "",
@@ -972,6 +1146,11 @@
     freezeAssertNoSettle(p, before, "freeze_start");
     return { ok: true, days: want };
   }
+  // [SERVER] 정지 해제 + 만료일 연장(실제 경과일). 프론트 계산은 표시용 — 서버 권위. 연장 일수는 서버가 started_at~ended_at 으로 계산.
+  // 📐[규칙] freezeEnd — 정지 해제 + 만료일 연장 (부수효과 있음: pass·audit 갱신)
+  //   연장 규칙  실제 경과일 used = daysBetween(정지시작일, 해제일) 만큼 expiresAt 을 뒤로 민다.
+  //              기간 없는 권(expiresAt === null)은 만료가 없으므로 밀 것도 없다.
+  //   불변식 🔴정지는 잔여·원장·정산 라인을 **하나도** 건드리지 않는다 — freezeAssertNoSettle 이 즉시 콘솔에 터뜨린다.
   function freezeEnd(p, onDate) {
     const f = openFreeze(p);
     if (!isFrozen(p) || !f) return { ok: false, msg: "정지 중인 멤버십이 아니에요." };
@@ -1009,6 +1188,10 @@
 
   // 대강 지정 — 범위는 «이 회차만» 고정이다. «앞으로 전부»는 대강이 아니라 담당 교체(별도 경로)다.
   // 금액 기준은 수업 설정값 그대로 — 사람만 바뀌고 금액은 안 바뀐다(설계서① 3장 ⑤).
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 07] 대강·담당 선생님 교체
+  //   회차 override(slot.teacherId)가 진행자. 과거 회차엔 전임자를 박아 둔다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function subAssign(s, newTid, reason, memo) {
     const c = cls(s.classId);
     if (!c) return { ok: false, msg: "수업을 찾을 수 없어요." };
@@ -1149,6 +1332,7 @@
     return true;
   }
   // 무응답 자동 마감 — 회차 시작·적용일이 지나도 답이 없으면 «거절과 동일»하게 닫는다(침묵은 동의가 아니다).
+  // [SERVER] 스위퍼 — 대강·담당교체 동의 거절/무응답 마감. 프론트 render() 훑기는 시늉 — 서버 크론 권위. 만료 판정은 서버 시각, 취소는 트랜잭션 + 알림 아웃박스.
   function sweepTeacherChange() {
     tchNegos().filter((n) => !n.closedAt && (n.status === "declined" || negoState(n) === "expired")).forEach((n) => {
       const expired = n.status !== "declined";
@@ -1186,12 +1370,23 @@
   const passListUnit = (p) => (p.listPrice != null ? Math.floor(p.listPrice / p.total) : p.unitPrice);
   // 후차감 모델이라 «확정된 미래 예약»이 잔여 회차 안에 그대로 들어 있다(설계서② 2-5).
   // 이걸 안 치우고 환불하면 회원은 돈을 받았는데 예약은 살아 있고, 수업에 오면 깎을 회차가 없어 applyLedger가 막는다.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 08] 환불
+  //   🧮순수: refundCalc. 🔴환불 기준가는 p.unitPrice(회원 기준가) — 정산 단가와 다르다(지뢰 ④).
+  // ═══════════════════════════════════════════════════════════════════════════════
   function futureBookingsOfPass(p) {
     return DB.bookings.filter((b) => b.passId === p.id && ["booked", "waitlisted", "confirm_wait"].includes(b.status)
       && slot(b.slotId) && !isPast(slot(b.slotId)) && slotOf(b.slotId).status !== "canceled")
       .sort((x, y) => slotAt(slot(x.slotId)) - slotAt(slot(y.slotId)));
   }
   // 환불액 = 실구매가 − (소비 회차 × 공제 단가) − 위약금 + 센터 수기 가감
+  // [SERVER] 🔴환불액 계산. 프론트 계산은 표시용 — 서버 권위. 요청은 의도(회차·사유·기준)만 싣고 expectedRefundAmount 불일치 시 409.
+  // 🧮[순수] refundCalc — 환불액 계산 (돈을 움직이지 않는다. 실행은 refundDo)
+  //   입력  p{total,remaining,unitPrice,purchasePrice,listPrice} · opts{deductBasis:'sale'|'list', penaltyRate, adjustAmount}
+  //   출력  {basis,unit,usedCount,rate,purchase,usedDeductAmount,penaltyAmount,adjustAmount,refundAmount,overPurchase,clampedBelowZero}
+  //   불변식 ① refundAmount = max(0, purchase − usedCount×unit − floor(purchase×rate/100) + adjust)
+  //          ② rate 는 0~10 으로 코어에서 클램프(화면 밖 호출도 지켜진다) ③ 0원 클램프로 삼킨 금액은 clampedBelowZero 로 드러낸다
+  //          ④ unit = 회원 기준가(p.unitPrice 또는 정가) — ⛔정산 단가(passSettleBase)와 섞지 마라(지뢰 ④)
   function refundCalc(p, opts) {
     const o = opts || {};
     const basis = o.deductBasis || DB.policy.refundDeductBasis || "sale";
@@ -1214,6 +1409,11 @@
   }
   // 분할결제 환불 배분 — 결제한 비율대로 나눠 돌려준다. 실제 카드 취소·이체는 CRM·PG 몫이고
   // 니짐은 «얼마를 어느 수단으로 돌려줄지»까지만 확정한다(설계서② 2-4).
+  // [SERVER] 분할결제 환불 배분. 프론트 계산은 표시용 — 서버 권위. 결제 원장은 PG 거래 테이블이 정본(실제 취소는 PG 몫).
+  // 🧮[순수] refundPayouts — 환불액을 결제한 비율대로 수단별로 쪼갠다
+  //   입력  p.payments[{method,amount}] · amount=총 환불액
+  //   출력  [{method, amount}] — 합계는 amount 와 «정확히» 같다(버림 잔액은 첫 줄에 몰아준다)
+  //   불변식 실제 카드취소·이체는 PG 몫. 여기는 «얼마를 어느 수단으로»까지만 확정한다.
   function refundPayouts(p, amount) {
     const pays = p.payments || [];
     if (!pays.length || !amount) return amount ? [{ method: "card", amount }] : [];
@@ -1223,6 +1423,7 @@
     if (diff && out.length) out[0].amount += diff; // 버림 잔액은 첫 줄에 몰아 합계를 정확히 맞춘다
     return out;
   }
+  // [SERVER] 🔴환불 실행(예약 취소 + 회차 반납 + 환불 레코드). 프론트 계산은 표시용 — 서버 권위. pass FOR UPDATE → booking 취소 → ledger → refund, 멱등키=requestId UNIQUE.
   function refundDo(p, calc, opts) {
     const o = opts || {};
     // v2.67 QA② B-5 🔴: 차단이 렌더 템플릿의 버튼 숨김 한 곳뿐이라 핸들러 직접 호출로 뚫렸다(실측 540,000원 확정).
@@ -1271,6 +1472,11 @@
   // 모든 전이를 DB.repEvents에 append한다 — 수정·삭제 없음(04 원칙3 «확인 행은 INSERT/SELECT만»의 프로토타입 대응물).
   // ⚠️ B2 경합 규정: expect를 주면 그 상태일 때만 전이한다 — 스위퍼(자동확정)와 회원 원탭이 같은 보고를 잡아도
   //    뒤에 온 쪽은 조용히 무시된다(실서비스 = 조건부 UPDATE ... WHERE status=? + 영향 행 0이면 무시).
+  // [SERVER] 보고 상태 전이 + append-only 이벤트. 프론트 계산은 표시용 — 서버 권위. UPDATE ... WHERE status=ANY(expect), 영향행 0이면 무시.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 09] 완료 보고 · 수강 확인 · 이의 · 노쇼
+  //   🔴confirmTx 가 «차감+정산라인+상태전환» 단일 트랜잭션(04 문서 원칙2).
+  // ═══════════════════════════════════════════════════════════════════════════════
   function repTx(r, b, patch, opts) {
     const o = opts || {};
     if (!r) return { ok: false, msg: "보고 기록을 찾을 수 없어요." };
@@ -1286,6 +1492,7 @@
   // 04 원칙2: 확인 성립 = 차감 + 정산라인 + 상태전환이 한 단위. S-6: 잔여>0 가드.
   // v2.30 A2: 라인에 bookingId(멱등키)·slotId·lessonDate/lessonTime·classTitle·listPrice를 정식 컬럼으로 기록.
   //   desc는 «표시 전용»으로 강등 — 월 필터·정산 캘린더·엑셀 어디서도 desc를 파싱하지 않는다.
+  // [SERVER] 🔴차감+정산라인+상태전환 단일 트랜잭션(04 원칙2). 프론트 계산은 표시용 — 서버 권위. 회원 세션만 호출 가능(선생님 role RLS 차단), sline.booking_id UNIQUE, 시작 여부는 서버 시각.
   function confirmTx(b, r, method) {
     // v2.30 B2 경합 규정: 아직 열려 있는 보고에만 확인이 성립한다.
     if (r && ["pending", "disputed"].indexOf(r.status) < 0) return { ok: false, msg: "이미 처리된 확인 요청이에요." };
@@ -1310,7 +1517,7 @@
       // v2.67 QA② F-2: 자정 넘김 회차를 나중에 재분류할 수 있게 «종료 일시»를 데이터로만 남긴다.
       // ⛔월 귀속 규칙은 그대로 lessonDate(시작일) 기준이다 — 집계·엑셀에 이 컬럼을 넣지 마라(금액이 달 사이를 옮겨간다).
       // 이 파일의 날짜·시각은 전부 KST 문자열이다 — 종료도 같은 문법으로 남긴다(ISO/UTC 를 섞으면 대조가 어긋난다).
-      durationMin: c.duration || 50, lessonEndDate: kstDateOf(slotEndAt(s)), lessonEndTime: kstTimeOf(slotEndAt(s)),
+      durationMin: c.duration || DEFAULT_DURATION_MIN, lessonEndDate: kstDateOf(slotEndAt(s)), lessonEndTime: kstTimeOf(slotEndAt(s)),
       method, auto: isAuto(method), status: "eligible", pushed: false, pushId: null };
     DB.slines.push(l);
     if (r) repTx(r, b, { report: { status: isAuto(method) ? "auto" : "confirmed", method, label: "확인 완료", deducted: true, lineId: l.id }, booking: "confirmed" }, { event: "confirm", actor: method });
@@ -1325,6 +1532,7 @@
   const passForReport = (r, b) => ((b && b.passId) ? pass(b.passId) : (r && r.passId ? pass(r.passId) : null));
   const NO_PASS_MSG = "이 예약에 멤버십이 연결돼 있지 않아요. 센터에서 멤버십을 연결한 뒤 처리할 수 있어요.";
   // v2.58 QA: 이의제기는 «본인 예약»에만 — 확인·QR과 같은 계정 귀속 규칙
+  // [SERVER] 이의제기 자격(본인·상태·기간). 프론트 계산은 표시용 — 서버 권위. POST /bookings/:id/disputes 에서 세션 회원 대조 + 서버 시각 기간 검증.
   function disputeAllowed(b) {
     if (!b) { toast("예약을 찾을 수 없어요."); return false; }
     if (b.memberId !== DB.me.member) { toast("이의제기는 해당 수업 회원 본인 계정에서만 가능해요."); return false; }
@@ -1369,6 +1577,7 @@
     return `예시: <b>${p}%</b> → 회당 단가 50,000원이면 <b>${won(pctAmount(50000, p))}</b> · 35,000원이면 <b>${won(pctAmount(35000, p))}</b> (원 단위 반올림)`;
   };
   const rewardOn = () => DB.policy.noshowReward === "support";
+  // [SERVER] 노쇼 확정 차감(보고 시점 정책 스냅샷). 프론트 계산은 표시용 — 서버 권위. 스위퍼 S2 가 실행, policySnap 은 보고 tx 에서 박고 불변.
   function finalizeNoshow(r, mode) { // mode: "auto"(무이의 자동확정) | "reject"(이의 기각)
     const b = r.bookingId ? DB.bookings.find((x) => x.id === r.bookingId) : null;
     const p = passForReport(r, b);
@@ -1393,6 +1602,11 @@
   // ══ v2.59 (형 확정 09-06 A안): 종료된 회차의 대기는 스스로 끝난다 ══
   // 회차 시각이 지나면 자리가 날 일이 없는데도 «대기 중»으로 남아 회원 목록에 영원히 떠 있었다.
   // 실서비스에선 스위퍼 크론이 맡는 일이다(인계 스펙 §스위퍼) — 프로토타입은 렌더마다 훑는다(데이터가 작다).
+  // [SERVER] 스위퍼 S3 — 지난 회차 대기 자동 종료. 프론트 render() 훑기는 시늉 — 서버 크론(1~5분) 권위. 차감 없음·pos NULL, 멱등.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 10] 대기 승격 · 회차 수명
+  //   스위퍼 S3. 대기는 차감 전 상태라 종료해도 차감이 없다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function sweepExpiredWaitlists() {
     let n = 0;
     for (const b of DB.bookings) {
@@ -1407,6 +1621,7 @@
   }
 
   // M-10: 대기 자동 승격 (P4-4)
+  // [SERVER] 🔴대기 자동 승격(정원 경합). 프론트 계산은 표시용 — 서버 권위. 취소 tx 와 같은 트랜잭션 또는 pg_advisory_xact_lock(slot_id) 안에서, 승격마다 bookGuard 재검증.
   function promoteWaitlist(slotId) {
     if (DB.policy.waitlistPromote !== "auto") return;
     const s = slot(slotId);
@@ -1465,6 +1680,10 @@
   // 데이터: 프로토타입은 상수 테이블. 실서비스는 한국천문연구원 «특일 정보» API(공공데이터포털) 연 1회 동기화.
   //   대체공휴일 포함(어린이날·부처님오신날·성탄절·3·1절·광복절·개천절·한글날이 토·일과 겹칠 때, 설·추석 연휴가
   //   일요일·다른 공휴일과 겹칠 때). 현충일은 대체공휴일 대상이 아니다.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 11] 반복 수업(8주 롤링)
+  //   🧮순수: recurDates. 생성은 멱등 — 몇 번 돌려도 회차가 늘지 않는다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   const HOLIDAYS = {
     "2026-01-01": "신정",
     "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
@@ -1527,6 +1746,11 @@
   const recurEndLabel = (r) => (r.endMode === "date" && r.endDate ? `${r.endDate.replaceAll("-", ".")}까지` : "중단할 때까지");
   const recurAnchor = () => DB.TODAY; // v2.42: 데모 «한 주 지나가기»(rollAnchor) 폐지 — 기준일=오늘
   const recurHorizon = () => addDays(recurAnchor(), ROLL_WEEKS * 7);
+  // 🧮[순수] recurDates — 반복 규칙이 만들어 낼 날짜 목록
+  //   입력  r{weekdays:[0~6], skips:[YYYY-MM-DD], endMode:'none'|'date', endDate} · from · to
+  //   출력  YYYY-MM-DD[] (오름차순)
+  //   불변식 ① 루프 상한 RECUR_MAX_DAYS — 규칙이 잘못돼도 무한 루프가 안 된다
+  //          ② 날짜만 만든다. 자리 충돌·멱등은 recurGenerate 가 본다(생성은 몇 번 돌려도 회차가 안 는다)
   function recurDates(r, from, to) {
     const out = [];
     let d = from, guard = 0;
@@ -1557,6 +1781,7 @@
   const tchPendingAll = () => tchNegos().filter((n) => negoState(n) === "pending");
   // 이 사유로 취소된 반복 회차는 «되살리지 않는다» — r.skips 에 기록이 남지 않는 경로들이다.
   const RECUR_NO_REVIVE = ["teacher_change_overlap", "sub_declined", "teacher_change_declined"];
+  // [SERVER] 반복 회차 생성(멱등). 프론트 계산은 표시용 — 서버 배치 권위. (class_id,date,time) UNIQUE + ON CONFLICT DO NOTHING 으로 TOCTOU 제거.
   function recurGenerate(r) {
     if (!r.active) return { made: 0 };
     const c = cls(r.classId);
@@ -1583,6 +1808,7 @@
   // 실서비스는 스케줄러가 이 함수를 하루 한 번 부른다. 사양 전문 = handoff/recur_batch_spec.md.
   // 규칙 단위 try/catch — 한 규칙이 터져도 나머지는 계속 돌고, 실패한 규칙 id가 로그에 남아 다음 날 재시도된다.
   // 멱등성: 이미 있는 회차는 recurSlotAt(§2-E 보강 키)에 걸린다 → 두 번 돌려도 회차가 늘지 않는다.
+  // [SERVER] 스위퍼 S4 — 8주 롤링 배치. 프론트 «날짜 바뀜 감지»는 시늉 — 매일 04:00 KST 서버 배치 권위(handoff/recur_batch_spec.md). 규칙 단위 lock + 실패 id 재시도.
   function recurRollAll(trigger) {
     let made = 0;
     const failed = [];
@@ -1598,7 +1824,7 @@
   // 프로토타입엔 서버가 없어 진짜 배치를 못 돈다 → «날짜 바뀜 감지»로 같은 동작을 흉내 낸다.
   // 앱을 켜 둔 채 자정을 넘기거나, 탭을 다시 열었을 때 날이 바뀌어 있으면 재실행한다.
   // ⛔부팅 롤링(맨 아래)은 그대로 둔다 — 배치가 실패한 날의 안전망이다. 멱등이라 중복 생성되지 않는다.
-  const kstToday = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); // Asia/Seoul 고정
+  const kstToday = () => new Date(Date.now() + KST_OFFSET_MS).toISOString().slice(0, 10); // Asia/Seoul 고정
   let rollDay = kstToday();
   function rollWatch() {
     const d = kstToday();
@@ -1607,7 +1833,7 @@
     const res = recurRollAll("rollover");
     if (res.made) render();
   }
-  setInterval(rollWatch, 60000);
+  setInterval(rollWatch, ROLL_WATCH_MS);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) rollWatch(); });
   // 반복을 끌 때 «앞으로의 빈 회차»만 정리 — 예약이 있는 회차는 건드리지 않는다(회원 보호).
   function recurPurge(r) {
@@ -1779,6 +2005,10 @@
 
   // ── 모션 유틸 (Apple 스프링: damping ratio + response, 인터럽터블) ──
   const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)");
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 12] UI 기반 — 모션·시트·모달·토스트
+  //   이식 시 이 구역은 대상 프레임워크 컴포넌트로 대체된다(도메인 로직 없음).
+  // ═══════════════════════════════════════════════════════════════════════════════
   function spring(opts) {
     const ratio = opts.damping == null ? 1 : opts.damping;
     const w0 = (2 * Math.PI) / (opts.response || 0.35);
@@ -1932,6 +2162,10 @@
   // 배지는 계열 단어(대기·확정·종료·문제) 하나만 담고, 세부 사유는 행 안 보조 텍스트로 내린다.
   // 초록(확정)은 «앞으로 유효한» 것에만 — 정상 종결도 과거면 회색으로 내린다.
   // r.label 원문은 정산·감사 기록의 근거라 지우지 않고 보조 텍스트로 자리만 옮긴다.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 13] 배지·알림 문구 SSOT
+  //   ⛔배지 문구를 화면에서 새로 만들지 마라 — 전부 여기서 파생한다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   const ST4 = { wait: ["대기", "b-warn"], ok: ["확정", "b-green"], end: ["종료", "b-gray"], bad: ["문제", "b-danger"] };
   const TIER_RANK = { bad: 0, wait: 1, ok: 2, end: 3 };
   const st4 = (tier, sub) => ({ tier, label: ST4[tier][0], badge: ST4[tier][1], sub: sub || "" });
@@ -2222,6 +2456,10 @@
   };
   // v2.13: 회원 «수업 확인 요청» — pending 보고가 실존하는 내 confirm_wait 예약 (푸시 대신 로그인 배지 시뮬레이션)
   const myConfirmWait = () => myBk().filter((b) => b.status === "confirm_wait" && DB.reports.some((r) => r.bookingId === b.id && r.status === "pending"));
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 14] 공통 셸 · 탭 · 해야 할 일
+  //   3역할 공통 레이아웃. todoItems 가 역할별 «다음 행동»을 만든다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function shell(role, title, body, opts = {}) {
     const tabs = TABS[role] || [];
     const cur = location.hash.split("/").slice(0, 3).join("/");
@@ -2350,6 +2588,10 @@
       <div class="btn-row"><button class="btn ghost" onclick="location.hash='#/'">역할 고르기</button>
       <button class="btn primary" onclick="location.hash='#/m/alerts'">알림 보러 가기</button></div></div></div>`;
   }
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 15] 화면 — 회원(vM*)
+  //   모바일 390 기준. 예약·내 예약·수강확인·기록·알림.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function vLanding() {
     return `<main class="screen no-tab landing">
       <div class="badge b-rose">${esc(DB.center.name)}</div>
@@ -2873,7 +3115,7 @@
     // 예약 1행 — withActions: 확정 예약 섹션에서만 [변경 요청]·[취소]를 단다
     const item = (b, withActions, endedRow) => {
       // v2.67 QA② C-D4/C-D5: 회차·수업 레코드가 지워져도 «기록»은 남아야 한다 — 표시만 떨어뜨린다.
-      const s = slotOf(b.slotId); const c = cls(s.classId) || { title: "(삭제된 수업)", capacity: 0, duration: 50, kind: "group" };
+      const s = slotOf(b.slotId); const c = cls(s.classId) || { title: "(삭제된 수업)", capacity: 0, duration: DEFAULT_DURATION_MIN, kind: "group" };
       const bd = mBkBadge(b, endedRow);
       const bp = b.passId && pass(b.passId);
       const priv = isPrivateClass(c);
@@ -3077,6 +3319,10 @@
   // v2.66 QA: 기준은 «수업 담당»이 아니라 «이 회차를 실제로 진행하는 사람»(slotTeacher)이다.
   // 종전엔 대강을 맡은 선생님 일정에 그 회차가 아예 안 떴고(가르칠 수업을 못 봤다), 넘긴 선생님에겐 계속 떴다.
   // 정산은 이미 slotTeacher 로 귀속되므로 화면만 어긋나 있었다. (cls 없는 회차 널가드도 함께)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 16] 화면 — 선생님(vT*)
+  //   모바일 390 기준. 오늘·일정·요청·보고·내 정산.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function tSlots() { return DB.slots.filter((s) => s.status !== "canceled" && slotTeacher(s) === DB.me.teacher); }
   // v2.66 QA: 앞으로의 회차 중 «남의 수업인데 내가 진행» / «내 수업인데 남이 진행» — 대강 귀속의 양방향.
   const tSubIn = () => DB.slots.filter((s) => s.status !== "canceled" && !isPast(s)
@@ -3292,6 +3538,10 @@
   // v2.61: A안은 «고른 행이 곧 차감 대상»이라, 못 쓰는 멤버십 줄을 보여 주고 제출 때 거절하면 안 된다.
   // 수업이 이미 정해졌으면 그 수업에 실제로 쓸 수 있는 멤버십 줄만, 센터도 그 수업 센터로 좁힌다.
   // (제출 시 재검증은 그대로 둔다 — UI 필터만 믿지 않는다. 04 원칙)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 17] 수업 만들기(2단계 · cc*)
+  //   선생님·센터 공용. 1단계=언제, 2단계=누구와. 시각 의존 게이트 3종이 여기 걸린다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function qkPickScope(role, c) {
     const U = ccUI || {};
     const joinDate = U.slotSel && U.slotSel !== "new" ? (slot(U.slotSel) || {}).date : null;
@@ -3416,7 +3666,7 @@
     return role === "c" && U.tSel ? (ccTeacherOpts().find((t) => t.id === U.tSel) || null) : null; };
   // 1단계를 진행할 수 있는 상태인가 — 선생님 역할은 언제나 참, 센터 역할은 기준 선생님을 고른 뒤부터.
   const ccWhenReady = (role) => role !== "c" || !!ccChosenT(role);
-  const ccDuration = (role) => { const U = ccState(role); const c = U.classId === "new" ? null : cls(U.classId); return (c && c.duration) || 50; };
+  const ccDuration = (role) => { const U = ccState(role); const c = U.classId === "new" ? null : cls(U.classId); return (c && c.duration) || DEFAULT_DURATION_MIN; };
   const ccPastAt = (d, t) => new Date(`${d}T${t}:00+09:00`) <= NOW;
   // 타임라인 행 = 30분 칸, 00:00~24:00 전일 48칸.
   // v2.62: «기존 수업이 범위 밖이면 자동 확장» 로직은 범위가 전일로 고정되며 불필요해져 제거했다.
@@ -3425,8 +3675,8 @@
   const ccDaySlots = (role, date) => dayList(teacherSpanSlots(ccTeacherId(role), date), date);
   function ccRows(role, date) {
     const ss = ccDaySlots(role, date);
-    const durOf = (s) => (cls(s.classId) || {}).duration || 50;
-    const offOf = (s) => hm2m(s.time) - (s.date === date ? 0 : 1440);
+    const durOf = (s) => (cls(s.classId) || {}).duration || DEFAULT_DURATION_MIN;
+    const offOf = (s) => hm2m(s.time) - (s.date === date ? 0 : MIN_PER_DAY);
     const rows = [];
     for (let m = CC_TL_FROM; m < CC_TL_TO; m += 30) {
       const t = m2hm(m);
@@ -3705,7 +3955,7 @@
     const ctr = ccPickCenter(role, prodIds);
     if (!ctr.ok) { toast(ctr.msg); return null; }
     return { id: nid("c"), title: clean(U.title).trim(), teacherId, kind, capacity, centerId: ctr.centerId,
-      schedule: U.sched, scheduleLabel: U.sched === "fixed" ? "매주 고정 (시간표 설정)" : "회원과 일정 맞춤", duration: 50,
+      schedule: U.sched, scheduleLabel: U.sched === "fixed" ? "매주 고정 (시간표 설정)" : "회원과 일정 맞춤", duration: DEFAULT_DURATION_MIN,
       eligibility: elig, eligibleProductIds: elig === "list" ? [] : prodIds, memberIds: elig === "pass" ? [] : memIds, status: "active" };
   }
   // 새 수업의 센터를 정한다 — 유일한 근거는 «고른 멤버십»(assign) 또는 «고른 자격 상품»(open)이다.
@@ -3867,10 +4117,14 @@
       const rc = ccMakeRecur(role, c, sl);
       ccDone(role, `«${esc(c.title)}» ${dlabel(d)} ${t12(t)} 자리를 열었어요. 조건에 맞는 회원이 «수업 예약»에서 신청할 수 있어요.${ccRecurMsg(rc)}`, d);
     };
-    const hits = overlapSlots(c.teacherId, d, t, c.duration || 50, []);
+    const hits = overlapSlots(c.teacherId, d, t, c.duration || DEFAULT_DURATION_MIN, []);
     if (hits.length) { overlapAsk(hits, finish); return; }
     finish();
   }
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 18] 선생님 보고·정산 화면
+  //   🧮순수: unitGroups. 실지급은 샐리 몫 — 여기선 «정산 대상 금액»까지만 말한다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function vTReport() {
     // v2.29 §A4 (U5): 인박스의 «대기 중 / 처리됨» 문법을 이식 — 처리 필요 = 지금 내가 그 행에서 누를 수 있는
     // 액션이 있는 행. 나머지는 처리됨 안에서 «진행 중»(아직 상태 미확정)과 «기록»(완전 종결)으로 나눈다.
@@ -3919,6 +4173,9 @@
   }
   // ── v2.9: 회차별 단가 명세 (형 지적 08-18 — 회원별·등록시기별 단가 차이를 화면에서 확인) ──
   // 단가 = 수업권 구매 시점 스냅샷(unitPrice=floor(실구매가÷총횟수), 05 문서). 단가가 섞이면 그룹으로 구분 표시.
+  // 🧮[순수] unitGroups — 정산 라인을 «회당 단가»별로 묶는다(명세 표시용)
+  //   입력  sline[] · 출력  [[단가, 라인[]], ...] (단가 내림차순)
+  //   불변식 같은 상품이라도 등록 시기·할인에 따라 단가가 다르다 — 묶음이 2개 이상이면 화면이 «단가 n종»을 말한다.
   function unitGroups(lines) {
     const g = new Map();
     lines.forEach((l) => { const a = g.get(l.unitPrice); a ? a.push(l) : g.set(l.unitPrice, [l]); });
@@ -4001,6 +4258,10 @@
 
   // ══ 센터 ══
   // 04 원칙: 무이의 자동확정된 노쇼도 "무응답 자동확정" 계열로 비율 경고에 포함 (형 확정 08-17)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 19] 화면 — 센터(vC*)
+  //   PC 1440 기준. 상품·판매권·수업·확인·정산·정책·선생님.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function autoStats(teacherId) {
     const lines = DB.slines.filter((l) => l.teacherId === teacherId && l.status !== "removed" && isLesson(l));
     const ns = noshowFinals(teacherId);
@@ -4263,7 +4524,7 @@
         <b>${f.from} ~ ${f.endedAt || `${f.planTo} (예정)`}</b>
         <div class="muted small">${esc(FREEZE_REASON[f.reason] || f.reason)}${f.memo ? ` · ${esc(f.memo)}` : ""} · ${f.endedAt ? `${f.extendedDays}일 정지 · 유효기간 ${f.extendedDays}일 연장` : "진행 중"}</div></span>
         <span class="badge ${f.endedAt ? "b-gray" : "b-warn"}">${f.endedAt ? "종료" : "진행 중"}</span></div>`).join("")}</div>
-      <p class="muted small">올해 사용한 정지 일수 <b>${freezeUsedDays(p)}일</b> / 연 최대 ${(DB.policy.freezeMaxDays ?? 60)}일 (남은 ${freezeRemainDays(p)}일)</p>` : ""}
+      <p class="muted small">올해 사용한 정지 일수 <b>${freezeUsedDays(p)}일</b> / 연 최대 ${(DB.policy.freezeMaxDays ?? FREEZE_MAX_DEFAULT)}일 (남은 ${freezeRemainDays(p)}일)</p>` : ""}
 
       ${rfs.length ? `<div class="sec-title">환불 이력</div>
       <div class="card flat">${rfs.slice().reverse().map((r) => `<div class="slot"><span class="grow">
@@ -4293,6 +4554,10 @@
   const PK_PAGE = 40;
   const pickers = {};
   const pkSelected = (id) => (pickers[id] ? [...pickers[id].sel] : []);
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 20] 공통 위젯 — 회원 검색기 · 필터 · 정책 편집
+  //   해시 소유 상태(pickers·fltUI). 이식하면 라우트 스코프 상태로 자연 해소된다.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function pkState(id, opts) {
     let st = pickers[id];
     if (!st || st.hash !== location.hash) st = pickers[id] = { hash: location.hash, query: "", prod: "", shown: PK_PAGE, sel: new Set(opts.initial || []) };
@@ -4691,7 +4956,7 @@
       const who = attendeeNames(s.id);
       return `<button type="button" class="ov-line" onclick="location.hash='#/${role}/slot/${s.id}'">
         <span class="grow"><span class="t"><b>${t12(s.time)}</b> ${esc(c.title || "-")}</span>
-        <div class="muted small mt4">${slotSpanLabel(s)} · ${c.duration || 50}분 · ${who.length ? `${esc(who.join(", "))} 회원` : "예약자 없음"}</div></span>
+        <div class="muted small mt4">${slotSpanLabel(s)} · ${c.duration || DEFAULT_DURATION_MIN}분 · ${who.length ? `${esc(who.join(", "))} 회원` : "예약자 없음"}</div></span>
         <span class="chev" aria-hidden="true">›</span></button>`;
     };
     const card = (p) => {
@@ -4808,7 +5073,7 @@
     const fchip = (label, on, fn) => `<button type="button" class="cb-chip${on ? " on" : ""}" onclick="${fn}">${label}</button>`;
     const teachers = DB.teachers.filter((t) => DB.classes.some((c) => c.status !== "closed" && c.teacherId === t.id));
     const item = (s) => {
-      const c = cls(s.classId) || { title: "(삭제된 수업)", capacity: 0, duration: 50 };
+      const c = cls(s.classId) || { title: "(삭제된 수업)", capacity: 0, duration: DEFAULT_DURATION_MIN };
       const carry = carryBadge(s, sel); // v2.67 QA② A-6
       const n = seatCount(s.id); const w = waitBk(s.id).length;
       const full = n >= c.capacity;
@@ -4953,6 +5218,10 @@
   const xlsxCrc32 = (u) => { let c = -1; for (let i = 0; i < u.length; i++) c = XLSX_CRC_TABLE[(c ^ u[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
   const xlsxXmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   // rows: (string|number|null)[][] — 숫자는 숫자 셀로 넣어 엑셀에서 합계·수식이 바로 되게 한다
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 21] 내보내기 · 샐리 전송 경계
+  //   🔴pushScope/pushBatches 가 전송 단위. 실연동 규격 = 05_샐리연동_설계.md + 인계스펙 v2 §회수 규칙.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function xlsxBytes(rows, colWidths) {
     const colRef = (i) => { let s = ""; for (i += 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s; return s; };
     const cell = (v, r, ci) => v == null || v === ""
@@ -5057,6 +5326,7 @@
   // 지금까지는 월 이동 컨트롤이 접힘 안에 숨어 있어 드러나지 않았을 뿐이다(상단 노출과 함께 반드시 고쳐야 하는 짝).
   // pushId의 "202608"도 하드코딩이었다 — 어느 달 전송인지 식별할 수 없었다.
   // 화면 집계(vCSettlement)·엑셀(settlementExportRows)과 같은 «선택 월» 하나만 본다.
+  // [SERVER] 샐리 전송 대상 산출(월×선생님, held 제외). 프론트 계산은 표시용 — 서버 권위. payload 는 서버가 DB 에서 직접 뽑는다(요청은 {teacherId, ym} 만).
   function pushScope(tid) {
     const ym = (csUI.sel || DB.TODAY).slice(0, 7);
     const inYm = (d) => (d || "").slice(0, 7) === ym;
@@ -5078,6 +5348,7 @@
   // ══ v2.65 ⭐ 잠금 경계 = sline.pushed (형 확정 09-17 «월마감 신설 폐기 · 샐리가 확정 권한») ══
   // 지금까지 pushed는 일방통행이라 엑셀을 잘못 내려받아도 되돌릴 방법이 없었다. «회수(전송 취소)»를 신설한다.
   // 🔴샐리에서 이미 «승인»했다면 회수하면 안 된다 — 샐리 withdrawSettlement(승인 철회)를 먼저 해야 한다.
+  // [SERVER] 전송 배치 뷰(회수 단위). 프론트 계산은 표시용 — 서버 권위. sally_push_batches(push_id PK, teacher_id, ym, status, sally_response).
   function pushBatches(tid, ym) {
     const ls = DB.slines.filter((l) => l.teacherId === tid && l.pushed && l.pushId
       && (ym ? (slineDate(l) || "").slice(0, 7) === ym : true));
@@ -5407,7 +5678,7 @@
     // ══ v2.65 환불 · 일시정지 (설계서② 2장) ══
     refund: {
       title: "환불 · 일시정지",
-      sum: () => `이용분 공제 ${(DB.policy.refundDeductBasis || "sale") === "sale" ? "실구매 단가" : "정가 단가"} · 위약금 ${DB.policy.refundPenaltyRate || 0}% · 정지 연 최대 ${(DB.policy.freezeMaxDays ?? 60)}일`,
+      sum: () => `이용분 공제 ${(DB.policy.refundDeductBasis || "sale") === "sale" ? "실구매 단가" : "정가 단가"} · 위약금 ${DB.policy.refundPenaltyRate || 0}% · 정지 연 최대 ${(DB.policy.freezeMaxDays ?? FREEZE_MAX_DEFAULT)}일`,
       body: () => {
         const P = DB.policy;
         return `<div class="card flat">
@@ -5424,7 +5695,7 @@
       <div class="sec-title">일시정지</div>
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">연 최대 정지 일수</div><div class="td">한 해에 이 멤버십으로 정지할 수 있는 총 일수예요</div></span>
-          <input type="number" min="0" value="${(P.freezeMaxDays ?? 60)}" onchange="App.setFreezeMax(this.value)" style="width:90px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"></div>
+          <input type="number" min="0" value="${(P.freezeMaxDays ?? FREEZE_MAX_DEFAULT)}" onchange="App.setFreezeMax(this.value)" style="width:90px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"></div>
         <div class="toggle-row"><span><div class="tl">최소 정지 단위 (일)</div><div class="td">이보다 짧게는 정지할 수 없어요</div></span>
           <input type="number" min="1" value="${P.freezeMinDays ?? FREEZE_MIN_DEFAULT}" onchange="App.setFreezeMin(this.value)" style="width:90px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"></div>
         <div class="pol-basis muted small">
@@ -5662,8 +5933,13 @@
   // ── v2.13: 현장 일회용 QR (04 수단 B — PIN 폐지 대체) ──
   // 토큰=완료 보고(rpId) 1건 전용·발급 후 5분 만료 표기·확인 성립 즉시 무효화(used). 회원 본인 계정만 확인 가능.
   const qrTokens = {};
-  const QR_TTL_MS = 5 * 60000;
+  const QR_TTL_MS = 5 * MS_MIN;
   const qrExpired = (t) => !!t.at && Date.now() - t.at > QR_TTL_MS; // v2.58 QA: 안내대로 발급 5분 뒤 만료
+  // [SERVER] 의사 QR 시각화(스캔 불가). 실서비스는 서버가 서명한 불투명 토큰 + 실제 QR 라이브러리 — 서버 권위.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 22] QR 수강 확인
+  //   🔴의사 QR — 실서비스는 서버 서명 토큰. 1회차 1건 · 5분 만료 · 회원 본인 계정만.
+  // ═══════════════════════════════════════════════════════════════════════════════
   function qrSvg(token) {
     // 결정적 의사 QR — 토큰 문자열 해시로 데이터 셀 생성 (프로토타입 시각화용, 실서비스=실제 QR 라이브러리)
     const N = 21, cell = 8;
@@ -5683,6 +5959,7 @@
     return `<svg class="qr-svg" viewBox="0 0 ${N * cell} ${N * cell}" role="img" aria-label="수강 확인 QR 코드">${rects.join("")}</svg>`;
   }
   // 회원 측 QR 랜딩 (#/m/qr/:token) — 시뮬레이션: 실서비스에선 회원 폰 카메라 스캔이 이 화면을 연다
+  // [SERVER] QR 랜딩 4중 검증(만료·사용·보고 pending·본인). 프론트 검사는 표시용 — 서버 권위. qr_tokens 테이블 조회 + 세션 회원 대조(04 문서 규격).
   function vMQr(token) {
     const errCard = (em, title, desc, backTo) => shell("m", "QR 수강 확인", `
       <div class="card" style="text-align:center;padding:32px 16px">
@@ -5711,6 +5988,10 @@
   }
 
   // ── 액션 ──
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 23] 액션(App) — 화면에서 부르는 모든 동작
+  //   인라인 onclick 276곳이 window.App 을 부른다. 이식 시 이벤트 핸들러/서버 액션으로 대체.
+  // ═══════════════════════════════════════════════════════════════════════════════
   const App = {
     closeModal,
     // v2.66 QA: 빈 상태 버튼은 «어디로 가면 되는지»까지 데려간다 — 같은 화면 안이면 그 입력으로 스크롤·포커스.
@@ -5889,6 +6170,7 @@
       if (mw) mw.style.display = v === "pass" ? "none" : "";
     },
     chip(btn) { btn.classList.toggle("on"); },
+    // [SERVER] 회원 자가 구매 = PG 결제. 프론트 즉시 생성은 시늉 — 결제 성공 웹훅에서 서버가 멤버십을 만든다. ⚠️settleBase 스냅샷 누락(sellPass 와 불일치).
     buy(pid) {
       if (buyLock) return; buyLock = true; setTimeout(() => { buyLock = false; }, 1200); // v2.58 QA: 더블탭 이중 결제 차단
       const p = DB.products.find((x) => x.id === pid);
@@ -6150,7 +6432,7 @@
         <div class="field"><label>정지 시작</label><input type="date" value="${DB.TODAY}" disabled>
           <div class="hint">정지는 «오늘부터» 시작해요. 과거로 소급하면 그 사이 예약·수강 확인과 어긋나요.</div></div>
         <div class="field"><label for="fz-to">정지 종료 (예정)</label><input type="date" id="fz-to" value="${to}" min="${addDays(DB.TODAY, min)}" max="${addDays(DB.TODAY, left)}">
-          <div class="hint">최소 ${min}일 단위 · 올해 남은 정지 가능 일수 <b>${left}일</b> (연 최대 ${(DB.policy.freezeMaxDays ?? 60)}일 · 센터 설정)</div></div>
+          <div class="hint">최소 ${min}일 단위 · 올해 남은 정지 가능 일수 <b>${left}일</b> (연 최대 ${(DB.policy.freezeMaxDays ?? FREEZE_MAX_DEFAULT)}일 · 센터 설정)</div></div>
         <div class="field"><label for="fz-reason">사유</label><select id="fz-reason">${Object.entries(FREEZE_REASON).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
         <div class="field"><label for="fz-memo">메모</label><input type="text" id="fz-memo" placeholder="예: 무릎 재활 기간"></div>
         <div class="banner">${icb("info")}<span>정지 중에는 예약할 수 없어요. <b>해제할 때 실제 정지한 일수만큼 유효기간이 뒤로 밀려요</b> — 회차는 그대로 남아요.<br>
@@ -6404,6 +6686,7 @@
         res.made ? ` · 조정 라인 ${res.made}건 생성` : res.locked.length ? ` · 확정분 ${res.locked.length}건은 ${res.ignore ? "센터 설정에 따라 차액 무시" : res.skipped ? "소액 생략" : "변동 없음"}` : ""}.`);
     },
 
+    // [SERVER] 센터 판매·등록. 폼 DOM 값은 표시용 — 서버 권위. 상품가·할인 한도·결제수단 합계를 서버가 검증하고 settle_base 를 박는다.
     sellPass() {
       const mid = pkSelected("sell-mem")[0];
       if (!mid) { toast("회원을 먼저 검색해 선택해 주세요."); return; }
@@ -7138,6 +7421,7 @@
       toast(`완료 보고했어요 — ${parts.join(" · ")}.`);
     },
     // v2.13: 현장 일회용 QR (04 수단 B — PIN 폐지 대체). 선생님은 QR을 띄울 뿐, 확인 성립은 회원 계정에서만.
+    // [SERVER] QR 발급. 토큰은 메모리 순번("qt"+seq)이라 추측 가능 — 서버가 HMAC 서명 토큰을 5분 만료로 발급하고 발급·사용·실패를 감사 로그에 남긴다.
     qrStart(rpId) {
       const r = DB.reports.find((x) => x.id === rpId);
       const b = r && r.bookingId && DB.bookings.find((x) => x.id === r.bookingId);
@@ -7154,6 +7438,7 @@
     },
     // 프로토타입 시뮬레이션 — 실서비스에선 회원 폰 카메라 스캔이 이 링크를 연다
     qrOpen(token) { closeModal(true); location.hash = "#/m/qr/" + token; },
+    // [SERVER] QR 수강 확인 성립. 프론트 검사는 표시용 — 서버 권위. used_at 기록은 확인 성립 tx 안에서 원자적으로(재사용 차단).
     qrConfirm(token) {
       const t = qrTokens[token];
       if (!t || t.used || qrExpired(t)) { toast("이미 사용됐거나 만료된 QR이에요."); render(); return; }
@@ -7573,8 +7858,8 @@
       const c = cls(sl.classId);
       // v2.67 QA② A-9: 예약·일정요청이 쓰는 겹침 경고가 이 경로에만 통째로 빠져 있었다(자정 넘김 무관 · 상시 결함).
       // ⛔차단으로 만들지 마라 — 형 확정 B안 «경고 후 강행 허용»이다. 입력값(d·t)은 모달을 바꾸기 전에 이미 읽어 뒀다.
-      const ovHits = overlapSlots(slotTeacher(sl), d, t, (c && c.duration) || 50, [sl.id]);
-      const ovM = openBk(sl.id).flatMap((b) => memberBusyAt(b.memberId, d, t, (c && c.duration) || 50, [b.id]));
+      const ovHits = overlapSlots(slotTeacher(sl), d, t, (c && c.duration) || DEFAULT_DURATION_MIN, [sl.id]);
+      const ovM = openBk(sl.id).flatMap((b) => memberBusyAt(b.memberId, d, t, (c && c.duration) || DEFAULT_DURATION_MIN, [b.id]));
       if (ovHits.length || ovM.length) { overlapAsk(ovHits, () => App.slotMoveOneGo(slotId, d, t), { mHits: ovM, goLabel: "그래도 옮기기" }); return; }
       App.slotMoveOneGo(slotId, d, t);
     },
@@ -7933,6 +8218,7 @@
           <button class="btn primary" onclick="App.sallyPushDo('${tid}')">이대로 보내기</button></div>`);
     },
     // 멱등 push — eligible & 미전송만, held 제외. P9-1 auto 모드면 노쇼 보상(rewardCodes)도 함께 전송
+    // [SERVER] 🔴샐리 전송. 지금은 로컬 플래그만 — 서버가 배치 생성(UUID) → POST /api/integrations/lessons/sessions → 응답 기록. 멱등키 externalId = booking_id.
     sallyPushDo(tid) {
       closeModal(true);
       const { ym, lines, held, rewards, adjs } = pushScope(tid);
@@ -7965,6 +8251,7 @@
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">취소</button>
         <button class="btn primary" onclick="App.sallyWithdraw('${tid}','${pid}')">샐리 확인했어요 · 회수</button></div>`);
     },
+    // [SERVER] 🔴전송 회수. 지금은 한쪽(니짐)만 되돌린다 — 서버가 샐리 DELETE /sessions/:externalId 까지 하고, approved 면 409 로 거부해야 한다(인계스펙 v2 §회수 규칙).
     sallyWithdraw(tid, pid) {
       const reason = gv("wd-reason").trim();
       if (!reason) { toast("회수 사유를 입력해 주세요."); return; }
@@ -8129,6 +8416,10 @@
   App.recurRollNow = (trigger) => recurRollAll(trigger || "manual");
 
   // ── 라우터 ──
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // [구역 24] 라우터 · UI 상태 레지스트리 · 부트
+  //   🔴역할 가드는 선생님(#/t/*)만 — 센터(#/c/*)는 무가드(인계 필수구현).
+  // ═══════════════════════════════════════════════════════════════════════════════
   const routes = [
     [/^#?\/?$/, vLanding],
     [/^#\/m\/home$/, vMHome],
@@ -8241,6 +8532,7 @@
     // 아무 단서도 없는» 상태가 됐다(v2.66 F-1·F-2 의 증상). 개별 널가드와 별개로 마지막 안전망을 둔다.
     // ⛔이 try 를 «예외를 숨긴다»며 지우지 마라 — 예외는 console.error 로 그대로 남기고 화면만 구제한다.
     let body = null;
+    // [SERVER] 🔴역할 라우트 가드. 지금은 선생님(#/t/*)만 막고 센터(#/c/*)는 무가드 — 서버 라우트 인가가 정본이고 화면 가드는 UX. 📌형 미결 «라우트 역할 가드(인계 필수구현)».
     // v2.67 QA② C-1: 선생님 행이 없는 계정의 #/t/* 딥링크는 15개 라우트를 동시에 죽였다 — 진입점에서 한 번에 막는다.
     if (/^#\/t\//.test(h) && !teacher(DB.me.teacher)) body = vNoTeacherRole();
     else for (const [re, fn] of routes) {
