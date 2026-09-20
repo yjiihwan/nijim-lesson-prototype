@@ -854,3 +854,15 @@ button.stat:active { transform: scale(.97); }
   border-radius: 50%; background: var(--cta); }
 .al-ic { flex: 0 0 auto; width: 22px; height: 22px; color: var(--text-muted); }
 .al-ic svg { width: 22px; height: 22px; }
+
+/* ══ v2.65 정산 조정 · 환불 · 일시정지 · 대강/담당교체 ══ */
+.sec-title.sm { font-size: 13px; margin: 16px 0 8px; color: var(--text-muted); }
+.adj-minus { color: var(--danger); }
+.adj-plus { color: var(--secondary); }
+.pd-row.adj-row { align-items: flex-start; }
+.pd-row.adj-row .pd-price { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pe-row { padding: 12px 14px; margin-bottom: 10px; }
+.pe-row .field:last-of-type { margin-bottom: 0; }
+.pe-row .btn-row { margin-top: 8px; }
+/* 환불 계산 · 결제수단 줄의 숫자는 탭ular 정렬 — 금액을 눈으로 비교하는 화면이라 자릿수가 흔들리면 안 된다 */
+.modal .card.flat .row b, .modal .card.flat .row span { font-variant-numeric: tabular-nums; }

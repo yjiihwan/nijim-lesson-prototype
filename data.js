@@ -53,7 +53,10 @@ window.DB = {
     // v2.9 할인 재등록 데모 — 같은 상품(pr3)인데 회당 24,000원 (재등록 할인 480,000원): ps3(30,000원)과 카드에서 단가 대비
     { id: "ps13", memberId: "m1", productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
       total: 20, unitPrice: 24000, purchasePrice: 480000, listPrice: 600000, expiresAt: "2026-11-12", remaining: 18 },
-    { id: "ps4", memberId: "m2", productId: "pr2", name: "PT 20회", kind: "private", total: 20, unitPrice: 90000, purchasePrice: 1800000, listPrice: 1800000, expiresAt: "2026-10-30", remaining: 11 },
+    // v2.65 분할결제 데모 — 카드 100만 + 현금(영수증 발행) 80만. 부가세 «포함» 센터(기본)라 settleBase = unitPrice.
+    // 센터 설정을 «제외»로 바꾸면 이 권의 정산 기준 단가가 즉시 81,818원으로 갈린다(결제정보 수정 화면에서 확인).
+    { id: "ps4", memberId: "m2", productId: "pr2", name: "PT 20회", kind: "private", total: 20, unitPrice: 90000, purchasePrice: 1800000, listPrice: 1800000, expiresAt: "2026-10-30", remaining: 11,
+      payments: [{ method: "card", amount: 1000000, cashReceipt: null }, { method: "cash", amount: 800000, cashReceipt: true }] },
     { id: "ps5", memberId: "m2", productId: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group", total: 10, unitPrice: 35000, purchasePrice: 350000, listPrice: 350000, expiresAt: null, remaining: 7 },
     { id: "ps6", memberId: "m3", productId: "pr1", name: "PT 10회", kind: "private", total: 10, unitPrice: 100000, purchasePrice: 1000000, listPrice: 1000000, expiresAt: "2026-08-20", remaining: 2 },
     { id: "ps7", memberId: "m3", productId: "pr3", name: "필라테스 그룹 20회", kind: "group", total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-09-28", remaining: 9 },
@@ -214,6 +217,26 @@ window.DB = {
     teacherScope: {
       t2: { mode: "custom", productIds: ["pr3"], memberIds: ["m2"] }, // 이필라: 필라테스 그룹 20회 전체 + 개별 박서준 (데모 시드)
     },
+
+    // ══ v2.65 정산 기준·조정 (설계서② 0-5·1-3 / 설계서① 1·2장) ══
+    // 부가세 계산 방식 — included(기본) = 결제수단이 정산에 영향을 주지 않는다(settleBase = unitPrice).
+    // excluded = 카드·현금영수증 발행분만 /1.1 해서 «정산 기준 회당 단가»를 판매 시점에 한 번 확정한다.
+    vatMode: "included",
+    // 확정분(=샐리 전송 완료) 차액 처리. adjust(기본)=다음 정산에 조정 라인 / ignore=차액 포기(이력만).
+    adjustPolicy: "adjust",
+    // 소액 조정 생략 — 형 확정 09-17 «비대칭»: 깎는 건 임계값 미만이면 생략, 주는 건 항상 반영.
+    //   none=생략 없음 / symmetric=양방향 생략 / asymmetric=기본(깎는 것만 생략)
+    // ⚠️판정 단위는 «pass 1건 합계»다 — 회차별로 쪼개 판정하면 10회권 4만원대가 전부 빠져나간다.
+    smallAdjMode: "asymmetric",
+    smallAdjThreshold: 10000,
+    // ══ v2.65 환불 (설계서② 2-4) ══
+    // 이용분 공제 기준: sale(기본·실구매 단가 = 회원에게 유리·분쟁 적음) / list(정가 단가)
+    refundDeductBasis: "sale",
+    refundPenaltyRate: 10,   // 위약금률 % (0~10)
+    // ══ v2.65 일시정지 (설계서② 2-8 · 형 확정 09-20 «이번 범위에 포함») ══
+    // 연 최대 정지 일수·최소 단위. 🔴정지는 회차를 움직이지 않으므로 정산 라인을 만들지 않는다.
+    freezeMaxDays: 60,
+    freezeMinDays: 7,
   },
 
   // v2.28 «매주 반복 수업 자동 개설» (형 확정 2026-08-19) / v2.34 «자리 열어두고 신청 받기» 전용화 (형 확정 2026-08-20)
@@ -249,6 +272,15 @@ window.DB = {
   // v2.30 A3: 보고·확인·이의 전이 append-only 로그 (04 원칙3의 프로토타입 대응물).
   // 실서비스는 completion_reports / attend_confirmations / disputes 3테이블 + 해시체인으로 분리한다.
   repEvents: [],
+
+  // ══ v2.65 환불 레코드 (설계서② 2-3) — append-only ══
+  // 🔴pass 본체(purchasePrice·total·unitPrice·listPrice)는 영구히 수정하지 않는다. 스냅샷 원칙 그대로다.
+  // 잘못 처리한 환불은 «삭제»가 아니라 voidedAt + admin_adjust 원장 행으로 상쇄한다.
+  refunds: [],
+
+  // ══ v2.65 감사 로그 (설계서① 1장 «필수 부가사항» / 설계서② 1-4) — append-only ══
+  // 조정 라인을 «생략»했을 때도 반드시 여기엔 남는다. 생략은 «없던 일로 한다»가 아니다.
+  audits: [],
 };
 
 // ── v2.30 A5: 협상 호환 뷰 (⚠️ 이식 금지 — 프로토타입·기존 검증 스크립트 호환용) ──
@@ -465,8 +497,12 @@ window.DB = {
 
   // 수업권(m1): 이용 정지(frozen) · 횟수 소진(exhausted) — 카드 «예약에 쓸 수 없어요» 상태 2종
   D.passes.push(
+    // v2.65: 정지 «중»인 권 — freezes[] 마지막 행이 열려 있고(endedAt 없음), expiresAt은 아직 안 밀렸다.
+    // 연장은 «해제 시점»에 실제 정지 일수만큼 한 번만 일어난다(planTo는 예정일일 뿐 근거가 아니다).
     { id: "ps14", memberId: "m1", productId: "pr2", name: "PT 20회", kind: "private", status: "frozen",
-      total: 20, unitPrice: 90000, purchasePrice: 1800000, listPrice: 1800000, expiresAt: "2026-12-01", remaining: 19 },
+      total: 20, unitPrice: 90000, purchasePrice: 1800000, listPrice: 1800000, expiresAt: "2026-12-01", remaining: 19,
+      freezes: [{ id: "fz0", from: "2026-09-10", planTo: "2026-10-09", days: 30, reason: "health",
+        memo: "무릎 재활 기간", at: "2026-09-10 11:20", by: "center", endedAt: null, extendedDays: 0 }] },
     { id: "ps15", memberId: "m1", productId: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group",
       total: 10, unitPrice: 35000, purchasePrice: 350000, listPrice: 350000, expiresAt: null, remaining: 0 },
   );
