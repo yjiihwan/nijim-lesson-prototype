@@ -1,4 +1,9 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.70 (2026-09-21 형 판단-1 «정산단가 안내 문구» 수정): 문구만 바꿨다 — 계산·환불 로직 무변경.
+   🔴부가세 설정을 바꾼 뒤 «이미 판» 권 상세가 «지금 계산해요» 로 읽혀 «내 정산액이 지금 바뀌나?» 오해를 샀다.
+   → 멤버십 상세 안내를 «판매 당시 기준으로 저장된 금액» 으로 바꾸고, 센터 현재 설정은 «앞으로 팔 것» 으로 분리.
+   → 「정산 기준 회당 단가」 옆 배지도 현재 설정이 아니라 저장된 금액 기준(`base < p.unitPrice`)으로 붙인다.
+   ⛔이 구역을 다시 «vatExcluded() 로 갈라 쓰는» 옛 모양으로 되돌리지 마라 — 그게 오해의 원인이었다.
    v2.69 (2026-09-21 형 판단-1 «정산 단가 스냅샷» 수정): App.buy(회원 자가 구매)도 구매 시점 settleBase 를 박는다.
    🔴단 한 곳(App.buy)만 바뀌었다 — sellPass 와 동일하게 `np.settleBase = calcSettleBase(np).base`.
    ⛔환불 계산은 그대로 p.unitPrice(회원 기준가)다 — 여기까지 settleBase 로 바꾸지 마라(지뢰 ④).
@@ -315,69 +320,69 @@
    📍 색인 (v2.68 «외부 개발자 이관·병합성» QA에서 신설) — 이 파일을 처음 여는 사람에게
    ══════════════════════════════════════════════════════════════════════════════
    이 파일은 8천여 줄 단일 IIFE 다. 파일을 쪼개지 않은 이유와 읽는 순서는 프로토타입 루트의
-   README.md 를 먼저 봐라. 아래 줄번호는 v2.69 기준이고, 어긋나면 «검색어» 로 찾으면 된다.
+   README.md 를 먼저 봐라. 아래 줄번호는 v2.70 기준이고, 어긋나면 «검색어» 로 찾으면 된다.
    ⛔이 색인은 «자동 생성»이다. 손으로 고치지 마라 — 코드를 편집했으면 아래를 돌려 다시 만든다.
        node handoff/regen_index.mjs      (구역·🧮순수·[SERVER] 를 다시 세어 이 블록만 갈아끼운다)
 
    ── 구역 (검색: «[구역 ») ──────────────────────────────────────────────────────
-   427    [구역 01] 부트·공통 유틸
-   514    [구역 02] 멤버십(수강권) — 상태·보유·차감 자격
-   594    [구역 03] 소속·권한 범위
-   727    [구역 04] 시간 겹침·예약 자격 관문
-   967    [구역 05] 원장·정산 금액 계산
-   1122   [구역 06] 일시정지(멤버십 홀딩)
-   1196   [구역 07] 대강·담당 선생님 교체
-   1378   [구역 08] 환불
-   1481   [구역 09] 완료 보고 · 수강 확인 · 이의 · 노쇼
-   1611   [구역 10] 대기 승격 · 회차 수명
-   1688   [구역 11] 반복 수업(8주 롤링)
-   2013   [구역 12] UI 기반 — 모션·시트·모달·토스트
-   2170   [구역 13] 배지·알림 문구 SSOT
-   2464   [구역 14] 공통 셸 · 탭 · 해야 할 일
-   2596   [구역 15] 화면 — 회원(vM*)
-   3327   [구역 16] 화면 — 선생님(vT*)
-   3546   [구역 17] 수업 만들기(2단계 · cc*)
-   4129   [구역 18] 선생님 보고·정산 화면
-   4266   [구역 19] 화면 — 센터(vC*)
-   4562   [구역 20] 공통 위젯 — 회원 검색기 · 필터 · 정책 편집
-   5226   [구역 21] 내보내기 · 샐리 전송 경계
-   5944   [구역 22] QR 수강 확인
-   5996   [구역 23] 액션(App) — 화면에서 부르는 모든 동작
-   8428   [구역 24] 라우터 · UI 상태 레지스트리 · 부트
+   432    [구역 01] 부트·공통 유틸
+   519    [구역 02] 멤버십(수강권) — 상태·보유·차감 자격
+   599    [구역 03] 소속·권한 범위
+   732    [구역 04] 시간 겹침·예약 자격 관문
+   972    [구역 05] 원장·정산 금액 계산
+   1127   [구역 06] 일시정지(멤버십 홀딩)
+   1201   [구역 07] 대강·담당 선생님 교체
+   1383   [구역 08] 환불
+   1486   [구역 09] 완료 보고 · 수강 확인 · 이의 · 노쇼
+   1616   [구역 10] 대기 승격 · 회차 수명
+   1693   [구역 11] 반복 수업(8주 롤링)
+   2018   [구역 12] UI 기반 — 모션·시트·모달·토스트
+   2175   [구역 13] 배지·알림 문구 SSOT
+   2469   [구역 14] 공통 셸 · 탭 · 해야 할 일
+   2601   [구역 15] 화면 — 회원(vM*)
+   3332   [구역 16] 화면 — 선생님(vT*)
+   3551   [구역 17] 수업 만들기(2단계 · cc*)
+   4134   [구역 18] 선생님 보고·정산 화면
+   4271   [구역 19] 화면 — 센터(vC*)
+   4573   [구역 20] 공통 위젯 — 회원 검색기 · 필터 · 정책 편집
+   5237   [구역 21] 내보내기 · 샐리 전송 경계
+   5955   [구역 22] QR 수강 확인
+   6007   [구역 23] 액션(App) — 화면에서 부르는 모든 동작
+   8439   [구역 24] 라우터 · UI 상태 레지스트리 · 부트
 
    ── 🧮 도메인 순수 함수 / 📐 규칙 (검색: «🧮[순수]» · 입력/출력/불변식 주석이 붙어 있다) ──
    실서버로 옮길 때 «그대로 옮겨도 되는» 계산 로직이다. 화면·DOM 을 읽지 않는다.
-   517    🧮 passState
-   683    🧮 eligiblePasses
-   743    🧮 overlapSlots
-   757    🧮 memberBusyAt
-   857    🧮 bookGuard
-   995    🧮 calcSettleBase
-   1053   🧮 smallSkip
-   1071   🧮 settleImpact
-   1154   📐 freezeEnd
-   1388   🧮 refundCalc
-   1417   🧮 refundPayouts
-   1753   🧮 recurDates
-   4180   🧮 unitGroups
+   522    🧮 passState
+   688    🧮 eligiblePasses
+   748    🧮 overlapSlots
+   762    🧮 memberBusyAt
+   862    🧮 bookGuard
+   1000   🧮 calcSettleBase
+   1058   🧮 smallSkip
+   1076   🧮 settleImpact
+   1159   📐 freezeEnd
+   1393   🧮 refundCalc
+   1422   🧮 refundPayouts
+   1758   🧮 recurDates
+   4185   🧮 unitGroups
 
    ── 🔒 [SERVER] 마커 40곳 (검색: «[SERVER]») ─────────────────────────────
    🔴프론트가 계산·판정하지만 실서버에서는 «서버가 권위» 여야 하는 자리다.
    이 로직을 클라이언트 신뢰 그대로 이식하면 그 자리가 곧 조작 취약점이 된다.
-   512 passState                 627 classAuth                 638 tScope
-   682 eligiblePasses            742 overlapSlots              756 memberBusyAt
-   856 bookGuard                 893 overbookOf                965 applyLedger
-   994 calcSettleBase            1010 passSettleBase           1032 makeAdjust
-   1052 smallSkip                1070 settleImpact             1085 applySettleBase
-   1136 freezeStart              1153 freezeEnd                1339 sweepTeacherChange
-   1387 refundCalc               1416 refundPayouts            1430 refundDo
-   1479 repTx                    1499 confirmTx                1539 disputeAllowed
-   1584 finalizeNoshow           1609 sweepExpiredWaitlists    1628 promoteWaitlist
-   1788 recurGenerate            1815 recurRollAll             5333 pushScope
-   5355 pushBatches              5942 qrSvg                    5966 vMQr
-   6177 buy                      6697 sellPass                 7432 qrStart
-   7449 qrConfirm                8229 sallyPushDo              8262 sallyWithdraw
-   8543 역할 라우트 가드
+   517 passState                 632 classAuth                 643 tScope
+   687 eligiblePasses            747 overlapSlots              761 memberBusyAt
+   861 bookGuard                 898 overbookOf                970 applyLedger
+   999 calcSettleBase            1015 passSettleBase           1037 makeAdjust
+   1057 smallSkip                1075 settleImpact             1090 applySettleBase
+   1141 freezeStart              1158 freezeEnd                1344 sweepTeacherChange
+   1392 refundCalc               1421 refundPayouts            1435 refundDo
+   1484 repTx                    1504 confirmTx                1544 disputeAllowed
+   1589 finalizeNoshow           1614 sweepExpiredWaitlists    1633 promoteWaitlist
+   1793 recurGenerate            1820 recurRollAll             5344 pushScope
+   5366 pushBatches              5953 qrSvg                    5977 vMQr
+   6188 buy                      6708 sellPass                 7443 qrStart
+   7460 qrConfirm                8240 sallyPushDo              8273 sallyWithdraw
+   8554 역할 라우트 가드
 
    ── 🧭 역할별 라우트 (정본 = 파일 끝 const routes 배열 한 곳) ──────────────────
    회원 #/m/*   home · shop · shop/:id · book · book/mine · class/:id · slot/:id
@@ -4486,11 +4491,17 @@
         <div class="divider"></div>
         <div class="row" style="justify-content:space-between"><span class="muted">실구매가</span><b>${won(p.purchasePrice != null ? p.purchasePrice : p.unitPrice * p.total)}</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">회원 기준 회당 단가</span><b>${won(p.unitPrice)}${p.listPrice != null && p.listPrice > (p.purchasePrice || 0) ? ` <span class="muted small">(정가 회당 ${won(passListUnit(p))})</span>` : ""}</b></div>
-        <div class="row mt8" style="justify-content:space-between"><span class="muted">정산 기준 회당 단가</span><b>${won(base)}${vatExcluded() ? ` <span class="badge b-gray">부가세 제외</span>` : ""}</b></div>
+        <div class="row mt8" style="justify-content:space-between"><span class="muted">정산 기준 회당 단가</span><b>${won(base)}${/* v2.70: 배지도 «현재 설정»이 아니라 저장된 금액 기준 — 포함 때 판 권에 «부가세 제외» 배지가 붙어 새 문구와 어긋났다 */ ""}${base < p.unitPrice ? ` <span class="badge b-gray">부가세 뺀 금액</span>` : ""}</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">유효기간</span><b>${p.expiresAt ? p.expiresAt : "기간 제한 없음"}</b></div>
         <div class="row mt8" style="justify-content:space-between"><span class="muted">결제수단</span><span style="text-align:right">${esc(passPayLabel(p))}</span></div>
-        ${vatExcluded() ? `<div class="hint">부가세 «제외» 센터예요 — 카드·현금영수증 발행분만 부가세를 빼고 정산 기준 단가를 계산해요. 선생님 정산액은 여기에 배분율을 곱해 계산돼요.</div>`
-          : `<div class="hint">부가세 «포함» 센터예요 — 결제수단은 정산에 영향을 주지 않아요(정산 기준 단가 = 회원 기준 단가).</div>`}
+        ${/* v2.70 형 판단-1: 옛 문구는 «지금 계산해요» 로 읽혀 «내 정산액이 지금 바뀌나?» 오해를 샀다.
+              숫자는 판매 시점 스냅샷(passSettleBase)이므로 «저장된 값»을 먼저 말하고, 센터 현재 설정은 «앞으로 팔 것» 으로 분리한다.
+              ⛔계산 로직 무변경 — 문구만. */ ""}
+        <div class="hint">이 멤버십의 정산 기준 단가는 <b>판매 당시 기준으로 저장된 금액</b>이에요 — 센터 설정을 바꿔도 이미 판 멤버십의 금액은 달라지지 않아요.
+          선생님 정산액은 여기에 배분율을 곱해 계산돼요.
+          <br><span class="muted">지금 센터 설정은 부가세 «${vatExcluded() ? "제외" : "포함"}» — ${vatExcluded()
+            ? "앞으로 판매하는 멤버십부터 카드·현금영수증 발행분의 부가세를 빼고 저장해요."
+            : "앞으로 판매하는 멤버십도 결제수단이 정산에 영향을 주지 않아요(정산 기준 단가 = 회원 기준 단가)."}</span></div>
       </div>
 
       ${fz ? `<div class="banner warn">${icb("pause")}<span><b>일시정지 중</b> · ${fz.from} 부터 (예정 종료 ${fz.planTo})<br>
@@ -5664,7 +5675,7 @@
       </div>
       <div class="sec-title">정산 기준 · 확정분 조정</div>
       <div class="card flat">
-        <div class="toggle-row"><span><div class="tl">부가세 계산 방식</div><div class="td">«제외»면 카드·현금영수증 발행분만 부가세를 빼고 정산 기준 단가를 계산해요. «포함»이면 결제수단이 정산에 영향을 주지 않아요.</div></span>
+        <div class="toggle-row"><span><div class="tl">부가세 계산 방식</div><div class="td">«제외»면 카드·현금영수증 발행분만 부가세를 빼고 정산 기준 단가를 저장해요. «포함»이면 결제수단이 정산에 영향을 주지 않아요.<br>어느 쪽으로 바꾸든 <b>앞으로 판매하는 멤버십부터</b> 적용돼요 — 이미 판 멤버십은 판매 당시 기준 그대로예요.</div></span>
           ${polSelect("App.setVatMode(this.value)", [["included", "부가세 포함 (기본)"], ["excluded", "부가세 제외"]], P.vatMode || "included")}</div>
         <div class="toggle-row"><span><div class="tl">확정분 차액 처리</div><div class="td">샐리로 <b>이미 보낸</b> 회차의 금액이 나중에 바뀌었을 때예요. 원본은 어느 쪽이든 절대 안 건드려요.</div></span>
           ${polSelect("App.setAdjustPolicy(this.value)", [["adjust", "다음 정산에 조정 (기본)"], ["ignore", "차액 무시 (이력만)"]], P.adjustPolicy || "adjust")}</div>
@@ -8328,7 +8339,7 @@
     setNoshowRewardPush(v) { DB.policy.noshowRewardPush = v; render(); toast(v === "auto" ? "노쇼 보상을 샐리로 자동 전송해요." : "샐리에서 수동 체크로 지급해요 — 자동 전송에 포함되지 않아요."); },
     // ── v2.65 정산 기준·조정·환불·일시정지 설정 ──
     // ⚠️설정을 바꿔도 «이미 판 멤버십»의 settleBase 스냅샷은 흔들리지 않는다 — 앞으로 판 권부터 새 기준이다.
-    setVatMode(v) { DB.policy.vatMode = v; render(); toast(v === "excluded" ? "부가세 «제외» 계산으로 바꿨어요 — 앞으로 판매하는 멤버십부터 결제수단이 정산 기준 단가에 반영돼요." : "부가세 «포함» 계산으로 바꿨어요 — 결제수단은 정산에 영향을 주지 않아요."); },
+    setVatMode(v) { DB.policy.vatMode = v; render(); toast(v === "excluded" ? "부가세 «제외» 계산으로 바꿨어요 — 앞으로 판매하는 멤버십부터 결제수단이 정산 기준 단가에 반영돼요. 이미 판 멤버십은 판매 당시 기준 그대로예요." : "부가세 «포함» 계산으로 바꿨어요 — 앞으로 판매하는 멤버십부터 결제수단이 정산 기준 단가에 영향을 주지 않아요. 이미 판 멤버십은 판매 당시 기준 그대로예요."); },
     setAdjustPolicy(v) { DB.policy.adjustPolicy = v; render(); toast(v === "adjust" ? "확정분 차액을 다음 정산에 조정 라인으로 반영해요." : "확정분 차액을 반영하지 않아요 — 감사 로그에는 그대로 남아요."); },
     setSmallAdjMode(v) { DB.policy.smallAdjMode = v; render(); toast(v === "asymmetric" ? "비대칭 생략 — 깎는 건 임계값 미만이면 생략하고, 주는 건 금액과 상관없이 항상 반영해요." : v === "symmetric" ? "대칭 생략 — 임계값 미만이면 깎는 것도 주는 것도 생략해요." : "생략 없이 1원이라도 조정 라인을 만들어요."); },
     setSmallAdjThreshold(v) { DB.policy.smallAdjThreshold = Math.max(0, parseInt(v, 10) || 0); render(); toast(`소액 생략 임계값을 ${won(DB.policy.smallAdjThreshold)}으로 바꿨어요 — 멤버십 1건 합계 기준이에요.`); },
