@@ -380,17 +380,18 @@ window.DB = {
   let n = 0;
   const id = () => "slp" + ++n;
 
+  // v2.71 QA E4: 김지은 ps1 은 7/30 구매라 그 전 날짜 정산 줄이 붙으면 «구매일보다 앞선 정산»이 된다 — 지난달 PT 줄은 이하늘(ps6)로 귀속.
   // ── 2026-07 · 전액 전송 완료 ──
   const P7T1 = "sly_t1_202607_1", P7T2 = "sly_t2_202607_1";
   [["m2", "박서준", "ps4", "2026-07-02", "19:00", "app", false],
    ["m3", "이하늘", "ps6", "2026-07-03", "18:00", "app", false],
-   ["m1", "김지은", "ps1", "2026-07-07", "", "qr", false],
+   ["m3", "이하늘", "ps6", "2026-07-07", "", "qr", false],
    ["m2", "박서준", "ps4", "2026-07-09", "19:00", "auto", true],
    ["m3", "이하늘", "ps6", "2026-07-14", "18:00", "app", false],
-   ["m1", "김지은", "ps1", "2026-07-16", "", "app", false],
+   ["m3", "이하늘", "ps6", "2026-07-16", "", "app", false],
    ["m2", "박서준", "ps4", "2026-07-21", "19:00", "auto", true],
    ["m3", "이하늘", "ps6", "2026-07-23", "18:00", "auto", true],
-   ["m1", "김지은", "ps1", "2026-07-28", "", "qr", false],
+   ["m3", "이하늘", "ps6", "2026-07-28", "", "qr", false],
   ].forEach(([mid, nm, pid, date, time, method, auto]) =>
     mkp(id(), "t1", mid, nm, pid, date, time, "PT", method, auto, "eligible", P7T1));
 
@@ -406,10 +407,10 @@ window.DB = {
   const P6T1 = "sly_t1_202606_1";
   [["m2", "박서준", "ps4", "2026-06-03", "19:00", "app", false, P6T1],
    ["m3", "이하늘", "ps6", "2026-06-05", "18:00", "auto", true, P6T1],
-   ["m1", "김지은", "ps1", "2026-06-10", "", "qr", false, P6T1],
+   ["m3", "이하늘", "ps6", "2026-06-10", "", "qr", false, P6T1],
    ["m2", "박서준", "ps4", "2026-06-12", "19:00", "app", false, P6T1],
    ["m3", "이하늘", "ps6", "2026-06-24", "18:00", "auto", true, null],
-   ["m1", "김지은", "ps1", "2026-06-26", "", "app", false, null],
+   ["m3", "이하늘", "ps6", "2026-06-26", "", "app", false, null],
   ].forEach(([mid, nm, pid, date, time, method, auto, pid2]) =>
     mkp(id(), "t1", mid, nm, pid, date, time, "PT", method, auto, "eligible", pid2));
   mkp(id(), "t1", "m4", "최민아", "ps8", "2026-06-17", "06:30", "크로스핏", "app", false, "held", null);
@@ -911,6 +912,8 @@ window.DB = {
     });
   }
 
+  // v2.71 [C] 샐리(급여 계산) 연결 상태 — 센터별. 운영 센터(ct1)만 연결돼 있고 다른 센터는 «아직 연결 안 됨»(안내 칸·연결하기 데모).
+  D.integrations = { sally: { ct1: { linked: true, account: "ENZ-GB-2026", linkedAt: "2026-06-01" } } };
   D.products.forEach((p) => { if (!p.centerId) p.centerId = "ct1"; });
   D.passes.forEach((p) => { if (!p.centerId) p.centerId = "ct1"; });
   D.classes.forEach((c) => { if (!c.centerId) c.centerId = "ct1"; });

@@ -1,4 +1,7 @@
 /* 니짐내짐 레슨 관리 프로토타입 — 해시 라우팅 SPA (빌드 불필요)
+   v2.71 (2026-10-25 페르소나 QA 반영 + 샐리 연동 «처음 쓰는 사람» 안내): 상품↔수업 연결 필수(E1)·수업종류 미선택 기본(E2)·멤버십 건수 기준 통일(E3)·
+     PT 요청 후 «보낸 요청» 착지(B1)·대강 표시+담당 전용 버튼 숨김(B2)·PT 바로가기(B3)·샐리 전체 한 번에 보내기+사람 읽는 묶음 이름(B5)·
+     샐리 안내 칸/연결 상태/버튼 이름(C)·헷갈림 H1~H13·문구 D1~D17. 정산·환불 계산 규칙 무변경.
    v2.70 (2026-09-21 형 판단-1 «정산단가 안내 문구» 수정): 문구만 바꿨다 — 계산·환불 로직 무변경.
    🔴부가세 설정을 바꾼 뒤 «이미 판» 권 상세가 «지금 계산해요» 로 읽혀 «내 정산액이 지금 바뀌나?» 오해를 샀다.
    → 멤버십 상세 안내를 «판매 당시 기준으로 저장된 금액» 으로 바꾸고, 센터 현재 설정은 «앞으로 팔 것» 으로 분리.
@@ -926,8 +929,8 @@
     const kindOf = (c) => (c.kind === "private" ? "개인수업 1:1" : "그룹수업");
     const okc = open.filter((c) => (c.eligibleProductIds || []).includes(p.productId));
     if (!okc.length) return "지정된 수업 없음";
-    const kinds = [...new Set(okc.map(kindOf))];
-    if (kinds.length === 1 && open.filter((c) => kindOf(c) === kinds[0]).length === okc.length) return `${kinds[0]} 전체`;
+    // v2.71 D14: «그룹수업 전체»처럼 묶어 말하면 실제 지정 수업과 어긋난다 — 항상 수업 이름을 그대로 나열한다.
+    void kindOf;
     return okc.map((c) => c.title).join(" · ");
   }
   // 예약 전 화면: 자동 선택된 수업권 + «변경». 예약 뒤에는 실제 차감될 수업권을 고정 표기(분쟁 방지).
@@ -939,7 +942,11 @@
       <div class="muted small">${passLine(sel)} · 회당 ${won(sel.unitPrice)}</div>
       ${count > 1 ? `<div class="muted small mt4">쓸 수 있는 멤버십이 ${count}장이에요 — 기본은 <b>만료가 임박한 것</b>부터 써요.</div>`
         : `<div class="muted small mt4">지금 이 수업에 쓸 수 있는 멤버십은 1장이에요.</div>`}
-      ${passBasis() === "class_date" ? `<div class="muted small mt4">이 센터는 <b>수업일 기준</b>으로 유효기간을 확인해요 — 수업 날짜에 이미 만료되는 멤버십은 후보에서 빠지고 다음 멤버십에서 차감돼요.</div>` : ""}</div>`;
+      ${(() => { // v2.71 H5: 유효기간 문장은 실제로 만료에 걸려 빠진 멤버십이 있을 때만 — 늘 보이면 회원에게 불필요한 2줄이었다
+        if (passBasis() !== "class_date") return "";
+        const c = passCtxClass(key), d = passCtxDate(key);
+        const excl = c && d ? eligiblePasses(c, DB.me.member).length - eligiblePasses(c, DB.me.member, d).length : 0;
+        return excl > 0 ? `<div class="muted small mt4">수업 날짜(${dlabel(d)})에 이미 만료되는 멤버십 ${excl}장은 빠졌어요 — 이 센터는 <b>수업일 기준</b>으로 유효기간을 봐요.</div>` : ""; })()}</div>`;
   }
 
   // ── 원장·확정 트랜잭션 ──
@@ -949,7 +956,7 @@
   const LEDGER_REASON = {
     purchase: "구매",
     attend: "수강 확인",
-    late_cancel_forfeit: "기한 위반 취소",
+    late_cancel_forfeit: "늦은 취소 (취소 기한 지남)",
     noshow_forfeit_auto: "노쇼 확정 · 차감",
     noshow_forfeit_reject: "노쇼 확정 · 이의 기각",
     noshow_forfeit_center: "노쇼 확정 · 센터 판정",
@@ -2054,6 +2061,7 @@
     document.querySelectorAll(".toast").forEach((el) => el.remove());
     const el = document.createElement("div");
     el.className = "toast";
+    el.dataset.at = String(Date.now()); // v2.71 D1: 화면이 바뀌면 이전 화면의 토스트는 닫는다(이동 직전에 띄운 것은 남긴다)
     el.textContent = msg;
     document.querySelector(".shell").appendChild(el);
     clearTimeout(toastTimer);
@@ -2385,9 +2393,10 @@
   function propItemHtml(p, side) {
     const c = cls(p.classId);
     const st = propState(p);
-    const [kl, kb] = PROP_KIND[p.kind];
+    // v2.71 D13: 회원에겐 «새 일정 제안 / 대안 시간 제안 / 일정 변경 제안» 세 이름 대신 «선생님이 시간을 제안했어요» 하나
+    const [kl, kb] = side === "m" && p.kind !== "teacher_change" ? ["시간 제안", "b-blue"] : PROP_KIND[p.kind];
     const [sl, sb] = PROP_ST[st];
-    const who = side === "m" ? `${esc(tName(p.teacherId))} 선생님` : `${esc(memberName(p.memberId))} 회원`;
+    const who = side === "m" ? (p.kind === "teacher_change" ? `${esc(tName(p.teacherId))} 선생님` : `${esc(tName(p.teacherId))} 선생님이 시간을 제안했어요`) : `${esc(memberName(p.memberId))} 회원`;
     const arr = negoParent(p);
     return `<div class="tl-item"><span class="grow"><b>${who}</b> · ${c ? esc(c.title) : ""} <span class="badge ${kb}">${kl}</span>
       <div class="pp-shift">${p.kind === "change" ? `<span class="old">${p.origDesc || "기존 일정"}</span><span class="arw">→</span>`
@@ -2478,7 +2487,8 @@
     const todoTab = role === "m" ? "#/m/book/mine" : tabs.length ? tabs[0][0] : "";
     // v2.36 §1: «요청»이 탭에서 사라진 대신, 선생님 «일정» 탭에 «답변 대기 건수»를 단다.
     // 홈 배지(전체 과업 N)만으로는 «답할 요청이 몇 건인지»를 탭바에서 알 수 없어졌기 때문 — 흡수의 대가를 여기서 메운다.
-    const tabBadge = (h) => (h === todoTab ? mAlerts : role === "t" && h === "#/t/schedule" ? tPendingArrs().length : 0);
+    // v2.71 H6: 선생님 «보고» 탭에도 숫자 — 보고할 끝난 수업이 있어도 탭에 표시가 없었다
+    const tabBadge = (h) => (h === todoTab ? mAlerts : role === "t" && h === "#/t/schedule" ? tPendingArrs().length : role === "t" && h === "#/t/report" ? tReportNeedN() : 0);
     return `
       <header class="hd"><div class="hd-in">
         ${opts.back ? `<button class="hd-back" onclick="App.back()" aria-label="뒤로">‹</button>` : ""}
@@ -2535,7 +2545,8 @@
     } else if (role === "t") {
       add({ n: tPendingArrs().length, tier: "wait", rank: 4, icon: "mail", key: "arrs",
         text: "회원이 보낸 요청에 답해야 해요", go: "#/t/inbox" });
-      add({ n: DB.reports.filter((r) => r.status === "pending" && rMine(r)).length, tier: "wait", rank: 4, icon: "clip", key: "pending",
+      // v2.71 H6: 선생님이 할 게 없는 «기다리는 일»이라 info — «해야 할 일» 숫자에서 빼고 아래 «진행 중»으로 내린다
+      add({ n: DB.reports.filter((r) => r.status === "pending" && rMine(r)).length, tier: "wait", rank: 4, icon: "clip", key: "pending", info: true,
         text: "회원 확인을 기다리는 수업이 있어요", go: "#/t/report" });
       add({ n: tSlots().filter(slotNeedsReport).length, tier: "wait", rank: 4, icon: "today", key: "needrep",
         text: "완료 보고가 필요한 수업이 있어요", go: "#/t/report" });
@@ -2570,21 +2581,26 @@
     }
     return out.sort((a, b) => a.rank - b.rank);
   }
-  const todoN = (role) => todoItems(role).reduce((a, x) => a + x.n, 0);
+  // v2.71 H6: 배지·제목의 N = «내가 눌러야 넘어가는 일»만(info 제외). 회원 «예약하기» 요약(mTodoHintHtml)과 같은 규칙.
+  const todoN = (role) => todoItems(role).filter((x) => !x.info).reduce((a, x) => a + x.n, 0);
   const todoRow = (x) => `<button type="button" class="todo-row${x.tier === "bad" ? " bad" : ""}" onclick="location.hash='${x.go}'">
     <span class="ic">${IC[x.icon]}</span><span class="tr-t">${esc(x.text)}</span><span class="tr-n">${x.n}건</span><span class="chev" aria-hidden="true">›</span></button>`;
   // cardHtml = «최우선 1건» 전용 강조 카드. 회원 «수강 확인 대기»가 1순위로 걸릴 때만 쓴다
   // (다른 항목엔 그 자리에서 상태를 바꾸는 1차 CTA가 없어서 카드로 승격할 내용이 없다).
   function todoBlock(role, cardHtml) {
-    const items = todoItems(role);
-    if (!items.length) return "";
+    const all = todoItems(role);
+    if (!all.length) return "";
+    const items = all.filter((x) => !x.info);      // 내가 해야 하는 일
+    const waiting = all.filter((x) => x.info);     // v2.71 H6: 남의 답을 기다리는 일 — 숫자에서 빼고 회색으로 분리
     const n = items.reduce((a, x) => a + x.n, 0);
-    const useCard = !!cardHtml && items[0].key === "confirm";
+    const useCard = !!cardHtml && items.length && items[0].key === "confirm";
     const rows = useCard ? items.slice(1) : items;
-    const tier = items.reduce((t, x) => (TIER_RANK[x.tier] < TIER_RANK[t] ? x.tier : t), "end");
-    return `<div class="sec-title todo-title">해야 할 일 <span class="badge ${ST4[tier][1]}">${n}</span></div>
+    const tier = items.length ? items.reduce((t, x) => (TIER_RANK[x.tier] < TIER_RANK[t] ? x.tier : t), "end") : "end";
+    return `${items.length ? `<div class="sec-title todo-title">해야 할 일 <span class="badge ${ST4[tier][1]}">${n}</span></div>
       ${useCard ? cardHtml : ""}
-      ${rows.length ? `<div class="card flat todo-card">${rows.map(todoRow).join("")}</div>` : ""}`;
+      ${rows.length ? `<div class="card flat todo-card">${rows.map(todoRow).join("")}</div>` : ""}` : ""}
+      ${waiting.length ? `<div class="sec-title todo-title sm muted">진행 중 · 기다리는 일 <span class="muted small" style="font-weight:600">— 내가 할 건 없어요</span></div>
+      <div class="card flat todo-card todo-wait">${waiting.map(todoRow).join("")}</div>` : ""}`;
   }
 
   // ══ 랜딩 ══
@@ -2630,8 +2646,8 @@
     const st = passState(p);
     const bad = mpStateLabel(st);
     const dd = dday(p.expiresAt);
-    return `<article class="mp-card${st !== "active" ? " off" : ""}">
-      <div class="mp-fac"><span>${esc(centerNameOf(passCenter(p)))}</span>${MP_ARROW}</div>
+    return `<article class="mp-card${st !== "active" ? " off" : ""}" data-pid="${p.id}">
+      <div class="mp-fac"><span>${esc(centerNameOf(passCenter(p)))}</span>${mpJustBought === p.id ? `<span class="badge b-rose">방금 구매</span>` : ""}${MP_ARROW}</div>
       <div class="mp-prog">${esc(p.name)}</div>
       <div class="mp-plabel">${p.expiresAt ? `${p.expiresAt.replaceAll("-", ".")}까지 멤버십` : "기간 제한 없는 멤버십"}</div>
       <div class="mp-left"><b>${p.remaining}</b><span>회 남음</span><small>/ 총 ${p.total}회</small></div>
@@ -2698,8 +2714,22 @@
   // v2.46: «다가오는 예약» 요약 블록(mUpcomingHtml)은 삭제 — «내 예약»의 «확정 예약» 카테고리가
   // 같은 데이터의 상위집합(멤버십·취소·변경 액션 포함)이라 요약을 따로 두면 v2.44의 중복이 되살아난다.
   // v2.44(형 지시 08-23): 홈 = «내 멤버십»만 — 실서비스 «내 멤버십» 화면에 그대로 끼워넣는 구조.
+  // v2.71 H2: 카드 순서 = 쓸 수 있는 것(만료 임박순) → 못 쓰는 것. 새로 산 카드가 만료·소진 카드 뒤 9번째에 붙던 문제.
+  const mpOrder = (ps) => ps.slice().sort((a, b) => {
+    const aa = passState(a) === "active" ? 0 : 1, bb = passState(b) === "active" ? 0 : 1;
+    if (aa !== bb) return aa - bb;
+    const ea = a.expiresAt || "9999", eb = b.expiresAt || "9999";
+    return ea.localeCompare(eb);
+  });
+  let mpJustBought = null; // 구매 직후 «방금 구매» 표시 + 그 카드로 이동
+  // v2.71 B3: PT(일정 맞춤) 수업을 들을 수 있는 회원에게 홈에서 바로 시간 요청으로 가는 길
+  const myArrangedClasses = () => DB.classes.filter((c) => c.status !== "closed" && c.schedule === "arranged" && myCenterClass(c) && bookGuard(c, DB.me.member).ok);
   function vMHome() {
-    const ps = myPasses();
+    const ps = mpOrder(myPasses());
+    const arrCls = myArrangedClasses();
+    const nextBk = myUpcoming().find((b) => b.status === "booked");
+    const nextS = nextBk ? slot(nextBk.slotId) : null;
+    const todoCnt = todoItems("m").filter((x) => !x.info).reduce((a, x) => a + x.n, 0);
     // v2.59 (형 확정 09-06): 0장이면 캐러셀이 빈 칸으로 남아 «고장»처럼 보였다 — 무엇이 없고 뭘 하면 되는지 카드로 말한다
     return shell("m", "니짐내짐 레슨", `
       <div class="sec-title row">내 멤버십</div>
@@ -2709,7 +2739,12 @@
         <a class="btn primary mt12" href="#/m/shop">멤버십 구매하러 가기</a></div>`}
       ${/* v2.66 QA: 홈에서 «예약»으로 가는 직접 입구가 없어 예약 확정이 4클릭이었다(예약 탭은 v2.46 확정대로 «내 예약»에 착지).
            멤버십이 있는 회원에게만 첫 행동으로 올린다 — 없으면 위 빈 카드가 «구매 먼저»를 이미 말한다. */ ""}
-      ${ps.length ? `<a class="btn primary mt12" href="#/m/book">${ici("plus")}수업 예약하기</a>` : ""}
+      ${ps.length && (nextS || todoCnt) ? `<div class="card flat home-brief">
+        ${nextS ? `<button type="button" class="todo-row" onclick="location.hash='#/m/slot/${nextS.id}'"><span class="ic">${IC.cal}</span><span class="tr-t">다음 수업 · <b>${dlabel(nextS.date)} ${t12(nextS.time)}</b> ${esc(clsTitle(nextS.classId))}</span><span class="chev" aria-hidden="true">›</span></button>` : ""}
+        ${todoCnt ? `<button type="button" class="todo-row bad" onclick="location.hash='#/m/book/mine'"><span class="ic">${IC.alert}</span><span class="tr-t">확인이 필요한 일</span><span class="tr-n">${todoCnt}건</span><span class="chev" aria-hidden="true">›</span></button>` : ""}
+      </div>` : ""}
+      ${arrCls.length ? `<a class="btn primary mt12" href="${arrCls.length === 1 ? `#/m/class/${arrCls[0].id}` : "#/m/book"}">${ici("plus")}${arrCls.length === 1 ? `${esc(arrCls[0].title)} 시간 잡기` : "선생님과 시간 정해서 수업 잡기"}</a>` : ""}
+      ${ps.length ? `<a class="btn ${arrCls.length ? "ghost mt8" : "primary mt12"}" href="#/m/book">${ici("plus")}${arrCls.length ? "시간표에서 수업 예약하기" : "수업 예약하기"}</a>` : ""}
       <a class="mp-btn" href="#/m/shop">${MP_IC.ticket}수업 멤버십 구매</a>`);
   }
   // v2.16: 실서비스 «멤버십 구매» 카드 문법 전면 교체 (purchase_ui_spec.md v1 — 실측 레드 사용, 브랜드 팔레트 치환 금지)
@@ -2722,6 +2757,7 @@
     return `<button class="shop-card${sale ? " ev" : ""}" onclick="location.hash='#/m/shop/${p.id}'" aria-label="${esc(p.name)}${showCtr ? ` · ${esc(ctrName)}` : ""}">
       ${sale ? `<span class="sc-badge">이벤트<br>할인가</span>` : ""}
       ${showCtr ? `<span class="sc-ctr">${esc(ctrName)}</span>` : ""}
+      <span class="sc-name">${esc(p.name)}</span>
       <span class="sc-cap">${p.sessions}회</span>
       <span class="sc-band">${p.validityDays ? `${p.validityDays}일` : "기간 제한 없음"}</span>
       <span class="sc-price">${sale
@@ -2733,8 +2769,9 @@
     // v2.66 QA: 종전엔 전 센터 상품을 섞어 보여줬다 — 소속이 아닌 센터 멤버십을 사면 그 센터 수업에만 쓸 수 있어
     // (형 확정 ① «수업의 센터 = 고른 멤버십의 센터») 회원이 못 쓰는 권을 결제하는 사고가 난다. 내 소속 센터 것만 판다.
     const mineCtr = myMemberCenters();
-    const sellable = DB.products.filter((p) => mineCtr.includes(passCenter(p)));
-    const pool = sellable.length ? sellable : DB.products.filter((p) => passCenter(p) === DB.center.id);
+    // v2.71 E1: 수업에 연결되지 않은 상품은 회원 화면에 아예 내놓지 않는다 — 사도 쓸 데가 없다.
+    const sellable = DB.products.filter((p) => mineCtr.includes(passCenter(p)) && prodSellable(p));
+    const pool = sellable.length ? sellable : DB.products.filter((p) => passCenter(p) === DB.center.id && prodSellable(p));
     const showCtr = isMultiCenterMember();
     const section = (title, ps, notice) => (ps.length ? `
       <h2 class="shop-h">${title}</h2>
@@ -2769,7 +2806,8 @@
         <div class="hint mt8">이 멤버십으로 들을 수 있는 수업: <b>${passScopeLabel({ productId: p.id })}</b></div>
       </div>
       <p class="muted small">구매 시점의 가격·조건이 그대로 보존돼요. 이후 상품이 바뀌어도 내 멤버십은 영향받지 않아요.</p>
-      <button class="btn primary mt12" onclick="App.buy('${p.id}')">${won(pay)} 결제하기</button>
+      ${prodSellable(p) ? `<button class="btn primary mt12" onclick="App.buy('${p.id}')">${won(pay)} 결제하기</button>`
+        : `<div class="banner warn">${icb("ban")}<span>이 상품은 아직 들을 수 있는 수업이 정해지지 않아 지금은 구매할 수 없어요. 센터에 문의해 주세요.</span></div>`}
       <p class="muted small mt8" style="text-align:center">체험용 화면이라 실제 결제는 일어나지 않아요.</p>`, { back: true });
   }
   // v2.11 (형 지시 08-18): 회원 «수업 예약» — 주간 캘린더 스트립 + 날짜별 회차 리스트 혼합.
@@ -2876,6 +2914,7 @@
   // 같은 렌더(mBookingsBody) — 4섹션·액션 버튼 그대로. 예약 목록 진입은 이 세그먼트 하나뿐이다.
   // v2.46: [내 예약(기본) | 예약하기] — 라벨을 일 이름으로(«캘린더»는 위젯 이름이었다), 내 것이 먼저.
   let mBookTab = "mine";
+  let mLandCat = null; // v2.71 B1: 일정 요청을 보낸 직후 «내 예약»이 어느 묶음으로 열릴지(한 번만 쓰고 비운다)
   function vMBookSeg() {
     return `<div class="seg book-seg" role="tablist">
       <button role="tab" aria-selected="${mBookTab === "mine"}" class="${mBookTab === "mine" ? "on" : ""}" onclick="App.mbTab('mine')">내 예약</button>
@@ -2897,29 +2936,48 @@
     const sel = mBookSel || (mBookSel = DB.TODAY);
     const days = Array.from({ length: 7 }, (_, i) => addDays(mbWeekStart(sel), i));
     const selDt = new Date(sel + "T12:00:00+09:00");
-    const list = mbSlotsOn(sel);
-    const arranged = DB.classes.filter((c) => c.status !== "closed" && c.schedule === "arranged");
+    const list0 = mbSlotsOn(sel);
+    // v2.71 D15: 지난 회차는 흐리게 맨 아래로 — «예약 가능한 수업» 제목 바로 아래 지난 회차가 먼저 보이던 문제
+    const list = list0.slice().sort((a, b) => ((isPast(a) || a.status !== "scheduled") ? 1 : 0) - ((isPast(b) || b.status !== "scheduled") ? 1 : 0));
+    const arranged = DB.classes.filter((c) => c.status !== "closed" && c.schedule === "arranged" && myCenterClass(c));
+    // v2.71 B3 ②: 일정 맞춤(PT) 수업을 들을 수 있는 회원에겐 그 칸을 달력 «위»에 둔다 — 달력에 내 수업이 없어 나가던 문제
+    const arrMine = arranged.some((c) => bookGuard(c, DB.me.member).ok);
     const near = list.length ? null : mbNearest(sel);
     const item = (s) => {
       const c = cls(s.classId);
       const n = seatCount(s.id), w = waitBk(s.id).length, full = n >= c.capacity;
       const mine = DB.bookings.find((b) => b.slotId === s.id && b.memberId === DB.me.member && [...SEAT, "waitlisted"].includes(b.status));
       const past = isPast(s) || s.status !== "scheduled";
+      const g = mine || past ? null : bookGuard(c, DB.me.member, { date: s.date }); // v2.71 B3 ③: 못 듣는 수업은 흐리게 + 이유 한 줄
+      const cant = g && !g.ok;
       // v2.29 §A3: 우측 버튼(예약/마감/종료)은 전부 «상세로 이동»이라 셰브론으로 통일.
       // 가용 상태는 이미 부제 한 줄(지난 회차 / 정원 마감 / 잔여 N자리)이 말하고 있다.
       const md = mine ? mBkBadge(mine) : null; // v2.59: 회원 화면 배지는 4종(mBkBadge) 하나로 — 캘린더만 12종을 쓰던 어휘 이탈 해소
-      return `<div class="slot mb-item tapable" role="button" tabindex="0" onclick="location.hash='#/m/slot/${s.id}'">
+      return `<div class="slot mb-item tapable${past || cant ? " dim" : ""}" role="button" tabindex="0" onclick="location.hash='#/m/slot/${s.id}'">
         <span class="mb-main">
           <span class="time">${t12(s.time)}</span>
           <span class="grow"><span class="t">${esc(c.title)}</span>
-            <div class="muted small">${slotTeacherName(s)} 선생님${subTag(s)} · ${c.duration}분 · ${past ? "지난 회차" : full ? `정원 마감${w ? ` · 대기 ${w}명` : ""}` : `잔여 ${c.capacity - n}자리`}</div>
-            <div class="mt4 mb-badges"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span><span class="badge b-gray">${eligLabel(c)}</span>${md ? `<span class="badge ${md.badge}">${md.label}</span>` : ""}</div></span>
+            <div class="muted small">${slotTeacherName(s)} 선생님${subTag(s)} · ${c.duration}분 · ${past ? "지난 회차" : mine ? "내 예약" : full ? `정원 마감${w ? ` · 대기 ${w}명` : ""}` : `잔여 ${c.capacity - n}자리`}</div>
+            ${cant ? `<div class="muted small">이 멤버십으론 못 들어요</div>` : ""}
+            <div class="mt4 mb-badges"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span>${md ? `<span class="badge ${md.badge}">${md.label}</span>` : ""}</div></span>
         </span>
         <span class="chev" aria-hidden="true">›</span></div>`;
     };
+    const arrangedHtml = `<div class="sec-title">선생님과 시간 정해서 하는 수업 <span class="muted small" style="font-weight:600">— 날짜와 상관없이 원하는 시간을 요청해요</span></div>
+      ${arranged.length ? arranged.map((c) => {
+        const pend = mArrs().filter((a) => a.memberId === DB.me.member && a.classId === c.id && negoState(a) === "pending").length;
+        const ok = bookGuard(c, DB.me.member).ok;
+        return `<button class="card card-tap${ok ? "" : " dim"}" onclick="location.hash='#/m/class/${c.id}'">
+        <div class="row"><span class="grow"><b>${esc(c.title)}</b>
+          <div class="muted small mt4">${esc(tName(c.teacherId))} 선생님 · ${c.duration}분${ok ? "" : " · 이 멤버십으론 못 들어요"}</div>
+          <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span>${pend ? `<span class="badge b-warn">수락 대기 ${pend}건</span>` : ""}</div></span>
+        <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`;
+      }).join("") : `<div class="card flat"><p class="muted">선생님과 시간을 정해서 하는 수업이 없어요.</p></div>`}`;
     return shell("m", "예약", `
       ${vMBookSeg()}
       ${mTodoHintHtml()}
+      ${arrMine ? arrangedHtml : ""}
+      ${arrMine ? `<div class="sec-title">시간표에서 고르는 수업</div>` : ""}
       <div class="card mb-cal">
         <div class="mb-head">
           <button class="mb-nav" onclick="App.mbWeek(-1)" aria-label="이전 주">‹</button>
@@ -2940,24 +2998,16 @@
         : `<div class="card flat mb-empty"><div class="em">${IC.empty}</div>
             <p class="muted mt8">이 날은 예약할 수 있는 수업이 없어요.</p>
             ${near ? `<button class="btn ghost mt12" onclick="App.mbDay('${near}')">가장 가까운 수업일 ${dlabel(near)}로 이동</button>` : ""}</div>`}
-      <div class="sec-title">일정 맞춤 수업 <span class="muted small" style="font-weight:600">— 날짜와 무관하게 신청해요</span></div>
-      ${arranged.length ? arranged.map((c) => {
-        const pend = mArrs().filter((a) => a.memberId === DB.me.member && a.classId === c.id && negoState(a) === "pending").length;
-        return `<button class="card card-tap" onclick="location.hash='#/m/class/${c.id}'">
-        <div class="row"><span class="grow"><b>${esc(c.title)}</b>
-          <div class="muted small mt4">${esc(tName(c.teacherId))} 선생님 · ${c.duration}분</div>
-          <div class="mt8"><span class="badge ${c.kind === "private" ? "b-rose" : "b-blue"}">${c.kind === "private" ? "개인 1:1" : `그룹 · 정원 ${c.capacity}명`}</span>
-          <span class="badge b-gray">${eligLabel(c)}</span>${pend ? `<span class="badge b-warn">수락 대기 ${pend}건</span>` : ""}</div></span>
-        <span class="arrow" style="color:var(--text-disabled)">›</span></div></button>`;
-      }).join("") : `<div class="card flat"><p class="muted">일정 맞춤으로 진행하는 수업이 없어요.</p></div>`}`);
+      ${arrMine ? "" : arrangedHtml}`);
   }
   // v2.33 B-2: 조율 신청 화면의 «그 날 선생님 일정» — 시간 구간만 적는다.
   // 다른 회원 이름·수업명은 절대 노출하지 않고, 아직 수락 안 된 조율 요청도 넣지 않는다(확정 일정이 아님).
   function arrDayHtml(c, d) {
     if (!c || !d) return "";
     const list = dayList(teacherSpanSlots(c.teacherId, d), d); // v2.67 QA② A-6
-    return `${dlabel(d)} 선생님 일정 \u2014 ${list.length
-      ? list.map((x) => (x.date === d ? "" : "전날 ") + slotSpanLabel(x)).join(" · ") : "이 날은 잡힌 수업이 없어요."}`;
+    return list.length
+      ? `${dlabel(d)} 이날 선생님이 <b>이미 수업 있는 시간</b>: ${list.map((x) => (x.date === d ? "" : "전날 ") + slotSpanLabel(x)).join(" · ")} — 이 시간은 피해서 골라 주세요.`
+      : `${dlabel(d)} 이날은 선생님 일정이 비어 있어요 — 원하는 시간을 골라 주세요.`;
   }
   // v2.33 B-3: 희망 시간이 그 일정과 겹치면 경고 배너. 차단하지 않는다(08-19 형 확정 ② 경고 후 강행).
   const ARR_OV_MSG = "그 시간엔 선생님 수업이 있어요. 그래도 보낼 수 있지만, 선생님이 다른 시간을 제안할 수 있어요.";
@@ -3007,7 +3057,7 @@
     const laterSlots = slots.filter((s) => s.date > HORIZON);
     const shown = mcMore ? slots : nearSlots;
     return shell("m", c.title, `
-      <div class="card flat"><div class="muted small">${esc(tName(c.teacherId))} 선생님 · ${t12text(c.scheduleLabel)} · 정원 ${c.capacity}명 · ${eligLabel(c)}</div></div>
+      <div class="card flat"><div class="muted small">${esc(tName(c.teacherId))} 선생님 · ${t12text(c.scheduleLabel)} · 정원 ${c.capacity}명</div></div>
       ${g.ok ? "" : `<div class="banner warn">${icb("ban")}<span>${g.msg}</span></div>`}
       <div class="sec-title">예약 가능 회차 <span class="muted small" style="font-weight:600">— «예약»을 누르면 상세를 확인한 뒤 예약해요</span></div>
       <div class="card flat">${shown.length ? shown.map((s) => {
@@ -3051,7 +3101,8 @@
             : "선생님이 보낸 «일정 변경 제안»이 있어요. «내 예약» «답변 필요»에서 답해 주세요."}</div></div>`
           : `<button class="btn ghost mt8" onclick="App.mchAsk('${mine.id}')">시간 변경 요청하기</button>`)
         : canCancel && mine.status === "booked" ? `<p class="muted small mt8">${CHANGE_GROUP_HINT}</p>` : "";
-      action = `<div class="banner">${icb("ban")}<span>이 회차에 이미 <b>${mine.status === "waitlisted" ? "예약 대기" : "예약"}</b>이 있어요. 중복 예약은 안 돼요.${bd.sub ? ` ${bd.sub}` : ""}</span></div>
+      // v2.71 H4: 내 예약을 열었는데 «중복 예약은 안 돼요» 경고가 뜨던 문제 — 예약된 사실을 초록으로 말한다
+      action = `<div class="banner ok">${icb("calCheck")}<span>${mine.status === "waitlisted" ? `<b>예약 대기 중이에요</b> · ${dlabel(s.date)} ${t12(s.time)}` : `<b>예약돼 있어요 ✓</b> · ${dlabel(s.date)} ${t12(s.time)}`}${bd.sub ? `<br>${bd.sub}` : ""}</span></div>
         ${canCancel ? `<button class="btn danger-ghost" onclick="App.askCancel('${mine.id}')">${mine.status === "waitlisted" ? "예약 대기 취소" : "예약 취소"}</button>
         ${chgLine}
         <a class="btn ghost mt8" href="#/m/book/mine">내 예약 보기</a>`
@@ -3076,7 +3127,7 @@
     return shell("m", "수업 상세", `
       <div class="card"><b>${esc(c.title)}</b>
         <div class="muted mt4">${dlabel(s.date)}${holiTag(s.date)} ${slotSpanLabel(s)} · ${c.duration}분 · ${slotTeacherName(s)} 선생님${subTag(s)}</div>
-        <div class="mt8"><span class="badge ${full ? "b-danger" : "b-green"}">${full ? `정원 마감${isPrivateClass(c) ? "" : ` · 대기 ${waitBk(s.id).length}명`}` : `잔여 ${c.capacity - n}자리`}</span></div>
+        <div class="mt8"><span class="badge ${mine ? "b-green" : full ? "b-danger" : "b-green"}">${mine ? "내 예약" : full ? `정원 마감${isPrivateClass(c) ? "" : ` · 대기 ${waitBk(s.id).length}명`}` : `잔여 ${c.capacity - n}자리`}</span></div>
         <div class="divider"></div>
         ${mine
           ? `<div class="pass-pick"><div class="pp-head"><span class="muted">차감될 멤버십</span></div>
@@ -3093,7 +3144,7 @@
         const snap = mine && mine.policySnap ? mine.policySnap : snapPolicy();
         return snap.cancelMode !== "conditional"
           ? `<div class="banner warn">${icb("info")}<span>이 ${mine ? "예약은 예약 당시 규정상" : "센터는"} <b>취소가 불가</b>해요. 사정이 생기면 센터에 문의해 주세요.</span></div>`
-          : `<div class="banner warn">${icb("info")}<span>취소는 수업 <b>${snap.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요. 이 조건은 <b>예약 시점 기준으로 보존</b>돼요.</span></div>`; })()}
+          : `<div class="banner warn">${icb("info")}<span>취소는 수업 <b>${snap.cancelHours}시간 전</b>까지 무료예요. 이후 취소하면 횟수가 차감돼요.${mine ? " 예약한 뒤 센터 규정이 바뀌어도 이 예약엔 지금 규정이 적용돼요." : ""}</span></div>`; })()}
       ${action}`, { back: true });
   }
   // ══ v2.36 §2 + v2.37 A안: 예약 탭 «내 예약» = 회원의 예약·«시간 얘기» 단일 창구 (형 확정 08-20) ══
@@ -3183,8 +3234,8 @@
     const cats = [
       { k: "need", label: "답변 필요", items: needItems, empty: "지금 답할 일이 없어요. 새 요청이나 제안이 오면 여기에 모여요." },
       { k: "act", label: "다가오는 예약", items: act.map((b) => bkIt(b, true)).sort(asc),
-        empty: "다가오는 예약이 없어요. 수업을 골라 첫 예약을 잡아 보세요.",
-        emptyCta: `<a class="btn primary mt12" href="#/m/book">예약 가능한 수업 보기</a>` },
+        empty: sent.length ? `아직 확정된 예약은 없어요 — 선생님 답을 기다리는 요청 ${sent.length}건이 있어요. 선생님이 수락하면 여기에 예약이 생겨요.` : "다가오는 예약이 없어요. 수업을 골라 첫 예약을 잡아 보세요.",
+        emptyCta: `${sent.length ? `<button type="button" class="btn primary mt12" onclick="App.fltCat('m-mine','sent')">기다리는 요청 ${sent.length}건 보기 ›</button><br>` : ""}<a class="btn ${sent.length ? "ghost mt8" : "primary mt12"}" href="#/m/book">예약 가능한 수업 보기</a>` },
       { k: "sent", label: "보낸 요청", items: sent.map((a) => negoIt(a, sentItem(a))).sort(asc),
         empty: "선생님에게 보낸 요청이 없어요.",
         note: "선생님이 수락하면 알려드릴게요. 마음이 바뀌면 «요청 취소»를 누르면 돼요. 변경 요청은 거절돼도 원래 예약과 남은 횟수는 그대로예요." },
@@ -3196,7 +3247,7 @@
       <div id="m-need"></div>
       ${mConfirmCardHtml()}
       <p class="muted" style="margin-bottom:12px">예약, 그리고 선생님과 주고받은 일정 요청·제안이 모두 여기 모여 있어요. 멤버십 사용 기록은 «내역» 탭에서 볼 수 있어요.</p>
-      ${fltHtml("m-mine", { cats, ph: "수업명·선생님 검색", initial: () => (needCount ? "need" : "act") })}`;
+      ${fltHtml("m-mine", { cats, ph: "수업명·선생님 검색", initial: () => { const l = mLandCat; mLandCat = null; return l || (needCount ? "need" : "act"); } })}`;
   }
   function vMConfirm(id) {
     const b = DB.bookings.find((x) => x.id === id);
@@ -3285,12 +3336,13 @@
     const mine = DB.passes.filter((p) => p.memberId === DB.me.member);
     // v2.39 E: 원장은 쓸수록 무한히 쌓인다(감사 3,893px). 카테고리=멤버십 — 한 번에 한 장만 날짜순으로 본다.
     // «어느 멤버십에서 차감됐는지»를 보여 준다는 이 화면의 정보 구성은 그대로 두고, 보여 주는 «양»만 줄인다.
-    const shortBuy = (p) => { const d = passBuyDate(p); return /^\d{4}-/.test(d) ? d.slice(2).replaceAll("-", ".") : d; };
-    const cats = mine.map((p) => ({
+    // v2.71 H3: 칩의 동그라미 숫자(기록 건수)가 «남은 횟수»로 읽혔다 — 숫자 배지 대신 «남은 N회», 날짜는 «10/7 구매»
+    const mdBuy = (p) => { const d = passBuyDate(p); return /^\d{4}-/.test(d) ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))} 구매` : d; };
+    const cats = mpOrder(mine).map((p) => ({
       k: p.id,
       // v2.67 QA② C-10: 다중 소속 회원은 ct1 «PT 10회»와 ct2 «PT 20회»가 화면에서 구분되지 않았다.
-      label: `${esc(p.name)}${isMultiCenterMember() ? ` (${esc(centerNameOf(passCenter(p)))})` : ""} · ${shortBuy(p)}`,
-      head: `<div class="flt-head"><b>${esc(p.name)}</b>${isMultiCenterMember() ? ` <span class="ctr-tag">${esc(centerNameOf(passCenter(p)))}</span>` : ""}${passState(p) !== "active" ? ` <span class="badge b-gray">${{ expired: "기간 만료", exhausted: "소진", frozen: "정지" }[passState(p)]}</span>` : ""} · ${passBuyDate(p)} 구매 · 잔여 ${p.remaining}회 / 총 ${p.total}회</div>`,
+      label: `${esc(p.name)}${isMultiCenterMember() ? ` (${esc(centerNameOf(passCenter(p)))})` : ""} · ${passState(p) === "active" ? `남은 ${p.remaining}회` : { expired: "기간 만료", exhausted: "소진", frozen: "정지" }[passState(p)]}`,
+      head: `<div class="flt-head"><b>${esc(p.name)}</b>${isMultiCenterMember() ? ` <span class="ctr-tag">${esc(centerNameOf(passCenter(p)))}</span>` : ""}${passState(p) !== "active" ? ` <span class="badge b-gray">${{ expired: "기간 만료", exhausted: "소진", frozen: "정지" }[passState(p)]}</span>` : ""} · ${mdBuy(p)} · <b>남은 ${p.remaining}회</b> / 총 ${p.total}회</div>`,
       wrap: (rows) => `<div class="card flat"><ul class="ledger">${rows}</ul></div>`,
       empty: "이 멤버십에는 아직 사용 기록이 없어요.",
       items: DB.ledger.filter((l) => l.passId === p.id).slice().reverse().map((l) => ({
@@ -3302,8 +3354,8 @@
       })),
     }));
     return shell("m", "이용 내역", `
-      <p class="muted" style="margin-bottom:12px">멤버십별 사용 기록이에요 — <b>보고 싶은 멤버십을 먼저 고르면</b> 그 멤버십 기록만 최신순으로 나와요. 기본 차감 순서는 <b>만료가 임박한 멤버십</b>부터예요(예약할 때 직접 바꿀 수 있어요). 기록은 수정·삭제되지 않아요.</p>
-      ${mine.length ? fltHtml("m-hist", { cats, ph: "사유·수업명 검색" })
+      <p class="muted" style="margin-bottom:12px">멤버십을 고르면 사용 기록이 보여요.</p>
+      ${mine.length ? fltHtml("m-hist", { cats, ph: "사유·수업명 검색", noCount: true })
         : `<div class="card flat mb-empty"><div class="em">${IC.receipt}</div><p class="muted mt8">보유한 멤버십이 없어요.</p>
            <a class="btn primary mt12" href="#/m/shop">멤버십 구매하러 가기</a></div>`}`);
   }
@@ -3356,7 +3408,7 @@
         // v2.29 U20: 종료됐는데 완료 보고가 안 된 회차는 «보고 필요»(대기 계열)로 표시
         const isNext = s.id === nextId;
         return `<div class="slot tapable${isNext ? " next" : ""}" role="button" tabindex="0" onclick="location.hash='#/t/slot/${s.id}'"><span class="time">${t12(s.time)}</span>
-          <span class="grow"><span class="t">${isNext ? `<span class="badge b-rose">다음</span> ` : ""}${esc(clsTitle(s.classId))} ${recurBadge(s)}</span><div class="muted small">${slotCenterTag(s)}${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
+          <span class="grow"><span class="t">${isNext ? `<span class="badge b-rose">다음</span> ` : ""}${esc(clsTitle(s.classId))}${subTag(s)} ${recurBadge(s)}</span><div class="muted small">${slotCenterTag(s)}${attendeeNames(s.id).join(", ") || "참석자 없음"}</div></span>
           ${carry}${overlapBadge(s)}${slotNeedsReport(s) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
       }).join("") : `<p class="muted">오늘 수업이 없어요.</p>`}</div>
       <a class="btn primary mt8" href="#/t/create">${ici("plus")}수업 만들기</a>
@@ -3410,7 +3462,7 @@
         const carry = carryBadge(sl, sel); // v2.67 QA② A-6
         // v2.29 U20: 확정된 회차 목록의 «조율» 태그는 «아직 조율 중»으로 오독된다 — 일정 방식은 회차 상세에서만.
         return `<div class="slot tapable" role="button" tabindex="0" onclick="location.hash='#/t/slot/${sl.id}'"><span class="time">${t12(sl.time)}</span>
-          <span class="grow"><span class="t">${esc(clsTitle(sl.classId))} ${recurBadge(sl)}</span><div class="muted small">${slotCenterTag(sl)}${seatCount(sl.id)}명</div></span>
+          <span class="grow"><span class="t">${esc(clsTitle(sl.classId))}${subTag(sl)} ${recurBadge(sl)}</span><div class="muted small">${slotCenterTag(sl)}${seatCount(sl.id)}명</div></span>
           ${carry}${overlapBadge(sl)}${slotNeedsReport(sl) ? `<span class="badge b-warn">보고 필요</span>` : ""}<span class="chev" aria-hidden="true">›</span></div>`;
       }).join("") : `<p class="muted">이 날은 잡힌 수업이 없어요.</p>`}</div>
       ${sel >= DB.TODAY ? `<button class="btn ghost mt8" onclick="App.ccFromDay('${sel}')">${ici("plus")}이 날 수업 만들기</button>
@@ -3519,8 +3571,13 @@
     const ov = slotOverlaps(s);
     // v2.25 ①: 일정 변경 제안은 1:1 수업 전용 — 그룹은 진입점 자체를 만들지 않는다.
     const priv = isPrivateClass(c);
+    // v2.71 B2 (형 결정 10-25): 대강 회차는 «대강»임을 맨 위에서 말한다 — 내 정규 수업인지 하루 대신 서는 건지 몰랐다. 수락 단계는 보류.
+    const subMine = isSub(s) && s.teacherId === DB.me.teacher;
     return shell("t", "수업 상세", `
-      <div class="card"><b>${esc(c.title)}</b>
+      ${isSub(s) ? `<div class="banner">${icb("users")}<span><b>대강 회차</b> · 원래 담당 <b>${esc(tName(c.teacherId))} 선생님</b> · 사유 ${esc(SUB_REASON[s.subReason] || s.subReason || "")}${s.subMemo ? ` (${esc(s.subMemo)})` : ""}<br>${subMine
+        ? "이 회차는 내가 대신 진행하고, 수업료도 내게 정산돼요. 반복 설정(건너뛰기·요일·시간)은 담당 선생님만 바꿀 수 있어요."
+        : `이 회차는 ${esc(tName(s.teacherId))} 선생님이 대신 진행해요.`}</span></div>` : ""}
+      <div class="card"><b>${esc(c.title)}</b>${isSub(s) ? ` <span class="badge b-rose">대강</span>` : ""}
         <div class="muted mt4">${centerTag(classCenter(c))}${dlabel(s.date)}${holiTag(s.date)} ${slotSpanLabel(s)} · ${c.duration}분</div>
         <div class="mt8"><span class="badge ${done ? "b-gray" : "b-green"}">${done ? "종료" : "예정"}</span>
         <span class="badge ${priv ? "b-rose" : "b-blue"}">${priv ? "개인 1:1" : `그룹 · ${seats.length}/${c.capacity}명`}</span>${w.length ? `<span class="badge b-warn">대기 ${w.length}명</span>` : ""}${ov.length ? `<span class="badge b-danger">시간 겹침 ${ov.length}건</span>` : ""}${recurBadge(s)}</div></div>
@@ -3778,6 +3835,14 @@
         aria-label="${t12(row.t)} ${row.past ? "지난 시간" : busy ? "수업 있음" : "비어 있음"}"><span class="cc-rt">${t12(row.t)}</span>
         <span class="cc-rb">${body}${on ? ` <span class="cc-on">선택됨</span>` : ""}</span></button>`;
     };
+    // v2.71 H7b: 오늘은 «지난 시간» 칸이, 다른 날은 새벽 0~6시 칸이 먼저 26줄 깔리던 문제 — 접어 두고 한 번에 펼친다.
+    // 48칸 전부 고를 수 있다는 09-15 결정은 그대로다(접힌 칸도 «펼치기» 한 번이면 고를 수 있다).
+    const EARLY = 6 * 60;
+    const foldable = (row) => row.past || hm2m(row.t) < EARLY;
+    const showAll = !!U.showAllRows || (picked && hm2m(picked) < EARLY);
+    const folded = showAll ? [] : rows.filter(foldable);
+    const shownRows = showAll ? rows : rows.filter((x) => !foldable(x));
+    const foldBtn = folded.length ? `<button type="button" class="cc-fold" onclick="App.ccShowAll('${r}')">${folded.some((x) => x.past) ? `지난 시간 ${folded.filter((x) => x.past).length}칸` : ""}${folded.some((x) => x.past) && folded.some((x) => !x.past) ? " · " : ""}${folded.some((x) => !x.past) ? `새벽 0~6시 ${folded.filter((x) => !x.past).length}칸` : ""} 접어 뒀어요 — 펼치기</button>` : "";
     return shell(r, "수업 만들기", `
       ${ccStepsHtml(1)}
       <p class="muted" style="margin-bottom:12px">${needT
@@ -3802,18 +3867,17 @@
       <div class="sec-title">${dlabel(sel)} 타임라인${sel === DB.TODAY ? ' <span class="badge b-rose">오늘</span>' : ""}${
         chosenT ? ` <span class="cc-basis">${esc(chosenT.name)} 선생님 기준</span>` : ""}</div>
       ${ready
-        ? `<div class="card flat cc-tl-card" data-anchor="${ccTlAnchor(r, sel, picked)}"><div class="cc-tl" id="cc-tl">${rows.map(rowHtml).join("")}</div></div>`
+        ? `<div class="card flat cc-tl-card" data-anchor="${showAll ? ccTlAnchor(r, sel, picked) : (picked || "")}">${foldBtn}<div class="cc-tl" id="cc-tl">${shownRows.map(rowHtml).join("")}</div>${shownRows.length ? "" : `<p class="muted small" style="padding:12px">오늘은 남은 시간이 없어요 — 다른 날짜를 골라 주세요.</p>`}</div>`
         : `<div class="card flat cc-tl-empty" id="cc-tl-empty">${icb("cal")}
             <b>선생님을 먼저 고르세요</b>
             <p class="muted small">위에서 기준 선생님을 고르면 그 선생님의 하루 일정이 여기에 나와요. 누구 일정인지 모르는 채로 빈칸을 고르지 않게 하려는 거예요.</p>
           </div>`}
       ${ready ? `<div class="card">
         <div class="field" style="margin-bottom:0"><label>시간 직접 고르기</label>
-          <div class="cc-direct"><input type="time" id="cc-time" value="${picked || U.time}" step="1800" aria-label="시작 시간">
-            <button class="btn sm ghost" onclick="App.ccPickInput('${r}')">이 시간으로</button></div>
-          <div class="hint">타임라인에 없는 시각도 직접 넣을 수 있어요.</div></div>
+          <div class="cc-direct"><input type="time" id="cc-time" value="${picked || U.time}" step="1800" aria-label="시작 시간" onchange="App.ccPickInput('${r}')"></div>
+          <div class="hint">시간을 넣으면 바로 골라져요 — 타임라인에 없는 시각도 돼요. 그다음 아래 «다음»을 누르세요.</div></div>
       </div>` : ""}
-      ${joinN ? `<button class="btn ghost" onclick="App.ccUseSlot('${r}')">기존 회차에 붙이기</button>
+      ${joinN ? `<button class="btn ghost" onclick="App.ccUseSlotAsk('${r}')">기존 회차에 붙이기 (${joinN}개)</button>
         <p class="muted small mt4" style="text-align:center">이미 잡아 둔 회차에 회원만 더 넣을 때 — 날짜·시간은 그 회차 일정을 따라요.${chosenT ? ` ${esc(chosenT.name)} 선생님 회차만 보여요.` : ""}</p>` : ""}
       <div class="cc-next">
         <div class="cc-next-lab">${picked ? `<i>고른 시간</i><b>${dlabel(sel)} ${t12(picked)}</b>`
@@ -3848,7 +3912,6 @@
     U.holiSkip = (U.holiSkip || []).filter((d) => holiHit.includes(d));
     const scopeLabel = { valid: "유효 멤버십 보유자만", all: "전체 회원", mine: "담당 회원만" }[DB.policy.quickScope];
     const scoped = r === "t" && tScope(DB.me.teacher).mode === "custom";
-    const joinable = c ? DB.slots.filter((x) => x.classId === c.id && x.status === "scheduled" && !isPast(x) && seatCount(x.id) < c.capacity) : [];
     const opt = (v, label, on) => `<option value="${v}"${on ? " selected" : ""}>${label}</option>`;
     const fillOpt = (v, title, desc) => `<button type="button" class="fill-opt${U.fill === v ? " on" : ""}" role="radio" aria-checked="${U.fill === v}" data-v="${v}" onclick="App.ccFill('${r}','${v}')">
       <span class="fo-dot" aria-hidden="true"></span><span class="grow"><b>${title}</b><span class="fo-d">${desc}</span></span></button>`;
@@ -3882,10 +3945,8 @@
           <button class="${U.sched === "fixed" ? "on" : ""}" data-v="fixed" onclick="App.ccSeg('${r}',this,'sched')">매주 고정</button>
           <button class="${U.sched === "arranged" ? "on" : ""}" data-v="arranged" onclick="App.ccSeg('${r}',this,'sched')">회원과 일정 맞춤</button></div>
           <div class="hint">보통 그룹=고정, 개인=일정 맞춤이지만 자유롭게 선택할 수 있어요.</div></div>` : ""}
-        ${U.fill === "assign" && c ? `<div class="field"><label for="qk-slot">회차</label><select id="qk-slot" onchange="App.ccSlot('${r}', this.value)">
-          ${opt("new", "새 일시로 만들기", U.slotSel === "new")}
-          ${joinable.map((x) => opt(x.id, `${dlabel(x.date)} ${t12(x.time)} 기존 회차 합류 (${seatCount(x.id)}/${c.capacity}명)`, x.id === U.slotSel)).join("")}</select>
-          <div class="hint">기존 회차를 고르면 위 요약의 날짜·시간 대신 그 회차 일정을 따라요.</div></div>` : ""}
+        ${/* v2.71 H7: 2단계 «회차» 드롭다운 제거 — 같은 기능이 1단계 «기존 회차에 붙이기»에 있어 두 곳이었다. 상태(slotSel)는 1단계가 정한다. */ ""}
+        ${U.fill === "assign" && c && U.slotSel && U.slotSel !== "new" && slot(U.slotSel) ? `<div class="hint">기존 회차 <b>${dlabel(slot(U.slotSel).date)} ${t12(slot(U.slotSel).time)}</b>에 회원을 붙여요 (${seatCount(U.slotSel)}/${c.capacity}명). 다른 회차로 바꾸려면 위 «변경»으로 1단계에서 다시 골라 주세요.</div>` : ""}
       </div>
       <div class="sec-title">회원을 어떻게 채울까요?</div>
       <div class="card">
@@ -4134,6 +4195,7 @@
   // [구역 18] 선생님 보고·정산 화면
   //   🧮순수: unitGroups. 실지급은 샐리 몫 — 여기선 «정산 대상 금액»까지만 말한다.
   // ═══════════════════════════════════════════════════════════════════════════════
+  const tReportNeedN = () => tSlots().filter(slotNeedsReport).length + (DB.policy.methodQr ? DB.reports.filter((r) => r.status === "pending" && rMine(r)).length : 0);
   function vTReport() {
     // v2.29 §A4 (U5): 인박스의 «대기 중 / 처리됨» 문법을 이식 — 처리 필요 = 지금 내가 그 행에서 누를 수 있는
     // 액션이 있는 행. 나머지는 처리됨 안에서 «진행 중»(아직 상태 미확정)과 «기록»(완전 종결)으로 나눈다.
@@ -4177,7 +4239,7 @@
         ? "확인은 회원 본인 폰(앱 원탭)에서만 가능해요 — 센터 정책상 현장 QR 확인은 꺼져 있어요."
         : "센터 정책상 앱 원탭 확인 없이 <b>현장 일회용 QR</b>로만 확인을 받아요 — «처리 필요»에서 QR을 띄워 회원 폰으로 스캔받아 주세요.";
     return shell("t", "완료 보고 현황", `
-      <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. ${methodLine}<br>완료 보고 자체는 «일정» 탭에서 그 회차를 열어 «완료 보고»를 눌러요 — 여기선 보고한 뒤의 확인 상태만 봐요.</p>
+      <p class="muted" style="margin-bottom:12px">회원이 확인한 수업만 정산에 들어가요. ${methodLine}<br>끝난 수업은 여기 «처리 필요»에서 바로 완료 보고할 수 있어요. 보고한 뒤 회원 확인 상태도 여기서 봐요.</p>
       ${fltHtml("t-report", { cats, ph: "회원·수업명 검색", initial: () => (needItems.length ? "need" : inprog.length ? "prog" : "rec") })}`);
   }
   // ── v2.9: 회차별 단가 명세 (형 지적 08-18 — 회원별·등록시기별 단가 차이를 화면에서 확인) ──
@@ -4204,7 +4266,7 @@
   function linesDetailHtml(elig, held) {
     if (!elig.length && !(held || []).length) return "";
     const groups = unitGroups(elig);
-    return `<details class="pd"><summary>회차별 단가 명세 · ${elig.length}회${groups.length > 1 ? ` <span class="badge b-rose">단가 ${groups.length}종</span>` : ""}</summary>
+    return `<details class="pd"><summary>회차별 단가 명세 · ${elig.length}회${groups.length > 1 ? ` <span class="badge b-rose">회당 금액이 ${groups.length}가지예요</span>` : ""}</summary>
       <div class="pd-note">회당 단가는 각 회원이 <b>구매한 시점의 가격</b>(실구매가÷총횟수) 기준이에요 — 같은 상품이라도 등록 시기·할인에 따라 달라요.</div>
       ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회 = <b>${won(u * ls.length)}</b></div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
       ${(held || []).length ? `<div class="pd-group"><div class="pd-ghead pd-held">이의 심사 중 ${held.length}건 — 집계·전송에서 빠져요</div>${held.map(lineRowHtml).join("")}</div>` : ""}
@@ -4243,6 +4305,7 @@
     const amount = elig.reduce((a, l) => a + l.unitPrice, 0);
     const ns = noshowFinals(DB.me.teacher).filter((r) => inYm(rpDate(r)));
     const nsAmt = rewardOn() ? ns.reduce((a, r) => a + noshowAmt(r), 0) : 0;
+    const pushedN = elig.filter((l) => l.pushed).length; // v2.71 [C]: «보내면 뭐가 되는지»를 선생님 쪽에서도 보여준다
     return shell("t", "내 정산", `
       ${monthNav(sel, "te")}
       <div class="card"><div class="muted small">${y}년 ${m}월 · 수강 확인 완료분</div>
@@ -4250,19 +4313,20 @@
         <div class="muted small mt4">확정 ${elig.length}회 × 회당 단가 (멤버십 구매가 기준)${nsAmt ? ` + 노쇼 보상` : ""}${adjAmt ? ` · 조정 ${adjAmt > 0 ? "+" : ""}${won(adjAmt)}` : ""}</div>
         <div class="divider"></div>
         <div class="row" style="justify-content:space-between"><span class="muted">앱·QR 확인</span><b>${elig.length - auto}회</b></div>
-        <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${auto}회 ${auto ? '<span class="badge b-warn">검토 대상</span>' : ""}</b></div>
+        <div class="row mt8" style="justify-content:space-between"><span class="muted">자동확정</span><b>${auto}회 ${auto ? '<span class="badge b-warn">자동 확인됨</span>' : ""}</b></div>
         ${rewardOn() && ns.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">노쇼 보상 (센터 정책)</span><b>${ns.length}건 · ${won(nsAmt)}</b></div>` : ""}
-        ${held.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">이의 심사 중 (보류)</span><b>${held.length}회 <span class="badge b-danger">정산 제외 중</span></b></div>` : ""}
+        ${held.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">회원 이의로 잠시 빠짐</span><b>${held.length}회</b></div>` : ""}
+        ${pushedN ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">급여 계산(샐리)으로 넘어간 회차</span><b>${pushedN}회${elig.length - pushedN ? ` <span class="muted small">· 아직 ${elig.length - pushedN}회 남음</span>` : ""}</b></div>` : ""}
         ${adjs.length ? `<div class="row mt8" style="justify-content:space-between"><span class="muted">지난 정산 조정</span><b>${adjs.length}건 · ${adjAmt > 0 ? "+" : ""}${won(adjAmt)}</b></div>` : ""}
         ${adjustDetailHtml(adjs)}
-        ${auto ? `<div class="hint">«검토 대상» = 회원이 직접 누르지 않아 자동확정된 회차예요. 금액엔 포함되지만 센터가 정산 전에 다시 볼 수 있어요.</div>` : ""}
-        ${held.length ? `<div class="hint">«정산 제외 중» = 이의 심사가 끝날 때까지 집계·전송에서 빠져요. 이의가 기각되면 다시 들어와요.</div>
+        ${auto ? `<div class="hint">«자동 확인됨» = 회원이 직접 누르지 않아 자동으로 확인된 회차예요. 금액엔 포함되지만 센터가 정산 전에 다시 볼 수 있어요.</div>` : ""}
+        ${held.length ? `<div class="hint">«회원 이의로 잠시 빠짐» = 회원이 이의를 내서 센터가 판단할 때까지 집계·전송에서 빠진 회차예요. 이의가 받아들여지지 않으면 다시 들어와요.</div>
           <button class="btn sm ghost mt8" onclick="App.heldHelp()">보류된 회차는 어떻게 되나요?</button>` : ""}
         ${linesDetailHtml(elig, held)}
         ${!lines.length && !ns.length ? `<div class="hint">${y}년 ${m}월에는 정산 내역이 없어요. 회원 수강 확인이 끝난 회차만 집계돼요.</div>
           <a class="btn ghost mt8" href="#/t/report">확인 대기 중인 수업 보기</a>` : ""}
       </div>
-      <div class="banner">${icb("info")}<span>여기는 <b>정산 대상 금액</b>까지만 보여요. 배분율·공제·실지급액은 급여 시스템(샐리)에서 계산돼요.</span></div>`);
+      <div class="banner">${icb("info")}<span>여기는 <b>정산 대상 금액</b>(수업 횟수 × 회당 금액)까지만 보여요. 실제 급여(배분율·공제 반영)는 센터가 이 내역을 <b>급여 계산 프로그램 «샐리»</b>로 보내면 거기서 계산되고, 급여명세도 샐리에서 나와요.</span></div>`);
   }
 
   // ══ 센터 ══
@@ -4297,8 +4361,8 @@
       <div class="stat-grid">
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/create'"><div class="k">수업</div><div class="v" style="font-size:15px">${ici("plus")}수업 만들기</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/confirms'"><div class="k">수강 확인</div><div class="v" style="font-size:15px">${ici("clip")}수강 확인 관리</div></button>
-        <button class="stat" style="text-align:left" onclick="location.hash='#/c/products'"><div class="k">판매</div><div class="v" style="font-size:15px">${ici("ticket")}수업상품 관리</div></button>
-        <button class="stat" style="text-align:left" onclick="location.hash='#/c/settlement'"><div class="k">월말</div><div class="v" style="font-size:15px">${ici("won")}정산·샐리 전송</div></button>
+        <button class="stat" style="text-align:left" onclick="location.hash='#/c/products'"><div class="k">판매</div><div class="v" style="font-size:15px">${ici("ticket")}상품 만들기·판매</div></button>
+        <button class="stat" style="text-align:left" onclick="location.hash='#/c/settlement'"><div class="k">월말</div><div class="v" style="font-size:15px">${ici("won")}정산 · 급여 계산 보내기</div></button>
         <button class="stat" style="text-align:left" onclick="location.hash='#/c/teachers'"><div class="k">계정</div><div class="v" style="font-size:15px">${ici("users")}선생님·직원 관리</div></button>
       </div></div></div>`);
   }
@@ -4323,25 +4387,57 @@
   // v2.67 QA② C-9: 상품도 «우리 센터 것»만 관리·판매한다(센터 미기재 옛 상품은 운영 센터로 본다).
   const prodCenter = (p) => (p && p.centerId) || DB.center.id;
   const cProducts = () => DB.products.filter((p) => prodCenter(p) === DB.center.id);
+  // v2.71 E1 (형 결정 10-25): 상품은 «들을 수 있는 수업»에 연결돼야 팔린다. 연결은 class.eligibleProductIds 한 곳이 진실(새 저장소 없음).
+  const prodClasses = (p) => DB.classes.filter((c) => c.status !== "closed" && classCenter(c) === prodCenter(p) && (c.eligibleProductIds || []).includes(p.id));
+  const prodSellable = (p) => prodClasses(p).length > 0;
+  const prodClassOpts = (p) => DB.classes.filter((c) => c.status !== "closed" && classCenter(c) === (p ? prodCenter(p) : DB.center.id));
+  // 새 상품 폼 — 시트(모달) 안에서 그린다(H10: 폼이 판매 폼 아래 맨 끝에 있어 첫 원장이 못 찾았다).
+  function newProductFormHtml() {
+    const copts = prodClassOpts(null);
+    return `<h3>새 상품 만들기</h3>
+      <div class="field"><label for="np-name">상품명</label><input type="text" id="np-name" placeholder="예: 그룹 10회 · PT 10회">
+        <div class="hint">종목 이름은 넣지 않아도 돼요 — 어떤 수업을 들을 수 있는지는 아래에서 골라요.</div></div>
+      <div class="field"><label>수업 종류 <span class="badge b-rose">필수</span></label><div class="seg" id="np-kind">
+        <button type="button" data-v="group" onclick="App.seg(this)">그룹수업</button>
+        <button type="button" data-v="private" onclick="App.seg(this)">개인수업 (1:1)</button></div>
+        <div class="hint">아직 고르지 않았어요. 1:1·PT 상품이면 «개인수업»을 골라 주세요.</div></div>
+      <div class="field"><label>횟수 / 가격 (원)</label><div class="row">
+        <input type="number" id="np-sessions" placeholder="예: 10" min="1" style="width:100%"><input type="number" id="np-price" placeholder="예: 500000" min="0" style="width:100%"></div></div>
+      <div class="field"><label for="np-days">유효기간 (일)</label><input type="number" id="np-days" placeholder="예: 90" min="1">
+        <label class="check mt8"><input type="checkbox" id="np-nodays"> 유효기간 없음 — 횟수 소진 시까지</label></div>
+      <div class="field"><label>이 상품으로 들을 수 있는 수업 <span class="badge b-rose">필수</span></label>
+        ${copts.length ? `<div class="np-classes" id="np-classes">${copts.map((c) => `<label class="check"><input type="checkbox" value="${c.id}"> ${esc(c.title)} <span class="muted small">· ${esc(tName(c.teacherId))} 선생님 · ${c.kind === "private" ? "개인 1:1" : "그룹"}</span></label>`).join("")}</div>
+          <div class="hint">여기서 고른 수업에서만 이 멤버십을 쓸 수 있어요. 수업에 연결되지 않은 상품은 회원에게 팔리지 않아요.</div>`
+        : `<div class="banner warn">${icb("alert")}<span>아직 만든 수업이 없어요. 상품은 만들어지지만 <b>수업을 만들고 이 상품을 연결하기 전까지는 팔리지 않아요.</b></span></div>`}</div>
+      <div class="btn-row"><button type="button" class="btn ghost" onclick="App.closeModal()">닫기</button>
+        <button type="button" class="btn primary" onclick="App.createProduct()">상품 만들기</button></div>`;
+  }
   function vCProducts() {
-    const p0 = cProducts()[0];
-    return shell("c", "수업상품 관리", `
+    // v2.71 E1·H10: 판매 가능 = 수업에 연결된 상품만. 새 상품은 맨 위 버튼 → 시트.
+    const sellable = cProducts().filter(prodSellable);
+    const p0 = sellable[0];
+    const unlinkedN = cProducts().length - sellable.length;
+    return shell("c", "상품 (만들기·판매)", `
       <div class="cw2"><div>
-      <div class="sec-title" style="margin-top:4px">판매 중인 멤버십 상품</div>
+      <button class="btn primary" style="margin:4px 0 14px" onclick="App.newProductAsk()">${ici("plus")}새 상품 만들기</button>
+      <div class="sec-title" style="margin-top:4px">멤버십 상품 ${cProducts().length ? `<span class="muted small" style="font-weight:600">— ${sellable.length}개 판매 중${unlinkedN ? ` · <b style="color:var(--danger)">${unlinkedN}개는 수업 연결이 없어 판매 안 됨</b>` : ""}</span>` : ""}</div>
       ${fltHtml("c-products", { dated: false, ph: "상품명 검색",
-        cats: [{ k: "all", label: "멤버십 상품", empty: "등록된 상품이 없어요. 아래 «새 상품 개설»로 만들어 주세요.", wrap: (rows) => `<div class="cards">${rows}</div>`,
-          items: cProducts().map((p) => ({ txt: `${esc(p.name)} ${p.kind === "private" ? "개인" : "그룹"} ${p.sessions}회`, date: null,
-            html: `<div class="card"><div class="row"><span class="grow"><b>${esc(p.name)}</b>
-              <div class="muted small mt4">${p.kind === "private" ? "개인" : "그룹"} · ${p.sessions}회 · ${p.validityDays ? p.validityDays + "일" : "기간 제한 없음"}</div></span>
-              <span style="text-align:right"><b>${won(p.salePrice != null && p.salePrice < p.price ? p.salePrice : p.price)}</b>${p.salePrice != null && p.salePrice < p.price ? `<div class="muted small"><s>${won(p.price)}</s> 이벤트 할인가</div>` : ""}</span></div></div>` })) }] })}
+        cats: [{ k: "all", label: "멤버십 상품", empty: "등록된 상품이 없어요. 위 «새 상품 만들기»로 만들어 주세요.", wrap: (rows) => `<div class="cards">${rows}</div>`,
+          items: cProducts().map((p) => { const pcs = prodClasses(p); return { txt: `${esc(p.name)} ${p.kind === "private" ? "개인" : "그룹"} ${p.sessions}회 ${pcs.map((c) => c.title).join(" ")}`, date: null,
+            html: `<div class="card${pcs.length ? "" : " prod-unlinked"}"><div class="row"><span class="grow"><b>${esc(p.name)}</b>
+              <div class="muted small mt4">${p.kind === "private" ? "개인" : "그룹"} · ${p.sessions}회 · ${p.validityDays ? p.validityDays + "일" : "기간 제한 없음"}</div>
+              <div class="muted small mt4">${pcs.length ? `들을 수 있는 수업: <b>${pcs.map((c) => esc(c.title)).join(" · ")}</b>` : `<span class="badge b-danger">수업 연결 없음 · 판매 안 됨</span>`}</div>
+              <button type="button" class="btn sm ghost mt8" onclick="App.prodLinkAsk('${p.id}')">${pcs.length ? "들을 수 있는 수업 바꾸기" : "수업 연결하기"}</button></span>
+              <span style="text-align:right"><b>${won(p.salePrice != null && p.salePrice < p.price ? p.salePrice : p.price)}</b>${p.salePrice != null && p.salePrice < p.price ? `<div class="muted small"><s>${won(p.price)}</s> 이벤트 할인가</div>` : ""}</span></div></div>` }; }) }] })}
       </div><div>
-      <div class="sec-title">멤버십 판매·등록</div>
+      <div class="sec-title">회원에게 멤버십 판매·등록</div>
       ${/* v2.66 QA: 상품이 0개인 신규 센터에서 p0(첫 상품)를 그대로 읽어 화면 전체가 렌더 예외로 멎었다 —
            «첫 상품 만들기»가 막혀 온보딩이 통째로 불가능했다. 팔 상품이 없으면 판매 패널 대신 다음 할 일을 보여준다. */ ""}
       ${p0 ? `      <div class="card">
         <div class="field"><label>회원</label>${pickerHtml("sell-mem", { multi: false, pool: centerMembers(DB.center.id) })}</div>
         <div class="field"><label for="sell-prod">상품</label><select id="sell-prod" onchange="App.sellProd(this.value)">
-          ${cProducts().map((p) => `<option value="${p.id}">${esc(p.name)} · 정가 ${won(p.price)}</option>`).join("")}</select></div>
+          ${sellable.map((p) => `<option value="${p.id}">${esc(p.name)} · 정가 ${won(p.price)}</option>`).join("")}</select>
+          ${unlinkedN ? `<div class="hint">수업에 연결되지 않은 상품 ${unlinkedN}개는 이 목록에 안 나와요 — 왼쪽 카드의 «수업 연결하기»를 먼저 눌러 주세요.</div>` : ""}</div>
         <div class="field"><label for="sell-price">실구매가 (원)</label><input type="number" id="sell-price" min="0" value="${p0.price}" oninput="App.sellPreview()">
           <div class="hint" id="sell-unit">${sellUnitText(p0, p0.price)}</div></div>
         ${/* v2.65: 부가세 «제외» 센터만 결제수단을 받는다 — «포함» 센터는 정산에 안 쓰므로 입력 부담을 없앤다(설계서① 2장). */ ""}
@@ -4357,21 +4453,8 @@
         <p class="muted small mt8">기본값은 정가예요. 프로모션·재등록 할인 등으로 실구매가가 다르면 그 금액을 입력해 주세요 —
           <b>회당 단가는 실구매가 ÷ 총횟수</b>(원 단위 버림)로 계산돼 구매 시점 기준으로 저장되고, 정산도 이 단가로 집계돼요.</p>
       </div>` : `<div class="card flat mb-empty"><div class="em">${IC.empty}</div>
-        <p class="muted mt8">아직 상품이 없어서 판매할 게 없어요.<br>아래 «새 상품 개설»로 첫 상품을 만들면 바로 여기서 회원에게 등록할 수 있어요.</p>
-        <button class="btn primary mt12" onclick="App.focusEl('#np-name')">첫 상품 만들러 가기</button></div>`}
-      <div class="sec-title">새 상품 개설</div>
-      <div class="card">
-        <div class="field"><label for="np-name">상품명</label><input type="text" id="np-name" placeholder="예: 필라테스 그룹 30회"></div>
-        <div class="field"><label>수업 종류</label><div class="seg" id="np-kind">
-          <button class="on" data-v="group" onclick="App.seg(this)">그룹수업</button>
-          <button data-v="private" onclick="App.seg(this)">개인수업</button></div></div>
-        <div class="field"><label>횟수 / 가격</label><div class="row">
-          <input type="number" id="np-sessions" value="10" style="width:100%"><input type="number" id="np-price" value="500000" style="width:100%"></div></div>
-        <div class="field"><label for="np-days">유효기간 (일)</label><input type="number" id="np-days" value="90">
-          <label class="check mt8"><input type="checkbox" id="np-nodays"> 유효기간 없음 — 횟수 소진 시까지</label>
-          <div class="hint">기간 없이 횟수만으로 운영하는 센터 방식도 지원해요.</div></div>
-        <button class="btn primary" onclick="App.createProduct()">상품 개설</button>
-      </div>
+        <p class="muted mt8">${cProducts().length ? "상품은 있지만 수업에 연결된 게 없어서 아직 팔 수 없어요.<br>왼쪽 카드의 «수업 연결하기»를 누르면 바로 여기서 회원에게 등록할 수 있어요." : "아직 상품이 없어서 판매할 게 없어요.<br>위 «새 상품 만들기»로 첫 상품을 만들면 바로 여기서 회원에게 등록할 수 있어요."}</p>
+        ${cProducts().length ? "" : `<button class="btn primary mt12" onclick="App.newProductAsk()">첫 상품 만들기</button>`}</div>`}
       <p class="muted small">이미 판매된 멤버십은 구매한 시점의 조건 그대로 보존돼요.</p>
       <button class="btn ghost" onclick="location.hash='#/c/passes'">판매된 멤버십 관리 (환불 · 일시정지 · 결제정보) ›</button>
       </div></div>`, { back: true });
@@ -4394,7 +4477,7 @@
         ${isSub(s) ? `<div class="hint">사유: ${esc(SUB_REASON[s.subReason] || s.subReason)}${s.subMemo ? ` — ${esc(s.subMemo)}` : ""} · ${s.subAt || ""}<br><b>이 회차 수업료는 ${esc((teacher(cur) || {}).name || "")} 선생님에게 정산돼요.</b></div>` : ""}
         ${pend ? `<div class="banner warn">${icb("clock")}<span><b>대강 동의 대기 중</b> — ${esc(memberName(pend.memberId))} 회원이 수락해야 ${esc((teacher(pend.teacherId) || {}).name || "")} 선생님으로 확정돼요.<br>
           개인수업(1:1)은 회원 동의가 필요해요. 회차 시작 전까지 답이 없으면 이 회차는 자동 취소돼요.</span></div>` : ""}
-        ${past ? `<div class="hint">${s.status === "canceled" ? "취소된 회차예요." : "이미 지난 회차예요."} ${pushedN ? `정산 ${pushedN}건이 샐리로 전송됐어요 — 지금 대강을 지정하면 원본은 그대로 두고 «조정» 두 줄(전임 −, 대강 +)로 반영돼요.` : "지금 대강을 지정하면 아직 안 보낸 정산 라인의 귀속이 바뀌어요."}</div>` : ""}
+        ${past ? `<div class="hint">${s.status === "canceled" ? "취소된 회차예요." : "이미 지난 회차예요."} ${pushedN ? `정산 ${pushedN}건이 급여 계산(샐리)으로 넘어갔어요 — 지금 대강을 지정하면 원본은 그대로 두고 «조정» 두 줄(전임 −, 대강 +)로 반영돼요.` : "지금 대강을 지정하면 아직 안 보낸 정산 라인의 귀속이 바뀌어요."}</div>` : ""}
         <div class="btn-row">
           ${isSub(s) ? `<button class="btn ghost" onclick="App.subClearAsk('${s.id}')">대강 해제 (원복)</button>` : ""}
           ${pend ? `<button class="btn ghost" onclick="App.subCancelAsk('${pend.id}')">동의 요청 철회</button>`
@@ -4451,7 +4534,7 @@
         <span class="chev" aria-hidden="true">›</span></div>`;
     };
     const frozenN = all.filter(isFrozen).length;
-    return shell("c", "멤버십 관리", `
+    return shell("c", "판매된 멤버십 (환불·정지)", `
       <div class="card flat"><div class="muted small">판매된 멤버십 <b>${all.length.toLocaleString("ko-KR")}건</b>${frozenN ? ` · 일시정지 <b>${frozenN}건</b>` : ""} · 환불 누적 ${(DB.refunds || []).filter((r) => !r.voidedAt).length}건</div></div>
       ${(() => {
         // 🔴2,600건 규모다 — html 을 «함수»로 넘겨 cap 이후에만 조립한다(위 fltOutHtml 참조).
@@ -4514,7 +4597,7 @@
           ${passState(p) === "expired" || p.remaining <= 0 ? "" : fz
             ? `<button class="btn primary" onclick="App.freezeEndAsk('${p.id}')">일시정지 해제</button>`
             : `<button class="btn ghost" onclick="App.freezeAsk('${p.id}')">일시정지</button>`}
-          ${p.remaining > 0 && !fz ? `<button class="btn danger-ghost" onclick="App.refundAsk('${p.id}')">환불·부분반납</button>` : ""}
+          ${p.remaining > 0 && !fz ? `<button class="btn danger-ghost" onclick="App.refundAsk('${p.id}')">환불 (일부 횟수만도 가능)</button>` : ""}
           <button class="btn ghost" onclick="App.payEditAsk('${p.id}')">결제정보 수정</button>
         </div>
         ${fz ? `<div class="hint">정지 중에는 환불 처리를 막아 뒀어요 — 먼저 정지를 해제한 뒤 환불해 주세요(정지 일수만큼 유효기간이 먼저 정리돼야 계산이 맞아요).</div>` : ""}
@@ -4524,12 +4607,12 @@
       ${fut.length ? `<div class="sec-title">예정된 예약 ${fut.length}건</div>
       <div class="card flat">${fut.map((b) => { const s = slot(b.slotId); return `<div class="slot"><span class="grow"><b>${esc(clsTitle(s.classId))}</b>
         <div class="muted small">${dlabel(s.date)} ${t12(s.time)} · ${slotTeacherName(s)} 선생님</div></span></div>`; }).join("")}</div>
-      <p class="muted small">니짐내짐은 «후차감»이에요 — 예약해도 안 깎이고 수강 확인이 성립해야 깎여요. 그래서 환불할 때 이 예약들을 같이 정리해야 해요.</p>` : ""}
+      <p class="muted small">예약만으로는 횟수가 안 깎이고, 수업을 받아야 깎여요. 그래서 환불할 때 이 예약들을 같이 정리해야 해요.</p>` : ""}
 
       <div class="sec-title">정산 영향</div>
       <div class="card flat">
         <div class="row" style="justify-content:space-between"><span class="muted">이 멤버십에서 생긴 정산 라인</span><b>${lines.length}건</b></div>
-        <div class="row mt8" style="justify-content:space-between"><span class="muted">그중 샐리 전송 완료 (잠금)</span><b>${pushedN}건</b></div>
+        <div class="row mt8" style="justify-content:space-between"><span class="muted">그중 급여 계산(샐리)으로 보낸 것 (잠금)</span><b>${pushedN}건</b></div>
         <div class="hint"><b>환불은 정산에 영향을 주지 않아요.</b> 이미 진행한 ${p.total - p.remaining}회는 수업이 실제로 있었고 선생님은 일했으니 그대로 정산돼요 — 남은 회차만 되사드리는 거예요.
           <br>결제수단을 <b>부분취소</b>하면 정산 기준 단가가 바뀌어요 — 그때만 전송 완료분에 «조정» 한 줄이 붙어요.</div>
       </div>
@@ -4543,7 +4626,7 @@
 
       ${rfs.length ? `<div class="sec-title">환불 이력</div>
       <div class="card flat">${rfs.slice().reverse().map((r) => `<div class="slot"><span class="grow">
-        <b>${r.kind === "full" ? "전체 해지" : "일부 반납"} ${r.refundCount}회 · ${won(r.refundAmount)}</b>
+        <b>${r.kind === "full" ? "전체 해지" : "일부 횟수만 환불"} ${r.refundCount}회 · ${won(r.refundAmount)}</b>
         <div class="muted small">${r.at} · ${esc(REFUND_REASON[r.reason] || r.reason)} · ${esc(r.memo)}</div>
         <div class="muted small">이용분 공제 ${r.usedCount}회 × ${won(r.deductUnitPrice)} (${r.deductBasis === "list" ? "정가 단가" : "실구매 단가"}) · 위약금 ${r.penaltyRate}% ${won(r.penaltyAmount)}${r.adjustAmount ? ` · 가감 ${won(r.adjustAmount)}` : ""}</div>
         <div class="muted small">돌려드릴 방법: ${r.payouts.map((x) => `${PAY_METHOD[x.method] || x.method} ${won(x.amount)}`).join(" · ")}</div></span>
@@ -4618,19 +4701,25 @@
     return `${ctr}${esc(r.p.name)} <span class="muted">잔여 ${r.p.remaining}회</span>`;
   }
   function pkListHtml(id, st) {
-    const all = pkRowsOf(st);
+    const all0 = pkRowsOf(st);
+    // v2.71 H8: 수업이 정해졋으면 기본 목록 = «이 수업에 쓸 수 있는 회원»만. 못 쓰는 회원은 «전체 보기»를 눌러야 보이고, 보여도 흐리게·못 고른다.
+    const gate = !!(st.opts.byPass && st.opts.eligFor);
+    const cantN = gate ? all0.filter((r) => !r.p).length : 0;
+    const all = gate && !st.showAll ? all0.filter((r) => r.p) : all0;
     const rows = all.slice(0, st.shown).map((r) => {
       const on = st.sel.has(r.key);
+      const blocked = gate && !r.p;
       const sub = st.opts.byPass ? pkRowSub(r, st)
         : (passesOf(r.m.id).filter(passUsable).map((p) => esc(p.name)).join(" · ") || "유효 멤버십 없음");
-      return `<button class="pk-row${on ? " on" : ""}" onclick="App.pkToggle('${id}','${r.key}')">
+      return `<button class="pk-row${on ? " on" : ""}${blocked ? " dim" : ""}" onclick="${blocked ? "App.pkBlocked()" : `App.pkToggle('${id}','${r.key}')`}"${blocked ? ' aria-disabled="true"' : ""}>
         <span class="grow"><b>${esc(r.m.name)}</b> <span class="muted small">${r.m.phone}</span>
           <div class="muted small">${sub}</div></span>
-        <span class="pk-check">${on ? "✓" : "+"}</span></button>`;
+        <span class="pk-check">${on ? "✓" : blocked ? "–" : "+"}</span></button>`;
     }).join("");
     const unit = st.opts.byPass ? "건" : "명";
-    return `${rows || '<p class="muted small" style="padding:12px">검색 결과가 없어요.</p>'}
-      ${all.length > st.shown ? `<button class="pk-more" onclick="App.pkMore('${id}')">더 보기 (${st.shown}/${all.length.toLocaleString("ko-KR")}${unit})</button>` : ""}`;
+    return `${rows || `<p class="muted small" style="padding:12px">${gate && !st.showAll && cantN ? "이 수업에 쓸 수 있는 멤버십이 있는 회원이 없어요." : "검색 결과가 없어요."}</p>`}
+      ${all.length > st.shown ? `<button class="pk-more" onclick="App.pkMore('${id}')">더 보기 (${st.shown}/${all.length.toLocaleString("ko-KR")}${unit})</button>` : ""}
+      ${gate && cantN ? `<button class="pk-more" onclick="App.pkShowAll('${id}', ${st.showAll ? "false" : "true"})">${st.showAll ? "쓸 수 있는 회원만 보기" : `이 수업에 쓸 수 없는 회원 ${cantN.toLocaleString("ko-KR")}명도 보기`}</button>` : ""}`;
   }
   // 선택 칩도 «회원 · 멤버십»으로 적는다 — 무엇이 차감될지가 선택 즉시 보이게
   function pkChipLabel(st, k) {
@@ -4767,7 +4856,7 @@
     const st = fltState(key, opts);
     const cats = opts.cats || [];
     return `<div class="flt">
-      ${cats.length > 1 ? `<div class="flt-cats" role="tablist">${cats.map((c) => `<button type="button" role="tab" aria-selected="${c.k === st.cat}" class="flt-cat${c.k === st.cat ? " on" : ""}" onclick="App.fltCat('${key}','${c.k}')">${c.label}${(c.items || []).length ? `<i>${(c.items || []).length}</i>` : ""}</button>`).join("")}</div>` : ""}
+      ${cats.length > 1 ? `<div class="flt-cats" role="tablist">${cats.map((c) => `<button type="button" role="tab" aria-selected="${c.k === st.cat}" class="flt-cat${c.k === st.cat ? " on" : ""}" onclick="App.fltCat('${key}','${c.k}')">${c.label}${(c.items || []).length && !opts.noCount ? `<i>${(c.items || []).length}</i>` : ""}</button>`).join("")}</div>` : ""}
       <div class="flt-tools">
         <input type="search" placeholder="${fltEsc(opts.ph || "검색")}" value="${fltEsc(st.q)}" oninput="App.fltQ('${key}', this.value)" autocomplete="off" aria-label="${fltEsc(opts.ph || "검색")}">
         ${opts.dated === false ? "" : `<select onchange="App.fltPeriod('${key}', this.value)" aria-label="기간 선택">${FLT_PERIODS.map(([k, l]) => `<option value="${k}"${st.period === k ? " selected" : ""}>${l}</option>`).join("")}</select>`}
@@ -4910,13 +4999,17 @@
     const r = recurOf(sl);
     if (!r) return "";
     const editable = sl.status === "scheduled" && !isPast(sl);
+    // v2.71 B2: 담당이 아닌 선생님(대강)에겐 눌러도 «내 담당 수업만…»만 뜨던 버튼 3개를 숨기고 이유를 적는다. 막는 규칙(v2.59 ⑦)은 그대로.
+    const c0 = cls(sl.classId);
+    const notOwner = role === "t" && c0 && c0.teacherId !== DB.me.teacher;
     return `
       <div class="card">
         <div class="row"><span class="grow"><b>🔁 매주 반복으로 만들어진 회차예요</b>
           <div class="muted small mt4">${recurLabel(r)} · ${recurEndLabel(r)}${r.active ? "" : " · 지금은 중단됨"}</div>
           ${sl.detached ? `<div class="muted small mt4">이 회차만 따로 옮긴 회차예요 — 앞으로의 일괄 변경에 휩쓸리지 않아요.</div>` : ""}</span></div>
         ${isHoli(sl.date) ? `<div class="hint mt8"><b>${esc(holiName(sl.date))}</b> 공휴일이지만 수업은 <b>그대로 진행</b>돼요 — 쉬려면 «이번만 건너뛰기»를 눌러 주세요.</div>` : ""}
-        ${editable ? `<div class="btn-row mt8">
+        ${editable && notOwner ? `<div class="hint mt8">건너뛰기·요일·시간 변경·반복 설정은 담당 <b>${esc(tName(c0.teacherId))} 선생님</b>만 할 수 있어요. 바꿔야 하면 담당 선생님이나 센터에 말해 주세요.</div>` : ""}
+        ${editable && !notOwner ? `<div class="btn-row mt8">
           <button class="btn sm ghost" onclick="App.recurSkipAsk('${sl.id}','${role}')">이번만 건너뛰기</button>
           <button class="btn sm ghost" onclick="App.slotEditAsk('${sl.id}','${role}')">요일·시간 변경</button>
           <a class="btn sm ghost" href="#/${role === "t" ? "t/schedule/classes" : "c/policy/recur"}">반복 설정</a></div>
@@ -5380,6 +5473,46 @@
         amount: lines.reduce((a, l) => a + (isAdjust(l) ? l.amount : l.unitPrice), 0) + rewards.reduce((a, r) => a + (r.rewardAmount || 0), 0) };
     });
   }
+  // ══ v2.71 [C] (형 지적 10-25): «샐리»를 처음 보는 센터 — 이름만으론 뭔지·왜 보내는지·보내면 뭐가 되는지 알 수 없었다. ══
+  // 화면이 샐리를 말할 때는 반드시 «급여 계산 (프로그램 이름 샐리)» 순서로 — 역할을 먼저, 이름은 괄호에.
+  // 연결 상태는 센터별(DB.integrations.sally[centerId]) — 실제 연결 방식(센터 코드 vs 자동)은 외부 개발사 질문 항목(형 판단).
+  const sallyState = () => (((DB.integrations || {}).sally || {})[DB.center.id]) || null;
+  const sallyLinked = () => !!(sallyState() && sallyState().linked);
+  const sallyPref = () => ((DB.uiPrefs = DB.uiPrefs || {}).sallyIntro || "open");
+  function sallyStatusHtml() {
+    const st = sallyState();
+    return sallyLinked()
+      ? `<span class="badge b-green">샐리 연결됨</span> <span class="muted small">${esc(st.account || "")}${st.linkedAt ? ` · ${st.linkedAt}부터` : ""}</span>`
+      : `<span class="badge b-warn">아직 연결 안 됨</span> <button type="button" class="btn sm primary" onclick="App.sallyLinkAsk()">연결하기</button>`;
+  }
+  function sallyIntroHtml() {
+    const pref = sallyPref();
+    if (pref === "hidden") return "";
+    if (pref === "folded") return `<div class="card flat sally-min"><span class="grow">${sallyLinked() ? `<span class="badge b-green">샐리 연결됨</span>` : `<span class="badge b-warn">샐리 연결 안 됨</span>`} <b>샐리</b> = 선생님 급여를 계산해 주는 프로그램 · 여기서 확정된 수업 횟수를 보내면 급여명세가 만들어져요</span>
+      <button type="button" class="btn sm ghost" onclick="App.sallyIntro('open')">자세히</button></div>`;
+    return `<div class="card sally-intro">
+      <div class="row"><span class="grow"><b>샐리가 뭔가요? — 처음 보시는 분을 위한 안내</b></span><button type="button" class="btn sm ghost" onclick="App.sallyIntro('folded')">접기</button></div>
+      <p class="mt8"><b>샐리는 선생님 급여를 계산해 주는 프로그램이에요.</b> 이 화면에서 <b>확정된 수업 횟수</b>를 보내면, 샐리가 배분율·공제까지 계산해서 선생님 급여명세를 만들어요.</p>
+      <ul class="sally-faq">
+        <li><b>왜 보내나요?</b> «이 수업이 실제로 있었다»는 기록(횟수·회당 금액)이 샐리에 넘어가야 급여가 계산돼요.</li>
+        <li><b>보내면 뭐가 되나요?</b> 보낸 회차는 잠기고(여기서 금액을 못 바꿔요) 샐리에서 급여명세로 이어져요. 같은 회차는 두 번 보내도 한 번만 반영돼요.</li>
+        <li><b>안 보내면요?</b> 급여 계산에 들어가지 않아요. 샐리를 안 쓰는 센터는 아래 «엑셀로 내려받기»로 정산 자료만 쓰셔도 돼요.</li>
+      </ul>
+      <div class="sally-status"><span class="muted small">우리 센터 연결 상태</span> ${sallyStatusHtml()}</div>
+      <button type="button" class="btn sm ghost mt8" onclick="App.sallyIntro('hidden')">이 안내 다시 보지 않기</button>
+    </div>`;
+  }
+  // 묶음 이름 — «sly_t1_202607_1» 같은 내부 번호 대신 «10월 1차 전송». 달은 묶음에 든 회차의 수업 달에서 읽는다
+  // (번호 속 달은 체험 데이터 날짜 이동으로 어긋날 수 있다 — QA E4).
+  // ym 을 주면 «그 달 화면에서 본 순서»(한 묶음이 두 달에 걸쳐도 보는 달 기준으로 읽힌다).
+  function pushLabel(tid, pid, ym) {
+    const bts = pushBatches(tid, ym || undefined);
+    const i = bts.findIndex((b) => b.pushId === pid);
+    if (i < 0) return pid;
+    const bt = bts[i];
+    const m = ym || ((bt.lines[0] && slineDate(bt.lines[0])) || (bt.rewards[0] && rpDate(bt.rewards[0])) || "").slice(0, 7);
+    return `${m ? Number(m.slice(5)) : "?"}월 ${i + 1}차 전송`;
+  }
   // S-5: 정산 = 라인 동적 집계. held 제외·멱등 전송·전송 후 이의 경고
   // v2.21 (형 지시 08-18): 상단 월간 캘린더(날짜별 회차 수·상태 점) + 날짜 탭 시 그 날 내역 리스트.
   // 선생님 필터 칩은 캘린더·날짜 리스트·하단 선생님 카드에 공통 적용. 캘린더 문법=센터 예약(v2.20)·회원 캘린더 공용.
@@ -5489,16 +5622,26 @@
       const ms = settleMonths(csUI.teacher === "all" ? null : csUI.teacher).sort();
       return ms.find((x) => x > ym) || ms.slice().reverse().find((x) => x < ym) || null;
     })();
+    // v2.71 B5 (형 결정 10-25): 선생님 N명 × 2클릭 → 합계 카드에서 한 번에. 선생님별 버튼은 그대로 둔다.
+    const sendables = per.filter((x) => x.unpushed.length || x.nsUnpushed.length || x.adjUnpushed.length);
+    const allN = sendables.reduce((a, x) => a + x.unpushed.length, 0);
+    const allExtra = sendables.reduce((a, x) => a + x.adjUnpushed.length + x.nsUnpushed.length, 0);
     return shell("c", "정산", `
       ${monthNav(sel, "cs")}
+      ${sallyIntroHtml()}
       <p class="muted" style="margin-bottom:12px">회원 수강 확인이 끝난 회차만 집계돼요. 이의제기 중인 회차는 자동으로 보류되고 전송에서 빠져요.${isNow ? "" : " 지난 달은 조회·재확인용이에요."}</p>
       <div class="cw2"><div>
       <div class="card cs-sum"><div class="k">${y}년 ${m}월 합계${csUI.teacher === "all" ? "" : ` · ${esc(tName(csUI.teacher))} 선생님`}</div>
         <div class="muted small mt4">확정 ${sumElig}회${sumHeld ? ` · <b style="color:var(--danger)">보류 ${sumHeld}건</b>` : ""}</div>
         <div class="cs-total">${won(sumAmt)}</div>
         ${sumElig ? `<div class="cs-push">${sumUnpushed
-          ? `${sumPushed ? `${icb("link")}<span>샐리 전송 완료 <b>${sumPushed}회</b> · 아직 안 보낸 <b>${sumUnpushed}회</b>가 남았어요.</span>` : `${icb("clock")}<span>아직 샐리로 보내지 않았어요 — 확정 <b>${sumUnpushed}회</b>.</span>`}`
-          : `${icb("link")}<span><b>${monthWord} 확정분 ${sumPushed}회를 모두 샐리로 보냈어요.</b> 더 보낼 회차가 없어요.</span>`}</div>` : ""}</div>
+          ? `${sumPushed ? `${icb("link")}<span>급여 계산(샐리)에 보낸 <b>${sumPushed}회</b> · 아직 안 보낸 <b>${sumUnpushed}회</b>가 남았어요.</span>` : `${icb("clock")}<span>아직 급여 계산(샐리)으로 보내지 않았어요 — 확정 <b>${sumUnpushed}회</b>.</span>`}`
+          : `${icb("link")}<span><b>${monthWord} 확정분 ${sumPushed}회를 모두 급여 계산(샐리)으로 보냈어요.</b> 더 보낼 회차가 없어요.</span>`}</div>` : ""}
+        ${sendables.length ? (sallyLinked()
+          ? `<button class="btn primary mt12" onclick="App.sallyPushAllAsk()">전체 ${allN}회${allExtra ? ` + ${allExtra}건` : ""} 한 번에 급여 계산으로 보내기 (샐리)</button>
+             <div class="muted small mt4">선생님 ${sendables.length}명분을 한 번에 보내요. 선생님별로 따로 보내려면 아래 카드의 버튼을 쓰세요.</div>`
+          : `<button class="btn primary mt12" disabled>급여 계산으로 보내기 (샐리 연결이 필요해요)</button>
+             <div class="muted small mt4">위 안내의 «연결하기»로 샐리를 연결하면 보낼 수 있어요. 연결 없이 쓰려면 아래 «엑셀로 내려받기»를 쓰세요.</div>`) : ""}</div>
       <div class="cb-filters">
         <div class="cb-frow"><span class="cb-flabel">선생님</span>${fchip("전체", csUI.teacher === "all", "App.csTeacher('all')")}${chipTeachers.map((t) => fchip(`${esc(t.name)} 선생님`, csUI.teacher === t.id, `App.csTeacher('${t.id}')`)).join("")}</div>
       </div>
@@ -5509,23 +5652,23 @@
           <span class="big">${won(x.amount)}</span></div>
         ${linesDetailHtml(x.elig, x.held)}
         ${adjustDetailHtml(x.adjs)}
-        ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0">${icb("pause")}<span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 전송된 ${x.pushedHeld.length}건은 샐리에서 직접 취소해 주세요.` : ""}</span></div>` : ""}
+        ${x.held.length ? `<div class="banner warn mt12" style="margin-bottom:0">${icb("pause")}<span>이의 심사 중 ${x.held.length}건은 집계·전송에서 제외돼요. ${x.pushedHeld.length ? `이미 급여 계산(샐리)으로 보낸 ${x.pushedHeld.length}건은 샐리에서 직접 취소해 주세요.` : ""}</span></div>` : ""}
         ${rewardOn() && x.ns.length ? `<div class="banner mt12" style="margin-bottom:0">${icb("gift")}<span>노쇼 보상 <b>${x.ns.length}건 · +${won(x.nsAmt)}</b> (${x.ns.every((r) => r.rewardPushed) ? "보낸 금액 기준" : DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}) — ${DB.policy.noshowRewardPush === "auto" ? `샐리로 자동 전송${x.ns.some((r) => r.rewardPushed) ? ` · 전송 완료 ${x.ns.filter((r) => r.rewardPushed).length}건` : ""}` : "샐리에서 수동 체크로 지급"}${x.nsZero ? ` · 보상액 0원 ${x.nsZero}건은 집계·전송에서 빠졌어요` : ""}</span></div>`
           : rewardOn() && x.nsZero ? `<div class="card flat mt12" style="margin-bottom:0"><div class="muted small">노쇼 ${x.nsZero}건은 보상액이 0원이라 집계·전송에서 빠졌어요 — 단가 설정을 확인해 주세요.</div></div>` : ""}
         <div class="mt12">
-          ${x.pushed.length ? `<span class="badge b-green">샐리 전송 완료 ${x.pushed.length}회 · ${x.pushed[x.pushed.length - 1].pushId}</span> ` : ""}
-          ${x.unpushed.length || x.nsUnpushed.length || x.adjUnpushed.length ? `<button class="btn sm primary" onclick="App.sallyPush('${x.t.id}')">${(() => {
+          ${x.pushed.length ? `<span class="badge b-green">급여 계산에 보낸 ${x.pushed.length}회 · ${pushLabel(x.t.id, x.pushed[x.pushed.length - 1].pushId, ym)}</span> ` : ""}
+          ${x.unpushed.length || x.nsUnpushed.length || x.adjUnpushed.length ? `<button class="btn sm primary" onclick="App.sallyPush('${x.t.id}')"${sallyLinked() ? "" : " disabled title=\"샐리 연결이 필요해요\""}>${(() => {
             const parts = [];
             if (x.unpushed.length) parts.push(`${x.unpushed.length}회`);
             if (x.adjUnpushed.length) parts.push(`조정 ${x.adjUnpushed.length}건`);
             if (x.nsUnpushed.length) parts.push(`보상 ${x.nsUnpushed.length}건`);
-            return x.pushed.length ? `추가 ${parts.join(" + ")} 보내기` : `샐리로 보내기 (${parts.join(" + ")})`;
+            return x.pushed.length ? `추가 ${parts.join(" + ")} 급여 계산으로 보내기` : `급여 계산으로 보내기 (샐리) · ${parts.join(" + ")}`;
           })()}</button>` : x.pushed.length ? "" : `<span class="muted small">보낼 확정 회차가 없어요.</span>`}
         </div>
-        ${x.batches.length ? `<div class="sec-title sm">보낸 내역</div><div class="card flat" style="margin-bottom:0">${x.batches.map((bt) => `
-          <div class="slot"><span class="grow"><b>${bt.pushId}</b>
+        ${x.batches.length ? `<div class="sec-title sm">급여 계산으로 보낸 내역</div><div class="card flat" style="margin-bottom:0">${x.batches.map((bt) => `
+          <div class="slot"><span class="grow"><b title="${bt.pushId}">${pushLabel(x.t.id, bt.pushId, ym)}</b>
             <div class="muted small">${bt.lines.filter(isLesson).length}회${bt.lines.filter(isAdjust).length ? ` · 조정 ${bt.lines.filter(isAdjust).length}건` : ""}${bt.rewards.length ? ` · 보상 ${bt.rewards.length}건` : ""} · ${won(bt.amount)}</div></span>
-            <button class="btn sm ghost" onclick="App.sallyWithdrawAsk('${x.t.id}','${bt.pushId}')">회수</button></div>`).join("")}</div>` : ""}
+            <span class="wd-wrap"><button class="btn sm ghost" onclick="App.sallyWithdrawAsk('${x.t.id}','${bt.pushId}','${ym}')">회수</button><span class="muted small">보낸 걸 되돌려요</span></span></div>`).join("")}</div>` : ""}
         </div>`).join("")}
       ${per.length ? "" : `<div class="card flat mb-empty"><div class="em">${IC.won}</div>
         <p class="muted mt8"><b>${y}년 ${m}월</b>${csUI.teacher === "all" ? "" : ` · <b>${esc(tName(csUI.teacher))} 선생님</b>`} 정산 내역이 없어요.<br>
@@ -5553,7 +5696,7 @@
       ${per.length ? `<div class="card"><div class="row" style="gap:12px"><span class="grow"><b>엑셀로 내려받기</b>
         <div class="muted small mt4">지금 화면 그대로 — <b>${y}년 ${m}월</b>${csUI.teacher === "all" ? "" : ` · <b>${esc(tName(csUI.teacher))} 선생님</b>`} 정산 내역을 엑셀 파일로 저장해요. 이의 심사 중인 회차는 제외 표시가 붙고, 마지막 줄에 합계가 들어 있어요.</div></span>
         <button class="btn sm" onclick="App.exportSettlement()">${ici("down")}내려받기</button></div></div>` : ""}
-      <div class="banner">${icb("link")}<span>배분율·공제·급여명세는 <b>샐리(급여 시스템)</b>가 계산해요. 여기서는 확정된 회차만 넘겨요. 같은 회차는 여러 번 보내도 한 번만 반영되니 안심하고 누르세요.</span></div></div></div>`);
+      <div class="banner">${icb("link")}<span>여기서는 <b>확정된 회차(횟수·회당 금액)</b>만 넘겨요. 배분율·공제·급여명세는 급여 계산 프로그램 <b>샐리</b>가 계산해요. 같은 회차는 여러 번 보내도 한 번만 반영되니 안심하고 누르세요.${sallyPref() === "hidden" ? ` <a href="javascript:void 0" onclick="App.sallyIntro('open')" style="color:var(--link);font-weight:600">샐리 안내 다시 보기 ›</a>` : ""}</span></div></div></div>`);
   }
   // ══ v2.29 §B14 (U12): 센터 «정책 설정» 2,707px 단일 스크롤 → 목록 → 상세 2단 ══
   // 상세 화면 문법은 기존 «회원 범위 · 박코치»(#/c/policy/scope/:tid)를 그대로 복제한다 — 새 문법을 만들지 않는다.
@@ -5561,7 +5704,7 @@
   const polSw = (key, on) => `<button class="sw${on ? " on" : ""}" onclick="App.toggle('${key}')" aria-label="${key}"></button>`;
   const polSelect = (onchange, opts, cur) => `<select onchange="${onchange}">${opts.map(([v, l]) => `<option value="${v}"${String(cur) === String(v) ? " selected" : ""}>${l}</option>`).join("")}</select>`;
   const polOptLabel = (opts, cur) => (opts.find(([v]) => String(v) === String(cur)) || ["", "기본값 그대로"])[1];
-  const CANCEL_HOURS = [[6, "6시간 전"], [12, "12시간 전"], [24, "1일 전"], [48, "2일 전"], [72, "3일 전"]];
+  const CANCEL_HOURS = [[6, "6시간 전"], [12, "12시간 전"], [24, "24시간 전"], [48, "48시간 전 (2일)"], [72, "72시간 전 (3일)"]]; // v2.71 D11: 회원 화면 «24시간 전»과 같은 단위
   const AUTO_HOURS = [[12, "12시간 후"], [24, "24시간 후"], [48, "48시간 후"], [0, "사용 안 함"]];
   const DISPUTE_DAYS = [[3, "3일"], [7, "7일"], [14, "14일"]];
   const QUICK_SCOPE = [["valid", "유효 멤버십 보유자만"], ["all", "전체 회원"], ["mine", "담당 회원만"]];
@@ -5653,7 +5796,7 @@
       </div>`,
     },
     settlement: {
-      title: "정산 · 샐리 연동",
+      title: "정산 · 급여 계산(샐리) 연동",
       sum: () => (!rewardOn() ? "노쇼 보상 없음 (기본)"
         : `노쇼 보상 지원 · ${DB.policy.noshowRewardPrice === "custom" ? customPriceLabel() : "정상 단가"}`),
       body: () => {
@@ -5670,14 +5813,14 @@
           <span style="display:inline-flex;align-items:center;gap:6px"><input type="number" min="0" max="100" value="${P.noshowRewardPercent}" oninput="App.previewNoshowPct(this.value)" onchange="App.setNoshowRewardPercent(this.value)" style="width:80px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"><b>%</b></span></div>
         <div class="muted small" id="nsPctPreview" style="padding:0 4px 10px">${pctPreviewText(P.noshowRewardPercent)}</div>` : `<div class="toggle-row"><span><div class="tl">별도 단가 (원)</div><div class="td">노쇼 1건당 보상액</div></span>
           <input type="number" value="${P.noshowRewardCustom}" onchange="App.setNoshowRewardCustom(this.value)" style="width:110px;border:1px solid var(--border-strong);border-radius:10px;padding:8px 10px;text-align:right;font-weight:700"></div>`}` : ""}
-        <div class="toggle-row"><span><div class="tl">샐리 전달 방식</div><div class="td">자동이면 샐리로 바로 보내요 · 수동이면 샐리에서 직접 체크해 지급해요</div></span>
+        <div class="toggle-row"><span><div class="tl">샐리 전달 방식</div><div class="td">자동이면 급여 계산(샐리)으로 바로 보내요 · 수동이면 샐리에서 직접 체크해 지급해요</div></span>
           ${polSelect("App.setNoshowRewardPush(this.value)", [["auto", "자동 push"], ["manual", "샐리 수동 체크"]], P.noshowRewardPush)}</div>` : ""}
       </div>
       <div class="sec-title">정산 기준 · 확정분 조정</div>
       <div class="card flat">
         <div class="toggle-row"><span><div class="tl">부가세 계산 방식</div><div class="td">«제외»면 카드·현금영수증 발행분만 부가세를 빼고 정산 기준 단가를 저장해요. «포함»이면 결제수단이 정산에 영향을 주지 않아요.<br>어느 쪽으로 바꾸든 <b>앞으로 판매하는 멤버십부터</b> 적용돼요 — 이미 판 멤버십은 판매 당시 기준 그대로예요.</div></span>
           ${polSelect("App.setVatMode(this.value)", [["included", "부가세 포함 (기본)"], ["excluded", "부가세 제외"]], P.vatMode || "included")}</div>
-        <div class="toggle-row"><span><div class="tl">확정분 차액 처리</div><div class="td">샐리로 <b>이미 보낸</b> 회차의 금액이 나중에 바뀌었을 때예요. 원본은 어느 쪽이든 절대 안 건드려요.</div></span>
+        <div class="toggle-row"><span><div class="tl">확정분 차액 처리</div><div class="td">급여 계산(샐리)으로 <b>이미 보낸</b> 회차의 금액이 나중에 바뀌었을 때예요. 원본은 어느 쪽이든 절대 안 건드려요.</div></span>
           ${polSelect("App.setAdjustPolicy(this.value)", [["adjust", "다음 정산에 조정 (기본)"], ["ignore", "차액 무시 (이력만)"]], P.adjustPolicy || "adjust")}</div>
         <div class="toggle-row"><span><div class="tl">소액 조정 생략</div><div class="td">«비대칭»은 <b>깎는 건 생략 / 주는 건 항상 반영</b>이에요 — 오차가 늘 선생님에게 유리한 쪽으로만 기울어서 분쟁이 구조적으로 사라져요.</div></span>
           ${polSelect("App.setSmallAdjMode(this.value)", [["asymmetric", "비대칭 (기본·권장)"], ["symmetric", "대칭 생략"], ["none", "생략 없음"]], P.smallAdjMode || "asymmetric")}</div>
@@ -5740,9 +5883,10 @@
       <div class="sec-title" style="margin-top:4px">운영</div>
       <div class="card flat">
         ${row("#/c/teachers", "선생님·직원 관리", `재직 선생님 ${cAffils("active").filter((a) => a.role === "teacher").length.toLocaleString("ko-KR")}명 · 직원 ${cAffils("active").filter((a) => a.role === "staff").length}명${cAffils("invited").length ? ` · 수락 대기 ${cAffils("invited").length}건` : ""} — 초대(상호 동의)·권한 해제·지난 소속`)}
-        ${row("#/c/products", "수업상품 관리", `판매 중인 멤버십 상품 ${cProducts().length}개 · 판매·등록 / 새 상품 개설`)}
-        ${(() => { const ps = DB.passes.filter((p) => centerMemberSet(DB.center.id).has(p.memberId)); const fz = ps.filter(isFrozen).length;
-          return row("#/c/passes", "멤버십 관리", `판매된 멤버십 ${ps.length.toLocaleString("ko-KR")}건${fz ? ` · 일시정지 ${fz}건` : ""} — 환불·일시정지·결제정보 수정`); })()}
+        ${row("#/c/products", "상품 (만들기·판매)", `멤버십 상품 ${cProducts().length}개 (판매 중 ${cProducts().filter(prodSellable).length}개) · 새 상품 만들기 / 회원에게 판매·등록`)}
+        ${(() => { // v2.71 E3: 멤버십 관리 화면과 같은 기준(우리 센터 멤버십 AND 우리 센터 회원) — 요약 줄만 옛 기준이라 2,596≠2,595 로 어긋났다
+          const ps = DB.passes.filter((p) => passCenter(p) === DB.center.id && centerMemberSet(DB.center.id).has(p.memberId)); const fz = ps.filter(isFrozen).length;
+          return row("#/c/passes", "판매된 멤버십 (환불·정지)", `판매된 멤버십 ${ps.length.toLocaleString("ko-KR")}건${fz ? ` · 일시정지 ${fz}건` : ""} — 환불·일시정지·결제정보 수정`); })()}
         ${row("#/c/policy/recur", POL_SECTIONS.recur.title, POL_SECTIONS.recur.sum())}
       </div>
       <div class="sec-title">정책</div>
@@ -6021,9 +6165,9 @@
     heldHelp() {
       modal(`<h3>보류된 회차는 어떻게 되나요?</h3>
         <p>회원이 «이 수업은 이상이 있어요»라고 이의를 내면, 센터가 판단할 때까지 그 회차는 정산 집계·전송에서 빠져요.</p>
-        <div class="card flat"><div class="pd-row"><span class="grow"><b>1. 센터가 이의를 검토해요</b><div class="muted small">수강 확인 관리에서 인용·기각을 정해요.</div></span></div>
-          <div class="pd-row"><span class="grow"><b>2. 기각되면 그대로 정산에 들어와요</b><div class="muted small">보류가 풀리고 이번 달 금액에 다시 합산돼요.</div></span></div>
-          <div class="pd-row"><span class="grow"><b>3. 인용되면 차감이 복원돼요</b><div class="muted small">그 회차는 정산에서 빠지고, 기록은 남아요.</div></span></div></div>
+        <div class="card flat"><div class="pd-row"><span class="grow"><b>1. 센터가 이의를 검토해요</b><div class="muted small">수강 확인 관리에서 받아들일지 말지 정해요.</div></span></div>
+          <div class="pd-row"><span class="grow"><b>2. 받아들여지지 않으면 그대로 정산에 들어와요</b><div class="muted small">보류가 풀리고 이번 달 금액에 다시 합산돼요.</div></span></div>
+          <div class="pd-row"><span class="grow"><b>3. 받아들여지면 회원 횟수가 복원돼요</b><div class="muted small">그 회차는 정산에서 빠지고, 기록은 남아요.</div></span></div></div>
         <p class="muted small mt8">수업을 실제로 진행했다는 근거(출석·보고 메모)가 있으면 센터에 알려 주세요 — 판단 근거가 돼요.</p>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
           <button class="btn primary" onclick="App.closeModal();location.hash='#/t/report'">보고 현황에서 확인하기</button></div>`);
@@ -6032,6 +6176,8 @@
     pkQuery(id, v) { const st = pickers[id]; if (!st) return; st.query = v; st.shown = PK_PAGE; pkRefresh(id); },
     pkProd(id, v) { const st = pickers[id]; if (!st) return; st.prod = v; st.shown = PK_PAGE; pkRefresh(id); },
     pkMore(id) { const st = pickers[id]; if (!st) return; st.shown += PK_PAGE; pkRefresh(id); },
+    pkShowAll(id, v) { const st = pickers[id]; if (!st) return; st.showAll = !!v; st.shown = PK_PAGE; pkRefresh(id); },
+    pkBlocked() { toast("이 회원은 이 수업에 쓸 수 있는 멤버십이 없어서 고를 수 없어요. 멤버십을 먼저 등록해 주세요."); },
     // v2.39: 공통 검색·기간 필터 — 검색어는 결과 영역만, 카테고리·기간은 전체 render(칩·기간 입력이 함께 바뀜)
     fltQ(key, v) { const st = fltUI[key]; if (!st) return; st.q = v; fltRefresh(key); },
     fltCat(key, k) { const st = fltUI[key]; if (!st) return; st.cat = k; render(); },
@@ -6204,7 +6350,11 @@
       DB.passes.push(np);
       applyLedger(np, p.sessions, "purchase", `${esc(p.name)} · ${won(pay)}${sale ? ` (정가 ${won(p.price)} · 이벤트 할인)` : ""}`);
       toast("구매 완료! 멤버십이 지갑에 담겼어요 💪");
+      mpJustBought = id;
       location.hash = "#/m/home";
+      // v2.71 H2: 새 카드로 이동 — 캐러셀은 가로 스크롤이라 그 카드가 보이게 밀어 준다
+      setTimeout(() => { const el = document.querySelector(`.mp-card[data-pid="${id}"]`); if (el) el.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); }, 150);
+      setTimeout(() => { mpJustBought = null; }, 20000);
     },
     // v2.9: 센터 수업권 판매·등록 — 실구매가 입력, unitPrice=floor(실구매가÷총횟수) 스냅샷 (05 문서)
     sellProd(pid) {
@@ -6235,14 +6385,23 @@
       const s = slot(sid);
       const c = s && cls(s.classId);
       if (!s || !c) return;
-      const cands = activeTeachers().filter((t) => t.id !== slotTeacher(s));
+      const cur0 = teacher(slotTeacher(s)) || {};
+      // v2.71 H9: 같은 종목 위로 + «이 시간 비어 있음/수업 있음» — 33명이 종목·시간 상관없이 한 줄로 늘어서던 문제
+      const busyAt = (t) => overlapSlots(t.id, s.date, s.time, c.duration, [s.id]).length > 0;
+      const cands = activeTeachers().filter((t) => t.id !== slotTeacher(s))
+        .map((t) => ({ t, same: !!cur0.subject && t.subject === cur0.subject, busy: busyAt(t) }))
+        .sort((a, b) => (b.same - a.same) || (a.busy - b.busy) || a.t.name.localeCompare(b.t.name, "ko"));
       if (!cands.length) { toast("대강을 맡길 수 있는 재직 선생님이 없어요. 설정 › 선생님·직원 관리에서 초대해 주세요."); return; }
+      const optOf = (x) => `<option value="${x.t.id}">${esc(x.t.name)}${x.t.subject ? ` · ${esc(x.t.subject)}` : ""} · ${x.busy ? "이 시간 수업 있음" : "이 시간 비어 있음"}</option>`;
+      const sameG = cands.filter((x) => x.same), otherG = cands.filter((x) => !x.same);
       const seats = seatBk(s.id);
       const priv = isPrivateCls(c);
       modal(`<h3>이 회차 대강 지정</h3>
         <p><b>${esc(c.title)}</b><br>${dlabel(s.date)} ${t12(s.time)} · 현재 담당 <b>${slotTeacherName(s)} 선생님</b></p>
-        <div class="field"><label for="sb-t">대강 선생님</label><select id="sb-t">${cands.map((t) => `<option value="${t.id}">${esc(t.name)}${t.subject ? ` · ${esc(t.subject)}` : ""}</option>`).join("")}</select>
-          <div class="hint" id="sb-ov"></div></div>
+        <div class="field"><label for="sb-t">대강 선생님</label><select id="sb-t">
+          ${sameG.length ? `<optgroup label="같은 종목 (${esc(cur0.subject)}) · ${sameG.length}명">${sameG.map(optOf).join("")}</optgroup>` : ""}
+          ${otherG.length ? `<optgroup label="${sameG.length ? "다른 종목" : "선생님"} · ${otherG.length}명">${otherG.map(optOf).join("")}</optgroup>` : ""}</select>
+          <div class="hint" id="sb-ov">같은 종목 선생님이 위에 와요. «이 시간 비어 있음»인 선생님을 고르면 겹침 없이 바로 진행돼요.</div></div>
         <div class="field"><label for="sb-reason">사유 (필수)</label><select id="sb-reason">${Object.entries(SUB_REASON).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
         <div class="field"><label for="sb-memo">메모</label><input type="text" id="sb-memo" placeholder="예: ${slotTeacherName(s)} 선생님 병가"></div>
         <div class="banner">${icb("info")}<span><b>이 회차 수업료는 대강 선생님에게 정산돼요.</b> 금액 기준은 수업 설정값 그대로예요 — 사람만 바뀌고 금액은 안 바뀌어요.<br>
@@ -6284,7 +6443,7 @@
       const s = slot(sid);
       modal(`<h3>대강을 해제할까요?</h3>
         <p>${dlabel(s.date)} ${t12(s.time)} · 이 회차 진행이 다시 <b>${esc((teacher((cls(s.classId) || {}).teacherId) || {}).name || "")} 선생님</b>(수업 담당)으로 돌아가요.</p>
-        <div class="hint">아직 샐리로 안 보낸 정산 라인의 귀속도 함께 되돌아가요. 이미 보낸 라인은 원본을 건드리지 않아요.</div>
+        <div class="hint">아직 급여 계산(샐리)으로 안 보낸 정산 라인의 귀속도 함께 되돌아가요. 이미 보낸 라인은 원본을 건드리지 않아요.</div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.subClear('${sid}')">대강 해제</button></div>`);
     },
@@ -6329,7 +6488,7 @@
         <div class="field"><label>새 담당</label><select onchange="App.tchSet('newTid', this.value)">${cands.map((t) => `<option value="${t.id}"${t.id === tcUI.newTid ? " selected" : ""}>${esc(t.name)}${t.subject ? ` · ${esc(t.subject)}` : ""}</option>`).join("")}</select>
           <div class="hint">재직 중인 선생님만 보여요.</div></div>
         <div class="field"><label>적용 시작일</label><input type="date" value="${tcUI.fromDate}" onchange="App.tchSet('fromDate', this.value)">
-          <div class="hint">이 날부터 새 담당이에요. 과거 날짜로 잡으면 «사후 교체»가 되고, 그 구간에서 이미 샐리로 보낸 정산은 조정 두 줄(전임 −/신임 +)로 반영돼요.</div></div>
+          <div class="hint">이 날부터 새 담당이에요. 과거 날짜로 잡으면 «사후 교체»가 되고, 그 구간에서 이미 급여 계산(샐리)으로 보낸 정산은 조정 두 줄(전임 −/신임 +)로 반영돼요.</div></div>
         <div class="field"><label for="tc-reason">사유 (필수)</label><select id="tc-reason">${Object.entries(TCH_REASON).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
         <div class="field"><label for="tc-memo">메모</label><input type="text" id="tc-memo" placeholder="예: ${esc((teacher(c.teacherId) || {}).name || "")} 선생님 퇴사에 따른 인수인계"></div>
 
@@ -6497,47 +6656,38 @@
 
     // ══════════ v2.65 환불 3단계 (설계서② 2-6) ══════════
     // 1단계 «지금 상태 확인» → 2단계 «계산» → 3단계 «확인». 되돌리기 어려운 작업이라 저장 전 숫자로 보여준다.
+    // v2.71 H12: 3단계(안내 → 계산 → 확인+사유 2번) → 2단계. 예약 정리 체크는 계산 위에, 공제 기준은 두 값이 갈릴 때만, 상세 사유는 «기타»일 때만 필수.
+    //   계산 규칙(refundCalc·refundDo)은 건드리지 않았다.
     refundAsk(pid) {
       const p = pass(pid);
       if (!p) return;
-      const fut = futureBookingsOfPass(p);
-      const used = p.total - p.remaining;
-      modal(`<h3>환불 · 부분반납</h3>
-        <p><b>${esc(p.name)}</b> · ${esc(memberName(p.memberId))}<br>
-          ${passBuyDate(p)} 구매 · 실구매가 <b>${won(p.purchasePrice != null ? p.purchasePrice : p.unitPrice * p.total)}</b>${p.listPrice != null && p.listPrice > (p.purchasePrice || 0) ? ` <span class="muted small">(정가 ${won(p.listPrice)} · 할인 구매)</span>` : ""}<br>
-          ${p.total}회 중 <b>${used}회 사용</b> · <b>${p.remaining}회 남음</b> · 유효기간 ${p.expiresAt || "기간 제한 없음"}</p>
-        ${fut.length ? `<div class="banner warn">${icb("alert")}<span><b>앞으로 예정된 예약이 ${fut.length}건 있어요</b><br>
-          ${fut.map((b) => { const s = slot(b.slotId); return `${dlabel(s.date)} ${t12(s.time)} ${esc(clsTitle(s.classId))}`; }).join("<br>")}</span></div>
-          <label class="check"><input type="checkbox" id="rf-cancel" checked> 환불과 함께 이 예약도 취소할게요 <b>(권장)</b></label>
-          <div class="hint">니짐내짐은 «후차감»이라 예약만으로는 회차가 안 깎여요. 예약을 남겨 두면 회원이 수업에 왔을 때 깎을 회차가 없어 처리가 막혀요.</div>` : ""}
-        <div class="banner">${icb("info")}<span><b>환불은 정산에 영향을 주지 않아요.</b> 이미 진행한 ${used}회는 수업이 실제로 있었으니 그대로 정산돼요 — 남은 회차만 되사드리는 거예요.</span></div>
-        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
-        <button class="btn ghost" onclick="App.freezeAsk('${pid}')">환불 대신 일시정지</button>
-        <button class="btn primary" onclick="App.refundStep2('${pid}')">환불하기</button></div>
-        <p class="muted small">«당분간 못 온다»는 요청이면 환불보다 일시정지가 회원에게 유리해요 — 정지한 일수만큼 유효기간이 늘어나고 회차도 그대로 남아요.</p>`);
-    },
-    refundStep2(pid) {
-      const p = pass(pid);
-      const cancelBk = gck("rf-cancel");
-      rfUI = { pid, cancelBookings: cancelBk, count: p.remaining,
+      rfUI = { pid, cancelBookings: true, count: p.remaining,
         basis: DB.policy.refundDeductBasis || "sale", rate: DB.policy.refundPenaltyRate || 0, adjust: 0 };
       App.refundRender();
     },
     refundRender() {
       const p = pass(rfUI.pid);
+      const pid = p.id;
+      const fut = futureBookingsOfPass(p);
+      const used = p.total - p.remaining;
       const calc = refundCalc(p, { deductBasis: rfUI.basis, penaltyRate: rfUI.rate, adjustAmount: rfUI.adjust });
       const payouts = refundPayouts(p, calc.refundAmount);
       const saleC = refundCalc(p, { deductBasis: "sale", penaltyRate: rfUI.rate, adjustAmount: rfUI.adjust });
       const listC = refundCalc(p, { deductBasis: "list", penaltyRate: rfUI.rate, adjustAmount: rfUI.adjust });
-      modal(`<h3>환불 계산 — ${esc(p.name)}</h3>
-        <div class="field"><label for="rf-cnt">반납할 회차</label><input type="number" id="rf-cnt" min="1" max="${p.remaining}" value="${rfUI.count}" oninput="App.refundSet('count', this.value)">
-          <div class="hint">최대 ${p.remaining}회. ${p.remaining}회면 전체 해지, 그 미만이면 일부 반납이에요.</div></div>
-        <div class="field"><label>이용분 공제 기준</label>
+      const basisDiff = saleC.refundAmount !== listC.refundAmount; // 두 기준 값이 같으면 고를 게 없다 — 선택지를 숨긴다
+      modal(`<h3>환불 (전체 또는 일부 횟수) — ${esc(p.name)}</h3>
+        <p class="muted small">${esc(memberName(p.memberId))} · ${passBuyDate(p)} 구매 · 실구매가 <b>${won(p.purchasePrice != null ? p.purchasePrice : p.unitPrice * p.total)}</b>${p.listPrice != null && p.listPrice > (p.purchasePrice || 0) ? ` (정가 ${won(p.listPrice)} · 할인 구매)` : ""} · ${p.total}회 중 <b>${used}회 사용 · ${p.remaining}회 남음</b></p>
+        ${fut.length ? `<div class="banner warn" style="margin-bottom:6px">${icb("alert")}<span><b>앞으로 예정된 예약이 ${fut.length}건 있어요</b><br>${fut.map((b) => { const s = slot(b.slotId); return `${dlabel(s.date)} ${t12(s.time)} ${esc(clsTitle(s.classId))}`; }).join("<br>")}</span></div>
+          <label class="check"><input type="checkbox" id="rf-cancel"${rfUI.cancelBookings ? " checked" : ""} onchange="App.refundSet('cancelBookings', this.checked)"> 환불과 함께 이 예약도 취소할게요 <b>(권장)</b></label>
+          <div class="hint">예약만으로는 횟수가 안 깎이고, 수업을 받아야 깎여요. 예약을 남겨 두면 회원이 수업에 왔을 때 깎을 횟수가 없어 처리가 막혀요.</div>` : ""}
+        <div class="field"><label for="rf-cnt">환불할 횟수</label><input type="number" id="rf-cnt" min="1" max="${p.remaining}" value="${rfUI.count}" oninput="App.refundSet('count', this.value)">
+          <div class="hint">최대 ${p.remaining}회. ${p.remaining}회면 전체 해지, 그 미만이면 일부 횟수만 환불이에요.</div></div>
+        ${basisDiff ? `<div class="field"><label>이용분 공제 기준</label>
           <label class="check"><input type="radio" name="rf-basis" value="sale" ${rfUI.basis === "sale" ? "checked" : ""} onchange="App.refundSet('basis','sale')">
             실구매 단가 ${won(p.unitPrice)} × ${calc.usedCount}회 = <b>${won(saleC.usedDeductAmount)}</b> <span class="muted small">(권장 · 분쟁이 적어요)</span></label>
           <label class="check mt4"><input type="radio" name="rf-basis" value="list" ${rfUI.basis === "list" ? "checked" : ""} onchange="App.refundSet('basis','list')">
             정가 단가 ${won(passListUnit(p))} × ${calc.usedCount}회 = <b>${won(listC.usedDeductAmount)}</b></label>
-          ${saleC.refundAmount !== listC.refundAmount ? `<div class="hint">기준에 따라 환불액이 <b>${won(Math.abs(saleC.refundAmount - listC.refundAmount))}</b> 갈려요 — 어느 기준을 썼는지 환불 기록에 그대로 남아요.</div>` : ""}</div>
+          <div class="hint">기준에 따라 환불액이 <b>${won(Math.abs(saleC.refundAmount - listC.refundAmount))}</b> 갈려요 — 어느 기준을 썼는지 환불 기록에 그대로 남아요.</div></div>` : ""}
         <div class="field"><label for="rf-rate">위약금 (%)</label><input type="number" id="rf-rate" min="0" max="10" step="0.1" value="${rfUI.rate}" oninput="App.refundSet('rate', this.value)">
           <div class="hint">= ${won(calc.penaltyAmount)} (실구매가 기준) · 센터 설정 기본값 ${DB.policy.refundPenaltyRate || 0}% · 상한 10%</div></div>
         <div class="field"><label for="rf-adj">가감 (원)</label><input type="number" id="rf-adj" value="${rfUI.adjust}" oninput="App.refundSet('adjust', this.value)"></div>
@@ -6555,8 +6705,11 @@
         <div class="sec-title sm">돌려드릴 방법</div>
         <div class="card flat">${payouts.length ? payouts.map((x) => `<div class="row" style="justify-content:space-between"><span class="muted">${PAY_METHOD[x.method] || x.method}</span><b>${won(x.amount)}</b></div>`).join("") : `<p class="muted">환불액이 0원이에요.</p>`}
           ${(p.payments || []).length > 1 ? `<div class="hint">분할결제한 비율대로 자동 배분했어요.</div>` : ""}</div>
-        <div class="btn-row"><button class="btn ghost" onclick="App.refundAsk('${rfUI.pid}')">‹ 뒤로</button>
-        <button class="btn primary" onclick="App.refundStep3()">다음</button></div>`);
+        <div class="banner">${icb("info")}<span><b>환불은 선생님 정산에 영향을 주지 않아요.</b> 이미 진행한 ${used}회는 수업이 실제로 있었으니 그대로 정산돼요 — 남은 횟수만 되사드리는 거예요.</span></div>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
+        <button class="btn ghost" onclick="App.freezeAsk('${pid}')">환불 대신 일시정지</button>
+        <button class="btn primary" onclick="App.refundStep3()">다음 · 확인</button></div>
+        <p class="muted small">«당분간 못 온다»는 요청이면 환불보다 일시정지가 회원에게 유리해요 — 정지한 일수만큼 유효기간이 늘어나고 횟수도 그대로 남아요.</p>`);
     },
     refundSet(k, v) {
       const p = pass(rfUI.pid);
@@ -6564,7 +6717,9 @@
       // v2.67 QA② B-6: parseInt 라 9.9% 가 9% 로 조용히 절사됐다. 소수 1자리까지 반올림해 받는다(상한 10% 유지).
       else if (k === "rate") rfUI.rate = Math.max(0, Math.min(10, Math.round((parseFloat(v) || 0) * 10) / 10));
       else if (k === "adjust") rfUI.adjust = Math.round(parseFloat(v) || 0);
+      else if (k === "cancelBookings") rfUI.cancelBookings = !!v;
       else rfUI[k] = v;
+      if (k === "cancelBookings") return; // 체크 하나로 전체를 다시 그리면 입력 포커스가 날아간다
       App.refundRender();
     },
     refundStep3() {
@@ -6572,29 +6727,33 @@
       const calc = refundCalc(p, { deductBasis: rfUI.basis, penaltyRate: rfUI.rate, adjustAmount: rfUI.adjust });
       const fut = rfUI.cancelBookings ? futureBookingsOfPass(p) : [];
       modal(`<h3>이 환불을 처리할까요?</h3>
-        <p>환불액 <b>${won(calc.refundAmount)}</b> · 회차 <b>${rfUI.count}회</b> 반납 (잔여 ${p.remaining} → ${p.remaining - rfUI.count})<br>
+        <p>환불액 <b>${won(calc.refundAmount)}</b> · <b>${rfUI.count}회</b> 환불 (잔여 ${p.remaining} → ${p.remaining - rfUI.count})<br>
           ${fut.length ? `예약 <b>${fut.length}건</b> 함께 취소 · ` : ""}회원에게 알림 발송<br>
           <b>선생님 정산에는 영향이 없어요</b> — 이미 진행한 ${calc.usedCount}회는 그대로 정산돼요.</p>
         <div class="banner">${icb("info")}<span>실제 카드 취소·계좌 이체는 여기서 일어나지 않아요. 처리 내역만 기록되고, 실제 환급은 결제 시스템에서 진행해 주세요.</span></div>
-        <div class="field"><label for="rf-reason">사유</label><select id="rf-reason">${Object.entries(REFUND_REASON).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
-        <div class="field"><label for="rf-memo">상세 사유 (필수)</label><input type="text" id="rf-memo" placeholder="예: 회원 이사로 인한 중도 해지"></div>
+        <div class="field"><label for="rf-reason">사유</label><select id="rf-reason" onchange="document.getElementById('rf-memo-lab').textContent = this.value === 'other' ? '상세 사유 (기타는 필수)' : '상세 사유 (선택)'">${Object.entries(REFUND_REASON).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
+        <div class="field"><label for="rf-memo" id="rf-memo-lab">상세 사유 (선택)</label><input type="text" id="rf-memo" placeholder="예: 회원 이사로 인한 중도 해지"></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.refundRender()">‹ 뒤로</button>
         <button class="btn primary" onclick="App.refundDo()">환불 처리</button></div>`);
     },
     refundDo() {
       const p = pass(rfUI.pid);
       const calc = refundCalc(p, { deductBasis: rfUI.basis, penaltyRate: rfUI.rate, adjustAmount: rfUI.adjust });
+      // v2.71 H12: 상세 사유는 «기타»일 때만 필수 — 다른 사유는 사유 이름이 기록에 남는다(refundDo 의 빈 메모 검사는 그대로 둔다)
+      const reason = gv("rf-reason");
+      const memo0 = clean(gv("rf-memo")).trim();
+      if (reason === "other" && !memo0) { toast("«기타» 사유는 상세 내용을 적어 주세요."); return; }
       const res = refundDo(p, calc, { refundCount: rfUI.count, cancelBookings: rfUI.cancelBookings,
-        reason: gv("rf-reason"), memo: gv("rf-memo") });
+        reason, memo: memo0 || REFUND_REASON[reason] || reason });
       if (!res.ok) { toast(res.msg); return; }
       closeModal(); render();
-      toast(`환불 처리 완료 — ${res.refund.refundCount}회 반납 · ${won(res.refund.refundAmount)}. 선생님 정산은 그대로예요.`);
+      toast(`환불 처리 완료 — ${res.refund.refundCount}회 환불 · ${won(res.refund.refundAmount)}. 선생님 정산은 그대로예요.`);
     },
     refundVoidAsk(rid) {
       const r = (DB.refunds || []).find((x) => x.id === rid);
       if (!r) return;
       modal(`<h3>이 환불을 취소(정정)할까요?</h3>
-        <p>${r.at} · ${r.refundCount}회 반납 · ${won(r.refundAmount)}</p>
+        <p>${r.at} · ${r.refundCount}회 환불 · ${won(r.refundAmount)}</p>
         <div class="banner warn">${icb("alert")}<span>환불 기록을 <b>지우지 않아요</b> — «취소됨»으로 표시하고 반납한 ${r.refundCount}회를 되돌리는 원장 한 줄을 더해요(append-only).<br>실제 환급이 이미 나갔다면 결제 시스템에서도 함께 정정해 주세요.</span></div>
         <div class="field"><label for="rv-reason">정정 사유 (필수)</label><input type="text" id="rv-reason" placeholder="예: 회원 요청 철회"></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
@@ -6652,7 +6811,7 @@
           <div class="row mt8" style="justify-content:space-between"><span class="muted">정산 기준 회당 단가</span><b>${won(curBase)} → ${won(newBase)}</b></div>
         </div>
         ${!vatExcluded() ? `<div class="hint">이 센터는 부가세 «포함» 계산이라 결제수단이 정산에 영향을 주지 않아요 — 결제 총액이 바뀌면 그만큼만 정산 기준 단가가 달라져요.</div>` : ""}
-        ${changed && im.locked.length ? `<div class="banner warn">${icb("alert")}<span><b>이미 샐리로 보낸 회차가 ${im.locked.length}건 있어요</b><br>
+        ${changed && im.locked.length ? `<div class="banner warn">${icb("alert")}<span><b>이미 급여 계산(샐리)으로 보낸 회차가 ${im.locked.length}건 있어요</b><br>
           원본은 그대로 두고, 차액을 다음 정산에 «조정»으로 반영할게요.<br>
           ${Object.entries(im.byT).map(([tid, d]) => `${esc((teacher(tid) || {}).name || tid)} <b>${adjSign(d)}</b>`).join("<br>")}
           ${ignore ? `<br><b>센터 설정이 «확정분 차액 무시»라 조정 라인을 만들지 않아요</b> (이력에만 남아요).`
@@ -6747,7 +6906,7 @@
         DB.bookings.push({ id: nid("bk"), slotId, memberId: DB.me.member, passId: up.id, status: "booked", policySnap: snapPolicy() });
         toast(over
           ? `예약했어요. 다만 이미 잡아 둔 예약 ${over.ahead}건이 남은 회차 ${over.remaining}회보다 많아요 — 수업 당일 차감이 막힐 수 있어요.`
-          : `예약 완료! «${esc(up.name)}»에서 차감돼요. 취소 기한 조건은 지금 시점 기준으로 보존돼요.`);
+          : `예약 완료! «${esc(up.name)}»에서 차감돼요. 취소 규정은 지금 기준으로 이 예약에 적용돼요.`);
         location.hash = "#/m/book/mine";
       };
       // v2.33 D-2(b): 회원 본인 일정이 겹치면 경고만 — 차단하지 않는다.
@@ -6787,6 +6946,7 @@
         DB.negos.push({ id: nid("ar"), initiator: "member", kind: "request", classId, teacherId: c.teacherId,
           memberId: DB.me.member, passId: up.id, date: d, time: t, status: "pending", note, at: stampOf() });
         toast(`${tName(c.teacherId)} 선생님에게 일정 요청을 보냈어요. 수락하면 예약이 확정돼요.`);
+        mLandCat = "sent"; // v2.71 B1: «다가오는 예약이 없어요»로 떨어져 요청이 안 된 줄 알던 문제 — 보낸 요청 묶음에 착지
         location.hash = "#/m/book/mine";
       };
       // v2.33 B-4·D-2(a): 선생님 겹침·회원 본인 겹침을 한 모달에 모아 확인만 받는다 — 차단 아님.
@@ -7243,11 +7403,11 @@
         return;
       }
       if (h >= snap.cancelHours) {
-        modal(`<h3>예약을 취소할까요?</h3><p>${slotDesc(s)}<br>예약 당시 기한(${snap.cancelHours}시간 전) 안이라 <b style="color:var(--success)">횟수 차감 없이</b> 취소돼요.</p>
+        modal(`<h3>예약을 취소할까요?</h3><p>${slotDesc(s)}<br>수업 ${snap.cancelHours}시간 전이라 <b style="color:var(--success)">무료로</b> 취소돼요 — 횟수는 그대로예요.</p>
           <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">아니요</button>
           <button class="btn primary" onclick="App.doCancel('${bkId}', false)">무료 취소</button></div>`);
       } else {
-        modal(`<h3>${ici("alert")}지금 취소하면 1회 차감돼요</h3><p>${slotDesc(s)}<br>예약 당시 취소 기한(수업 ${snap.cancelHours}시간 전)이 지났어요. 지금 취소하면 <b style="color:var(--danger)">횟수 환불 없이 1회가 차감</b>돼요.</p>
+        modal(`<h3>${ici("alert")}지금 취소하면 1회 차감돼요</h3><p>${slotDesc(s)}<br>취소 기한(수업 ${snap.cancelHours}시간 전)이 지났어요. 지금 취소하면 <b style="color:var(--danger)">1회가 차감</b>돼요.</p>
           <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">그냥 둘게요</button>
           <button class="btn danger-ghost" onclick="App.doCancel('${bkId}', true)">차감하고 취소</button></div>`);
       }
@@ -7334,8 +7494,14 @@
       const b = DB.bookings.find((x) => x.id === bkId);
       if (!disputeAllowed(b)) return;
       const pre = b && ["confirm_wait", "noshow_wait"].includes(b.status);
-      modal(`<h3>어떤 문제가 있었나요?</h3><p class="mt4">${pre ? "이의제기가 접수되면 확인·차감 없이 센터가 심사해요." : "이미 차감된 회차예요. 접수되면 센터가 심사하고, 이의가 인정되면 횟수가 복원돼요."}</p>
-        <div class="field mt12"><textarea id="dp-reason" rows="3" placeholder="예: 이 수업을 받은 적이 없어요" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px" aria-label="이의 내용"></textarea></div>
+      // v2.71 H11: 어느 수업 건인지·무엇을 적어야 하는지가 없던 창 — 제목에 수업, 설명에 적을 것
+      const s0 = slot(b.slotId), c0 = s0 && cls(s0.classId);
+      const when = s0 ? `${dlabel(s0.date)} ${esc(c0 ? c0.title : "수업")}` : "이 수업";
+      const isNs = b.status === "noshow_wait";
+      modal(`<h3>${when} — ${isNs ? "노쇼가 아니었나요?" : "받지 않은 수업인가요?"}</h3><p class="mt4">${pre
+          ? (isNs ? "출석했거나 미리 연락했다면 적어 주세요. 센터가 확인하는 동안 횟수는 차감되지 않아요." : "수업을 받지 않았거나 내용이 다르면 적어 주세요. 센터가 확인하는 동안 횟수는 차감되지 않아요.")
+          : "이미 차감된 회차예요. 어떤 상황이었는지 적어 주시면 센터가 확인하고, 이의가 받아들여지면 횟수가 복원돼요."}</p>
+        <div class="field mt12"><textarea id="dp-reason" rows="3" placeholder="${isNs ? "예: 10시에 도착해서 수업 받았어요 / 전날 선생님께 못 간다고 연락했어요" : "예: 이 수업을 받은 적이 없어요"}" style="width:100%;border:1px solid var(--border-strong);border-radius:12px;padding:12px" aria-label="이의 내용"></textarea></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">돌아가기</button>
         <button class="btn primary" onclick="App.doDispute('${bkId}')">이의제기 접수</button></div>`);
     },
@@ -7556,6 +7722,7 @@
       if (hits.length) { overlapAsk(hits, go, { goLabel: "그래도 만들기", askText: "그래도 만들까요?" }); return; }
       go();
     },
+    ccShowAll(role) { ccState(role).showAllRows = true; render(); },
     ccPickInput(role) {
       const el = document.getElementById("cc-time");
       const t = el && el.value;
@@ -7568,10 +7735,22 @@
     // [변경] — 이미 입력한 값(수업 종류·회원 선택 등)은 ccUI·picker에 그대로 남는다. 화면만 1단계로 되돌린다.
     ccBackWhen(role) { ccSync(); const U = ccState(role); U.wkSel = U.picked ? U.date : (U.wkSel || DB.TODAY); U.step = "when"; render(); },
     // «기존 회차에 붙이기» — 1단계를 건너뛰고 2단계로. 날짜·시간은 그 회차 일정을 따른다.
-    ccUseSlot(role) {
+    // v2.71 H7: «기존 회차에 붙이기»는 1단계 한 곳 — 누르면 회차 목록에서 고른다(2단계 «회차» 드롭다운은 없앴다)
+    ccUseSlotAsk(role) {
       if (!ccWhenReady(role)) { toast("기준 선생님을 먼저 골라 주세요."); return; }
-      const j = ccJoinable(role)[0];
+      const js = ccJoinable(role);
+      if (!js.length) { toast("붙일 수 있는 기존 회차가 없어요."); return; }
+      modal(`<h3>어느 회차에 붙일까요?</h3><p class="muted small">앞으로 남은, 자리가 있는 회차만 보여요. 고르면 그 회차 일정으로 2단계(회원 고르기)로 넘어가요.</p>
+        <div class="card flat" style="max-height:50vh;overflow:auto">${js.map((j) => `<button type="button" class="slot tapable" style="width:100%;text-align:left" onclick="App.ccUseSlot('${role}','${j.s.id}')">
+          <span class="time">${t12(j.s.time)}</span><span class="grow"><span class="t">${esc(j.c.title)}</span><div class="muted small">${dlabel(j.s.date)} · ${seatCount(j.s.id)}/${j.c.capacity}명</div></span><span class="chev" aria-hidden="true">›</span></button>`).join("")}</div>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button></div>`);
+    },
+    ccUseSlot(role, sid) {
+      if (!ccWhenReady(role)) { toast("기준 선생님을 먼저 골라 주세요."); return; }
+      const js = ccJoinable(role);
+      const j = (sid && js.find((x) => x.s.id === sid)) || js[0];
       if (!j) { toast("붙일 수 있는 기존 회차가 없어요."); return; }
+      closeModal(true);
       const U = ccState(role);
       if (U.classId !== j.c.id) delete pickers["nc-mems"];
       U.classId = j.c.id; U.elig = j.c.eligibility; U.fill = "assign"; U.slotSel = j.s.id;
@@ -7951,10 +8130,40 @@
       const p = pass(pid);
       if (p) toast(`«${p.name}»으로 바꿨어요. 예약하면 이 멤버십에서 차감돼요.`);
     },
+    newProductAsk() { modal(newProductFormHtml()); },
+    // v2.71 E1: 기존 상품의 «들을 수 있는 수업» 연결/변경 — 연결 없는 상품의 유일한 구제 경로
+    prodLinkAsk(pid) {
+      const p = DB.products.find((x) => x.id === pid);
+      if (!p) return;
+      const copts = prodClassOpts(p);
+      modal(`<h3>«${esc(p.name)}» 로 들을 수 있는 수업</h3>
+        <p class="muted small">체크한 수업에서만 이 멤버십을 쓸 수 있어요. 하나도 없으면 회원에게 팔리지 않아요.</p>
+        ${copts.length ? `<div class="np-classes" id="pl-classes">${copts.map((c) => `<label class="check"><input type="checkbox" value="${c.id}"${(c.eligibleProductIds || []).includes(p.id) ? " checked" : ""}> ${esc(c.title)} <span class="muted small">· ${esc(tName(c.teacherId))} 선생님 · ${c.kind === "private" ? "개인 1:1" : "그룹"}</span></label>`).join("")}</div>`
+          : `<div class="banner warn">${icb("alert")}<span>아직 만든 수업이 없어요. «수업» 탭에서 수업을 먼저 만들어 주세요.</span></div>`}
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
+          ${copts.length ? `<button class="btn primary" onclick="App.prodLinkDo('${p.id}')">저장</button>` : ""}</div>`);
+    },
+    prodLinkDo(pid) {
+      const p = DB.products.find((x) => x.id === pid);
+      if (!p) return;
+      const picked = [...document.querySelectorAll("#pl-classes input:checked")].map((el) => el.value);
+      prodClassOpts(p).forEach((c) => {
+        c.eligibleProductIds = c.eligibleProductIds || [];
+        const has = c.eligibleProductIds.includes(pid);
+        if (picked.includes(c.id) && !has) c.eligibleProductIds.push(pid);
+        if (!picked.includes(c.id) && has) c.eligibleProductIds = c.eligibleProductIds.filter((x) => x !== pid);
+      });
+      closeModal(); render();
+      toast(picked.length ? `«${p.name}»은 이제 수업 ${picked.length}개에서 쓸 수 있어요.` : `«${p.name}»은 연결된 수업이 없어 판매되지 않아요.`);
+    },
     createProduct() {
       // v2.58 QA: 조용한 기본값 대체 금지 — 이름 필수, 횟수·유효기간은 1 이상 정수, 가격은 0 이상 정수
       const name = clean(document.getElementById("np-name").value).trim();
-      const kind = document.querySelector("#np-kind .on").dataset.v;
+      // v2.71 E2: 수업 종류는 미리 눌러 두지 않는다 — 안 고르면 막는다(«필라테스 1:1»이 그룹으로 만들어지던 사고)
+      const kindEl = document.querySelector("#np-kind .on");
+      const kind = kindEl ? kindEl.dataset.v : null;
+      const classIds = [...document.querySelectorAll("#np-classes input:checked")].map((el) => el.value);
+      const hasClasses = prodClassOpts(null).length > 0;
       const sessions = Number(document.getElementById("np-sessions").value);
       // v2.67 QA② D-4: Number("")===0 이라 «빈칸»이 «0원»으로 통과했다. 0원 상품(무료권)은 정상이므로
       // 막을 것은 0 이 아니라 «빈칸»이다 — 빈 문자열을 NaN 으로 떨어뜨려 아래 정수 검사에 걸리게 한다.
@@ -7964,12 +8173,17 @@
       const days = noDays ? null : Number(document.getElementById("np-days").value);
       if (!name) { toast("상품명을 입력해 주세요."); return; }
       if (cProducts().some((p) => p.name === name)) { toast("같은 이름의 상품이 이미 있어요 — 이름을 다르게 해 주세요."); return; }
+      if (!kind) { toast("수업 종류(그룹수업 / 개인수업)를 골라 주세요."); return; }
       if (!(Number.isInteger(sessions) && sessions >= 1)) { toast("횟수는 1회 이상 정수로 입력해 주세요."); return; }
       if (!(Number.isInteger(price) && price >= 0)) { toast("가격은 0원 이상 정수로 입력해 주세요."); return; }
       if (!noDays && !(Number.isInteger(days) && days >= 1)) { toast("유효기간은 1일 이상 정수로 입력하거나 «유효기간 없음»을 선택해 주세요."); return; }
-      DB.products.push({ id: nid("pr"), centerId: DB.center.id, name, kind, sessions, price, validityDays: days });
-      render();
-      toast(`«${name}» 상품이 개설됐어요.`);
+      if (hasClasses && !classIds.length) { toast("이 상품으로 들을 수 있는 수업을 1개 이상 골라 주세요 — 수업에 연결되지 않은 상품은 팔리지 않아요."); return; }
+      const id = nid("pr");
+      DB.products.push({ id, centerId: DB.center.id, name, kind, sessions, price, validityDays: days });
+      classIds.forEach((cid) => { const c = cls(cid); if (c) (c.eligibleProductIds = c.eligibleProductIds || []).push(id); });
+      closeModal(); render();
+      toast(classIds.length ? `«${name}» 상품을 만들었어요 — 수업 ${classIds.length}개에서 쓸 수 있고 바로 판매돼요.`
+        : `«${name}» 상품을 만들었어요. 수업을 만들고 이 상품을 연결하면 판매가 시작돼요.`);
     },
     // 시정①: 선생님의 수정·폐강 가드 — 본인 수업 + 권한 보유
     teachGuard(id, role) {
@@ -8223,10 +8437,10 @@
       const total = lines.reduce((a, l) => a + l.unitPrice, 0) + rewards.reduce((a, r) => a + noshowUnit(r), 0)
         + adjs.reduce((a, l) => a + l.amount, 0);
       const [py, pm] = ym.split("-").map(Number);
-      modal(`<h3>샐리 전송 미리보기 — ${esc(tName(tid))} 선생님</h3>
-        <p class="ps-ym"><b>${py}년 ${pm}월</b> 정산분${ym === DB.TODAY.slice(0, 7) ? "" : " (지난 달)"}</p>
-        ${already.length ? `<div class="banner warn">${icb("alert")}<span>이 달은 이미 <b>${already.length}회</b>를 보냈어요 (${already[already.length - 1].pushId}). 지금 보내는 건 <b>그 뒤에 확정된 ${lines.length}회</b>뿐이고, 이미 보낸 회차는 다시 가지 않아요.</span></div>` : ""}
-        <p>회차마다 <b>구매 시점의 회당 단가</b>가 그대로 전송돼요. 배분율·공제는 샐리가 계산해요.<br>같은 회차는 두 번 보내도 한 번만 반영돼요. 보낸 뒤 정정이 필요하면 샐리에서 처리해요.</p>
+      modal(`<h3>급여 계산으로 보내기 미리보기 — ${esc(tName(tid))} 선생님</h3>
+        <p class="ps-ym"><b>${py}년 ${pm}월</b> 정산분${ym === DB.TODAY.slice(0, 7) ? "" : " (지난 달)"} · 받는 곳: 급여 계산 프로그램 샐리</p>
+        ${already.length ? `<div class="banner warn">${icb("alert")}<span>이 달은 이미 <b>${already.length}회</b>를 보냈어요 (${pushLabel(tid, already[already.length - 1].pushId, ym)}). 지금 보내는 건 <b>그 뒤에 확정된 ${lines.length}회</b>뿐이고, 이미 보낸 회차는 다시 가지 않아요.</span></div>` : ""}
+        <p>회차마다 <b>구매 시점의 회당 단가</b>가 그대로 넘어가요. 배분율·공제는 샐리가 계산해요.<br>같은 회차는 두 번 보내도 한 번만 반영돼요. 보낸 뒤 정정이 필요하면 샐리에서 처리해요.</p>
         <div class="pd-list">
           ${groups.map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회</div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
           ${adjs.length ? `<div class="pd-group"><div class="pd-ghead">정산 조정 ${adjs.length}건 · ${adjSign(adjs.reduce((a, l) => a + l.amount, 0))}</div>${adjs.map((l) => `<div class="pd-row"><span class="grow"><b>${esc(l.member || "—")}</b> <span class="muted small">${esc(l.desc || "")}</span><div class="muted small">${esc(ADJ_REASON[l.reason] || l.reason)}${l.origYm ? ` · 원래 ${Number(l.origYm.slice(5))}월분` : ""}</div></span><span class="pd-price ${l.amount < 0 ? "adj-minus" : "adj-plus"}">${adjSign(l.amount)}</span></div>`).join("")}</div>` : ""}
@@ -8238,50 +8452,113 @@
     },
     // 멱등 push — eligible & 미전송만, held 제외. P9-1 auto 모드면 노쇼 보상(rewardCodes)도 함께 전송
     // [SERVER] 🔴샐리 전송. 지금은 로컬 플래그만 — 서버가 배치 생성(UUID) → POST /api/integrations/lessons/sessions → 응답 기록. 멱등키 externalId = booking_id.
-    sallyPushDo(tid) {
-      closeModal(true);
+    // v2.71 B5: 선생님 1명분 전송의 실제 처리 — 개별 버튼·«전체 한 번에»가 같은 함수를 탄다(두 경로 결과가 갈리지 않게).
+    _pushOne(tid) {
       const { ym, lines, held, rewards, adjs } = pushScope(tid);
-      if (!lines.length && !rewards.length && !adjs.length) { toast("보낼 확정 회차가 없어요." + (held ? ` (보류 ${held}건 제외)` : "")); return; }
+      if (!lines.length && !rewards.length && !adjs.length) return null;
       const pid = "sly_" + tid + "_" + ym.replace("-", "") + "_" + seq++;
       lines.forEach((l) => { l.pushed = true; l.pushId = pid; });
       adjs.forEach((l) => { l.pushed = true; l.pushId = pid; });
       // 전송 시점 금액 스냅샷 — 현재 정책 단가(noshowUnit: 고정 금액 또는 수업료 %·원 단위 반올림)로 확정
       rewards.forEach((r) => { r.rewardPushed = true; r.rewardPushId = pid; r.rewardAmount = noshowUnit(r); });
-      render();
-      const t = teacher(tid);
       const parts = [];
       if (lines.length) parts.push(`${lines.length}회`);
       if (adjs.length) parts.push(`정산 조정 ${adjs.length}건 · ${adjSign(adjs.reduce((a, l) => a + l.amount, 0))}`);
       if (rewards.length) parts.push(`노쇼 보상 ${rewards.length}건 · ${won(rewards.reduce((a, r) => a + r.rewardAmount, 0))}`);
-      toast(`${Number(ym.slice(5))}월 · ${t.name} 선생님 ${parts.join(" + ")}를 샐리로 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}. 같은 회차는 다시 보내도 중복 반영되지 않아요.`);
+      return { ym, held, parts, n: lines.length, extra: adjs.length + rewards.length };
+    },
+    sallyPushDo(tid) {
+      closeModal(true);
+      if (!sallyLinked()) { toast("샐리가 아직 연결되지 않았어요 — 정산 화면 위 안내의 «연결하기»를 먼저 눌러 주세요."); return; }
+      const r = App._pushOne(tid);
+      if (!r) { toast("보낼 확정 회차가 없어요." + (pushScope(tid).held ? ` (보류 ${pushScope(tid).held}건 제외)` : "")); return; }
+      render();
+      const t = teacher(tid);
+      toast(`${Number(r.ym.slice(5))}월 · ${t.name} 선생님 ${r.parts.join(" + ")}를 급여 계산(샐리)으로 보냈어요${r.held ? ` · 보류 ${r.held}건 제외` : ""}. 같은 회차는 다시 보내도 중복 반영되지 않아요.`);
+    },
+    // v2.71 B5 (형 결정 10-25): 합계 카드 «전체 한 번에 보내기» — 미리보기는 선생님별로 접어 둔다.
+    sallyPushAllAsk() {
+      if (!sallyLinked()) { App.sallyLinkAsk(); return; }
+      const ym = (csUI.sel || DB.TODAY).slice(0, 7);
+      const [py, pm] = ym.split("-").map(Number);
+      const tOk = (tid) => csUI.teacher === "all" || tid === csUI.teacher;
+      const scopes = DB.teachers.filter((t) => tOk(t.id)).map((t) => ({ t, sc: pushScope(t.id) }))
+        .filter((x) => x.sc.lines.length || x.sc.rewards.length || x.sc.adjs.length);
+      if (!scopes.length) { toast("보낼 확정 회차가 없어요."); return; }
+      const amt = (sc) => sc.lines.reduce((a, l) => a + l.unitPrice, 0) + sc.rewards.reduce((a, r) => a + noshowUnit(r), 0) + sc.adjs.reduce((a, l) => a + l.amount, 0);
+      const total = scopes.reduce((a, x) => a + amt(x.sc), 0);
+      const nAll = scopes.reduce((a, x) => a + x.sc.lines.length, 0);
+      const heldAll = scopes.reduce((a, x) => a + x.sc.held, 0);
+      modal(`<h3>전체 한 번에 급여 계산으로 보내기</h3>
+        <p class="ps-ym"><b>${py}년 ${pm}월</b> 정산분 · 선생님 ${scopes.length}명 · 받는 곳: 급여 계산 프로그램 샐리</p>
+        <p>선생님마다 따로 보내던 것을 한 번에 보내요. 내용은 아래에서 선생님별로 펼쳐 확인할 수 있어요.<br>같은 회차는 두 번 보내도 한 번만 반영돼요.</p>
+        <div class="pd-list">${scopes.map((x) => `<details class="pd"><summary>${esc(x.t.name)} 선생님 · ${x.sc.lines.length}회${x.sc.adjs.length ? ` + 조정 ${x.sc.adjs.length}건` : ""}${x.sc.rewards.length ? ` + 보상 ${x.sc.rewards.length}건` : ""} · <b>${won(amt(x.sc))}</b>${x.sc.already.length ? ` <span class="muted small">(이미 보낸 ${x.sc.already.length}회 제외)</span>` : ""}</summary>
+          ${unitGroups(x.sc.lines).map(([u, ls]) => `<div class="pd-group"><div class="pd-ghead">회당 <b>${won(u)}</b> × ${ls.length}회</div>${ls.map(lineRowHtml).join("")}</div>`).join("")}
+          ${x.sc.adjs.length ? `<div class="pd-group"><div class="pd-ghead">정산 조정 ${x.sc.adjs.length}건</div>${x.sc.adjs.map((l) => `<div class="pd-row"><span class="grow"><b>${esc(l.member || "—")}</b> <span class="muted small">${esc(l.desc || "")}</span></span><span class="pd-price ${l.amount < 0 ? "adj-minus" : "adj-plus"}">${adjSign(l.amount)}</span></div>`).join("")}</div>` : ""}
+          ${x.sc.rewards.length ? `<div class="pd-group"><div class="pd-ghead">노쇼 보상 ${x.sc.rewards.length}건</div>${x.sc.rewards.map((r) => `<div class="pd-row"><span class="grow"><b>${esc(r.member)}</b></span><span class="pd-price">${won(noshowUnit(r))}</span></div>`).join("")}</div>` : ""}
+        </details>`).join("")}</div>
+        <div class="row" style="justify-content:space-between;padding:4px 2px"><span class="muted">합계 ${nAll}회${heldAll ? ` · 보류 ${heldAll}건 제외` : ""}</span><b class="big">${won(total)}</b></div>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
+          <button class="btn primary" onclick="App.sallyPushAllDo()">전체 이대로 보내기</button></div>`);
+    },
+    sallyPushAllDo() {
+      closeModal(true);
+      if (!sallyLinked()) { toast("샐리가 아직 연결되지 않았어요."); return; }
+      const tOk = (tid) => csUI.teacher === "all" || tid === csUI.teacher;
+      const done = DB.teachers.filter((t) => tOk(t.id)).map((t) => App._pushOne(t.id)).filter(Boolean);
+      render();
+      if (!done.length) { toast("보낼 확정 회차가 없어요."); return; }
+      const n = done.reduce((a, r) => a + r.n, 0), extra = done.reduce((a, r) => a + r.extra, 0), held = done.reduce((a, r) => a + r.held, 0);
+      toast(`${Number(done[0].ym.slice(5))}월 · 선생님 ${done.length}명 · ${n}회${extra ? ` + ${extra}건` : ""}를 급여 계산(샐리)으로 한 번에 보냈어요${held ? ` · 보류 ${held}건 제외` : ""}.`);
+    },
+    // v2.71 [C]: 안내 칸 접기/숨기기 · «연결하기»(체험용 — 실제 연결 방식은 외부 개발사와 정할 항목)
+    sallyIntro(v) { (DB.uiPrefs = DB.uiPrefs || {}).sallyIntro = v; render(); },
+    sallyLinkAsk() {
+      modal(`<h3>샐리 연결하기</h3>
+        <p><b>샐리</b>는 선생님 급여를 계산해 주는 프로그램이에요. 연결하면 이 센터의 확정 회차를 샐리로 보낼 수 있고, 샐리가 배분율·공제까지 계산해 급여명세를 만들어요.</p>
+        <div class="field"><label for="sl-code">샐리 센터 연결 코드</label><input type="text" id="sl-code" placeholder="예: ENZ-GB-2026 (샐리 관리자 화면 › 센터 설정에서 확인)">
+          <div class="hint">샐리에 센터 계정이 없으면 샐리 담당자에게 개설을 요청해 주세요.</div></div>
+        <div class="banner">${icb("info")}<span>체험용 화면이라 코드를 넣으면 바로 «연결됨»으로 바뀌어요. 실제 서비스의 연결 방식(코드 입력 / 니짐내짐 계정으로 자동 연결)은 개발사와 정할 항목이에요.</span></div>
+        <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">닫기</button>
+          <button class="btn primary" onclick="App.sallyLinkDo()">연결</button></div>`);
+    },
+    sallyLinkDo() {
+      const code = clean(gv("sl-code")).trim();
+      if (!code) { toast("연결 코드를 입력해 주세요."); return; }
+      DB.integrations = DB.integrations || {}; DB.integrations.sally = DB.integrations.sally || {};
+      DB.integrations.sally[DB.center.id] = { linked: true, account: code, linkedAt: DB.TODAY };
+      closeModal(); render();
+      toast("샐리와 연결됐어요 — 이제 확정 회차를 급여 계산으로 보낼 수 있어요.");
     },
     // ══ v2.65 «회수(전송 취소)» — 설계서② 0-3 ══
     // 🔴샐리에서 이미 «승인»했다면 회수하지 말고, 샐리에서 먼저 승인 철회(withdrawSettlement)한 뒤 회수해야 한다.
     //   샐리에 실제로 withdrawSettlement가 있으므로(settlement.ts:166) 이 안내는 실행 가능한 지시다.
-    sallyWithdrawAsk(tid, pid) {
+    sallyWithdrawAsk(tid, pid, viewYm) {
       const bt = pushBatches(tid).find((b) => b.pushId === pid);
       if (!bt) { toast("전송 내역을 찾을 수 없어요."); return; }
-      const ym = (slineDate(bt.lines[0]) || (bt.rewards[0] ? rpDate(bt.rewards[0]) : DB.TODAY) || DB.TODAY).slice(0, 7);
+      const ym = viewYm || (slineDate(bt.lines[0]) || (bt.rewards[0] ? rpDate(bt.rewards[0]) : DB.TODAY) || DB.TODAY).slice(0, 7);
       const [py, pm] = ym.split("-").map(Number);
-      modal(`<h3>이 전송을 회수할까요?</h3>
+      modal(`<h3>«${pushLabel(tid, pid, ym)}»을 회수할까요?</h3>
         <p class="ps-ym"><b>${py}년 ${pm}월</b> · ${esc(tName(tid))} 선생님 · ${bt.lines.length + bt.rewards.length}건 · ${won(bt.amount)}</p>
-        <div class="banner warn">${icb("alert")}<span><b>샐리에서 이미 «승인»했다면 회수하지 마세요.</b><br>샐리에서 먼저 승인을 철회한 뒤 회수해 주세요. 회수하면 이 회차들이 다시 «미전송»으로 돌아가 금액·귀속을 자유롭게 고칠 수 있어요.</span></div>
+        <p>회수 = 급여 계산(샐리)으로 보낸 걸 되돌리는 거예요. 회수하면 이 회차들이 다시 «안 보낸 상태»로 돌아와 금액·담당을 고칠 수 있어요.</p>
+        <div class="banner warn">${icb("alert")}<span><b>샐리에서 이미 «승인»했다면 회수하지 마세요.</b><br>샐리에서 먼저 승인을 철회한 뒤 회수해 주세요.</span></div>
         <div class="field"><label for="wd-reason">회수 사유 (필수)</label><input type="text" id="wd-reason" placeholder="예: 대강 입력 누락 — 다시 계산해서 보낼게요"></div>
         <div class="btn-row"><button class="btn ghost" onclick="App.closeModal()">취소</button>
-        <button class="btn primary" onclick="App.sallyWithdraw('${tid}','${pid}')">샐리 확인했어요 · 회수</button></div>`);
+        <button class="btn primary" onclick="App.sallyWithdraw('${tid}','${pid}','${ym}')">샐리 확인했어요 · 회수</button></div>`);
     },
     // [SERVER] 🔴전송 회수. 지금은 한쪽(니짐)만 되돌린다 — 서버가 샐리 DELETE /sessions/:externalId 까지 하고, approved 면 409 로 거부해야 한다(인계스펙 v2 §회수 규칙).
-    sallyWithdraw(tid, pid) {
+    sallyWithdraw(tid, pid, viewYm) {
       const reason = gv("wd-reason").trim();
       if (!reason) { toast("회수 사유를 입력해 주세요."); return; }
       const bt = pushBatches(tid).find((b) => b.pushId === pid);
       if (!bt) { closeModal(); toast("전송 내역을 찾을 수 없어요."); return; }
+      const label = pushLabel(tid, pid, viewYm);
       bt.lines.forEach((l) => { l.pushed = false; l.pushId = null; });
       bt.rewards.forEach((r) => { r.rewardPushed = false; r.rewardPushId = null; });
       audit("sally_withdraw", `${esc(tName(tid))} 선생님 ${pid} 전송 회수 — ${bt.lines.length + bt.rewards.length}건 · ${won(bt.amount)}`,
         { teacherId: tid, pushId: pid, reason, lines: bt.lines.length, rewards: bt.rewards.length, amount: bt.amount });
       closeModal(); render();
-      toast(`${pid} 전송을 회수했어요 — ${bt.lines.length + bt.rewards.length}건이 «미전송»으로 돌아갔어요. 샐리에서도 승인 철회했는지 확인해 주세요.`);
+      toast(`«${label}»을 회수했어요 — ${bt.lines.length + bt.rewards.length}건이 «안 보낸 상태»로 돌아갔어요. 샐리에서도 승인 철회했는지 확인해 주세요.`);
     },
     // v2.19: 정산 화면 «엑셀로 내려받기» — 화면 집계 그대로 .xlsx 저장, 마지막 행=합계
     exportSettlement() {
@@ -8385,7 +8662,11 @@
     cTab(k) { history.replaceState(null, "", k === "manage" ? "#/c/classes/manage" : "#/c/classes"); render(); },
     // v2.11: 회원 예약 캘린더 — 날짜 선택·주 이동·월 이동
     mbDay(d) { mBookSel = d; render(); },
-    mbWeek(delta) { mBookSel = addDays(mBookSel || DB.TODAY, delta * 7); render(); },
+    mbWeek(delta) { // v2.71 D2: 주 이동 후 선택일 = 그 주의 «수업 있는 첫날»(없으면 월요일, 이번 주면 오늘) — 일요일이 잡혀 제목이 다음 달로 바뀌던 문제
+      const wk = addDays(mbWeekStart(mBookSel || DB.TODAY), delta * 7);
+      const days = Array.from({ length: 7 }, (_, i) => addDays(wk, i));
+      const avail = days.find((d) => d >= DB.TODAY && DB.slots.some((s) => s.date === d && mbBookable(s)));
+      mBookSel = avail || (days.includes(DB.TODAY) ? DB.TODAY : wk); render(); },
     mbGoto(d) { mBookSel = d; closeModal(); render(); },
     mbMonthSheet() { monthSheet((mBookSel || DB.TODAY).slice(0, 7), "mbGoto"); },
     // v2.20: 센터 예약 캘린더 — 날짜 선택·월 이동·월 시트·선생님/수업 필터
@@ -8620,7 +8901,9 @@
     const hd = document.querySelector(".hd");
     if (hd) hd.classList.toggle("scrolled", window.scrollY > 4);
   }, { passive: true });
-  window.addEventListener("hashchange", () => { closeModal(true); render(); });
+  window.addEventListener("hashchange", () => {
+    document.querySelectorAll(".toast").forEach((el) => { if (Date.now() - Number(el.dataset.at || 0) > 400) el.remove(); }); // v2.71 D1
+    closeModal(true); render(); });
   normalizeSeedTimeText(); // v2.62: 시드 문자열의 24시간 표기 → 12시간 (부팅 1회)
   backfillTeacherRows(); // v2.65 선행 결함 ③: 이미 수락된 소속의 teachers 행 메우기 — 롤링·후보 목록보다 먼저 돌아야 한다
   recurRollAll("boot"); // v2.28 ①: 부팅 시 롤링 — 기준일부터 앞으로 8주치를 미리 채운다 (v2.64 §4: 새벽 배치의 안전망)

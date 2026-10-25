@@ -921,3 +921,32 @@ select { min-height: 44px; }
 .hint a, .hint button, .muted a, .muted button, a.inline-go, button.inline-go { display: inline-flex; align-items: center; min-height: 44px; }
 /* 체크박스·라디오 상자 자체도 24px 이상으로 — 라벨이 44px 여도 상자가 20px 면 «정확히 눌러야» 한다는 인상을 준다. */
 #app input[type=checkbox], #app input[type=radio] { width: 24px; height: 24px; flex-shrink: 0; accent-color: var(--cta); }
+
+/* ── v2.71 (2026-10-25 QA 반영) ── */
+.toast { top: calc(64px + env(safe-area-inset-top)); bottom: auto; }            /* D1: 다음 화면 주 버튼을 가리지 않게 위쪽으로 */
+.toast.out { transform: translateX(-50%) translateY(-6px); }
+.role-c .toast { top: 64px; bottom: auto; }
+.sc-name { display: block; padding: 8px 8px 4px; font-size: 12px; font-weight: 700; line-height: 1.3; color: var(--text); word-break: keep-all; } /* H1 */
+.banner.ok { background: #eefaf2; border-color: #bfe8cd; color: #0f6b3a; }            /* H4 */
+.home-brief { padding: 0; margin-top: 12px; }                                        /* H13 */
+.home-brief .todo-row + .todo-row { border-top: 1px solid var(--border); }
+.mb-item.dim, .card.dim, .pk-row.dim { opacity: .55; }                               /* B3 ③ · D15 · H8 */
+.pk-row.dim .pk-check { border-style: dashed; }
+.sally-intro { border: 1px solid #ffd3e3; background: linear-gradient(180deg, #fff6f9, #fff); }  /* C */
+.sally-intro p { font-size: 13px; line-height: 1.55; }
+.sally-faq { margin: 10px 0 0; padding: 0 0 0 2px; list-style: none; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+.sally-faq li { padding: 6px 0; border-top: 1px dashed var(--border); }
+.sally-faq li b { color: var(--text); }
+.sally-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 13px; }
+.sally-min { display: flex; align-items: center; gap: 10px; font-size: 12.5px; line-height: 1.45; color: var(--text-muted); }
+.sally-min b { color: var(--text); }
+.wd-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }    /* B5: 회수 버튼 설명 */
+.wd-wrap .small { font-size: 11px; white-space: nowrap; }
+.np-classes { display: flex; flex-direction: column; gap: 6px; }                        /* E1 */
+.np-classes .check { margin: 0; }
+.prod-unlinked { border-color: #f4c7c7; background: #fff8f8; }
+.cc-fold { display: block; width: 100%; padding: 10px 12px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); background: var(--surface-2, #f6f6f8); border: 0; border-bottom: 1px solid var(--border); text-align: left; } /* H7b */
+.todo-title.sm { font-size: 13px; margin-top: 14px; }
+.todo-wait .todo-row { opacity: .72; }
+.seg button[type=button] { cursor: pointer; }
+.pd summary { cursor: pointer; }
