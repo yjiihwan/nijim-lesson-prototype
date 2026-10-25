@@ -37,6 +37,10 @@ window.DB = {
     { id: "pr2", name: "PT 20회", kind: "private", sessions: 20, price: 1800000, validityDays: 90 },
     { id: "pr3", name: "필라테스 그룹 20회", kind: "group", sessions: 20, price: 600000, validityDays: 90 },
     { id: "pr4", name: "필라테스 그룹 10회 (무기한)", kind: "group", sessions: 10, price: 350000, validityDays: null },
+    // v2.72 (형 결정 10-25 ⑤⑥): 결제방식(billing: general|sub|contract — 없으면 general)·이용 인원(shared: true=공유 멤버십, 없으면 1인).
+    // 실서비스 상품 설정의 «결제방식 선택»·«그룹멤버십/1인멤버십» 칸에 대응한다. 실서비스에서 «그룹멤버십»이라 부르는 것은 화면·문서에서 «공유 멤버십»으로 쓴다(«그룹수업»과 구분).
+    { id: "pr5", name: "PT 월 8회 (구독)", kind: "private", sessions: 8, price: 480000, validityDays: 30, billing: "sub" },
+    { id: "pr6", name: "가족 공유 PT 20회", kind: "private", sessions: 20, price: 1800000, validityDays: 120, shared: true },
   ],
 
   // 보유 수업권 (전 회원 — 내역 화면은 m1 것만 표시)
@@ -50,6 +54,12 @@ window.DB = {
       total: 10, unitPrice: 35000, purchasePrice: 350000, listPrice: 350000, expiresAt: null, remaining: 7 },
     { id: "ps3", memberId: "m1", productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
       total: 20, unitPrice: 30000, purchasePrice: 600000, listPrice: 600000, expiresAt: "2026-08-10", remaining: 2 }, // 기간 만료 데모 · 정가 등록
+    // v2.72 ⑤: 구독 수업권 — 갱신 결제마다 «새 수업권 1장»이 생긴다(cycleNo 증가·renewalRoot 동일). 이월 없음.
+    { id: "ps_sub1", memberId: "m1", productId: "pr5", name: "PT 월 8회 (구독)", kind: "private",
+      total: 8, unitPrice: 60000, purchasePrice: 480000, listPrice: 480000, expiresAt: "2026-09-10", remaining: 8, billing: "sub", cycleNo: 1 },
+    // v2.72 ⑥: 공유 멤버십 — 수업권은 구매자(m1) 1명에게 귀속, companions(동반자)는 자기 앱에서 이 수업권으로 예약할 수 있다. 차감은 이 수업권에서.
+    { id: "ps_sh1", memberId: "m1", productId: "pr6", name: "가족 공유 PT 20회", kind: "private",
+      total: 20, unitPrice: 90000, purchasePrice: 1800000, listPrice: 1800000, expiresAt: "2026-12-09", remaining: 20, shared: true, companions: ["m4"] },
     // v2.9 할인 재등록 데모 — 같은 상품(pr3)인데 회당 24,000원 (재등록 할인 480,000원): ps3(30,000원)과 카드에서 단가 대비
     { id: "ps13", memberId: "m1", productId: "pr3", name: "필라테스 그룹 20회", kind: "group",
       total: 20, unitPrice: 24000, purchasePrice: 480000, listPrice: 600000, expiresAt: "2026-11-12", remaining: 18 },
@@ -71,6 +81,8 @@ window.DB = {
   // 수업권 원장 (append-only) — m1 것만 시드
   ledger: [
     { passId: "ps1", delta: +10, reason: "purchase", detail: "PT 10회 · 1,000,000원", at: "2026-07-30 14:02" },
+    { passId: "ps_sub1", delta: +8, reason: "purchase", detail: "PT 월 8회 (구독) · 1회차 결제 · 480,000원", at: "2026-08-11 09:30" },
+    { passId: "ps_sh1", delta: +20, reason: "purchase", detail: "가족 공유 PT 20회 · 1,800,000원", at: "2026-08-11 09:35" },
     { passId: "ps1", delta: -1, reason: "attend", detail: "8/2 (일) PT · 앱 확인", at: "2026-08-02 12:10" },
     { passId: "ps1", delta: -1, reason: "attend", detail: "8/6 (목) PT · 앱 확인", at: "2026-08-06 12:05" },
     { passId: "ps1", delta: -1, reason: "late_cancel_forfeit", detail: "8/9 (일) PT · 21시간 전 취소", at: "2026-08-08 14:00" },
@@ -92,7 +104,7 @@ window.DB = {
       eligibility: "pass", eligibleProductIds: ["pr3", "pr4"], memberIds: [], status: "active" },
     { id: "c2", title: "PT 1:1", teacherId: "t1", kind: "private", capacity: 1,
       schedule: "arranged", scheduleLabel: "회원과 일정 맞춤", duration: 50,
-      eligibility: "list", eligibleProductIds: ["pr1", "pr2"], memberIds: ["m1", "m2", "m3", "m4"], status: "active" },
+      eligibility: "list", eligibleProductIds: ["pr1", "pr2", "pr5", "pr6"], memberIds: ["m1", "m2", "m3", "m4"], status: "active" },
     { id: "c3", title: "새벽 버닝 크로스핏", teacherId: "t1", kind: "group", capacity: 4,
       schedule: "fixed", scheduleLabel: "매주 화·금 06:30", duration: 60,
       eligibility: "both", eligibleProductIds: ["pr3", "pr4"], memberIds: ["m2", "m7"], status: "active" },
@@ -115,6 +127,7 @@ window.DB = {
     { id: "s8", classId: "c2", date: "2026-08-20", time: "19:00", status: "scheduled", adhoc: true },
     { id: "s9", classId: "c2", date: "2026-08-17", time: "14:00", status: "scheduled", adhoc: true },
     { id: "s10", classId: "c2", date: "2026-08-17", time: "09:00", status: "done", adhoc: true },
+    { id: "s_sh1", classId: "c2", date: "2026-08-19", time: "10:00", status: "scheduled", adhoc: true }, // v2.72 ⑥ 공유 멤버십 동반자(m4) 예약 데모
   ],
 
   // 예약 — 전 회원 좌석의 단일 진실. policySnap=예약 시점 취소규정 스냅샷(02 문서, 소급 방지)
@@ -148,6 +161,8 @@ window.DB = {
     // PT 1:1
     { id: "bk1", slotId: "s6", memberId: "m1", passId: "ps1", status: "booked", policySnap: { cancelHours: 24, cancelMode: "conditional" } },
     { id: "bk3", slotId: "s7", memberId: "m1", passId: "ps1", status: "confirm_wait", policySnap: { cancelHours: 24, cancelMode: "conditional" } },
+    // v2.72 ⑥: 동반자 최민아(m4)가 김지은(m1)의 공유 멤버십 ps_sh1 로 잡은 PT 1:1 — memberId=실사용자, passId=구매자 수업권
+    { id: "bk_sh1", slotId: "s_sh1", memberId: "m4", usedBy: "m4", passId: "ps_sh1", status: "booked", policySnap: { cancelHours: 24, cancelMode: "conditional" } },
     { id: "bkA19", slotId: "s8", memberId: "m4", passId: null, status: "booked", policySnap: { cancelHours: 24, cancelMode: "conditional" } },
     { id: "bkA20", slotId: "s9", memberId: "m2", passId: "ps4", status: "booked", policySnap: { cancelHours: 24, cancelMode: "conditional" } },
     { id: "bkA21", slotId: "s10", memberId: "m3", passId: "ps6", status: "confirm_wait", policySnap: { cancelHours: 24, cancelMode: "conditional" } },
@@ -444,7 +459,9 @@ window.DB = {
     if (roll < 28) continue; // 28%는 수업권 미보유 (유효 수업권 필터 검증용)
     const npass = roll >= 88 ? 2 : 1;
     for (let k = 0; k < npass; k++) {
-      const pr = prods[rnd(prods.length)];
+      // v2.72: 대량 시드는 기본 상품 4종(pr1~pr4)만 — 구독·공유 상품(pr5·pr6)은 기명 데모 수업권(ps_sub1·ps_sh1)으로만 보여준다(결정적 난수열도 v2.71 과 동일하게 유지).
+      const basePr = prods.filter((x) => !x.billing && !x.shared);
+      const pr = basePr[rnd(basePr.length)];
       const expired = rnd(100) < 6; // 일부는 기간 만료 (만료 필터 검증용)
       const expiresAt = pr.validityDays == null ? null : expired ? "2026-08-01" : EXPIRES[rnd(EXPIRES.length)];
       P.push({ id: "gps" + i + "_" + k, memberId: m.id, productId: pr.id, name: pr.name, kind: pr.kind,

@@ -945,6 +945,11 @@ select { min-height: 44px; }
 .np-classes { display: flex; flex-direction: column; gap: 6px; }                        /* E1 */
 .np-classes .check { margin: 0; }
 .prod-unlinked { border-color: #f4c7c7; background: #fff8f8; }
+/* v2.72 */
+.sc-tag { display: inline-block; align-self: flex-start; font-size: 10.5px; font-weight: 700; color: #0f6b3a; background: #eefaf2; border: 1px solid #bfe8cd; border-radius: 999px; padding: 2px 8px; margin-bottom: 4px; }
+.mp-extra { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 12px; line-height: 1.5; color: #8e8e96; }
+.mp-extra b { color: var(--text); }
+.mp-extra .warn { color: var(--danger); }
 .cc-fold { display: block; width: 100%; padding: 10px 12px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); background: var(--surface-2, #f6f6f8); border: 0; border-bottom: 1px solid var(--border); text-align: left; } /* H7b */
 .todo-title.sm { font-size: 13px; margin-top: 14px; }
 .todo-wait .todo-row { opacity: .72; }
